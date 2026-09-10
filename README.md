@@ -120,7 +120,79 @@ python scripts/token_pool.py
 ```
 
 - **Profile Storage**: Kept strictly in `G:\TerriX\.chrome_sessions` to protect Drive C: disk space.
-- **Stealth Architecture**: Offscreen window placement (`--window-position=-2500,-2500`) with authentic OS HWND handle to bypass Cloudflare headless heuristics.
+- **Stealth Architecture**: Offscreen window placement (`--window-position=-2500,-2500`) with authentic OS HWND handle and D3D11 hardware rendering to pass Cloudflare passive device evaluation in 8–14 seconds.
+- **Pre-warming**: Automated pre-buffering via `TokenPool.warm_up()` ensures swarms connect with 0s latency.
+
+#### Open-Source Turnstile Solvers: Technical Evaluation & Provider Matrix
+
+Territorial.io enforces bot protection directly at the binary WebSocket layer (**Opcode 6**), requiring a valid `cf-turnstile-response` token string rather than HTTP cookies. The following matrix and architectural breakdown evaluates existing open-source Turnstile bypasses and solvers against TerriX's operational requirements:
+
+| Architecture / Tool | Mechanism | Latency | Viability for TerriX Swarms | Primary Trade-offs & Detection Vectors |
+| :--- | :--- | :---: | :---: | :--- |
+| **TerriX EzSolver + TokenPool**<br/>*(Active)* | Python + `nodriver` (Pure CDP) + Local HTTP Service (port 8191) with isolated temporary profiles | **8–14s**<br/>*(0s from pool)* | **Tier 1 (Optimal)** | **Native Zero-Cost Engine**: Passive widget rendering via offscreen HWND (`-2500,-2500`), hardware D3D11 acceleration, pre-warmed token queue. Consumes 0 MB during match play. |
+| [**Lucrehulk / Rust Harvester**](https://github.com/Lucrehulk/cloudflare-turnstile-solver-2026)<br/>(`cloudflare-turnstile-solver-2026`) | Native Rust daemon + JavaScript IPC bridge managing headless Chromium pool | **7–12s** | **Tier 1 (High Performance)** | **High Density / Low Memory**: Minimal base RAM (~50 MB vs Python runtime) with high-throughput multi-threaded worker pools. Ideal for dedicated Linux servers; requires Rust toolchain (`cargo`). |
+| [**Theyka / hasnainshahidx**](https://github.com/Theyka/Turnstile-Solver)<br/>(`Turnstile-Solver`) | Python + Selenium / Undetected Chromedriver + CDP coordinate clicker | **15–30s** | **Tier 2 (Fallback Clicker)** | **Synthetic Mouse Vulnerability**: Uses Selenium WebDriver to locate Turnstile iframes and dispatch synthetic click events. Vulnerable to `cdc_` fingerprinting and unnatural click velocity. Effective as fallback if IP is forced into interactive checkbox mode. |
+| [**CircuitSavage**](https://github.com/CircuitSavage/scrapy-turnstile)<br/>(`scrapy-turnstile`) | Scrapy crawler downloader middleware routing to commercial solver APIs | **20–45s** | **Tier 3 (Sub-optimal)** | **Commercial API Dependency**: Incurs per-token financial costs ($1.50/1k solves) and redundant crawler framework overhead. Inapplicable for high-frequency autonomous swarms. |
+| [**FlareSolverr**](https://github.com/FlareSolverr/FlareSolverr) / [**Cloudscraper**](https://github.com/VeNois/cloudscraper) | Headless browser reverse proxy harvesting `cf_clearance` HTTP cookies | **N/A** | **Incompatible** | **Architectural Mismatch**: Solves HTTP-level Cloudflare challenges. Territorial.io enforces Turnstile inside the duplex binary WebSocket protocol (`Opcode 6`); HTTP cookies are ignored by `wss://1.territorial.io/s52/`. |
+| [**Community Ecosystem Hub**](https://github.com/topics/cloudflare-turnstile-bypass)<br/>(`cloudflare-turnstile-bypass`) | Aggregator of CDP patches, `patchright`, `camoufox`, and stealth scripts | **Varies** | **Research Track** | Continuously tracked for emerging Cloudflare bot detection patches, WebGL spoofing profiles, and Chrome runtime evasions. |
+
+---
+
+#### Detailed Provider Architectural Analysis
+
+##### 1. TerriX EzSolver + TokenPool (Native Implementation)
+- **Repositories & Modules**: [`ezsolver_repo/solver.py`](file:///g:/TerriX/ezsolver_repo/solver.py), [`ezsolver_repo/service.py`](file:///g:/TerriX/ezsolver_repo/service.py), [`scripts/token_pool.py`](file:///g:/TerriX/scripts/token_pool.py).
+- **Operational Mechanics**:
+  1. Utilizes `nodriver` to communicate directly over raw Chrome DevTools Protocol (CDP) WebSockets, entirely bypassing Selenium and WebDriver instrumentation.
+  2. Launches isolated offscreen browser instances (`--window-position=-2500,-2500`) with authentic OS HWND handles and D3D11 hardware rendering.
+  3. Renders a local lightweight HTML harness containing Cloudflare's official API (`https://challenges.cloudflare.com/turnstile/v0/api.js`) and Territorial.io's exact sitekey (`0x4AAAAAAEI8HZoG8nJMzxt1`).
+  4. Passively extracts the clearance token string from `[name="cf-turnstile-response"]` once Cloudflare's client-side heuristics approve the environment without simulating error-prone synthetic mouse clicks.
+  5. `TokenPool` continuously maintains an in-memory buffer of 5–25 tokens, granting bot swarms immediate 0-second launch latency.
+
+##### 2. Lucrehulk / cloudflare-turnstile-solver-2026
+- **Repository**: [Lucrehulk/cloudflare-turnstile-solver-2026](https://github.com/Lucrehulk/cloudflare-turnstile-solver-2026)
+- **Operational Mechanics**:
+  1. Implements an asynchronous token-harvesting daemon in Rust utilizing low-overhead system threading.
+  2. Spawns and supervises a pool of headless Chromium workers via native stdin/stdout pipes or local CDP endpoints.
+  3. Exposes an internal HTTP/REST API returning harvested tokens to consumer applications.
+- **Red Team Assessment**:
+  - **Pros**: Outstanding memory efficiency and CPU concurrency; ideal for enterprise-scale headless VPS servers running 50+ concurrent solver workers.
+  - **Cons**: Requires local Rust compiler toolchain (`cargo`), larger build artifacts, and manual maintenance of browser stealth flags.
+  - **TerriX Integration**: Can be executed as an external drop-in service binding to `http://127.0.0.1:8191/token`. `TokenPool` can query it transparently without modifying client swarm code.
+
+##### 3. Theyka & hasnainshahidx (Turnstile-Solver)
+- **Repositories**: [Theyka/Turnstile-Solver](https://github.com/Theyka/Turnstile-Solver) | [hasnainshahidx/turnstile_solver](https://github.com/hasnainshahidx/turnstile_solver)
+- **Operational Mechanics**:
+  1. Employs Selenium WebDriver (or `undetected-chromedriver`) with CDP integration.
+  2. Navigates to the challenge page, polls for the injected Cloudflare iframe (`iframe[src*="challenges.cloudflare.com"]`), and calculates its bounding box coordinates.
+  3. Synthetically dispatches mouse movement and click events (`Input.dispatchMouseEvent`) targeting the checkbox inside the Turnstile shadow DOM.
+- **Red Team Assessment**:
+  - **Pros**: Capable of solving interactive checkboxes where Cloudflare requires explicit user confirmation before releasing a token.
+  - **Cons**: Slower execution ($15\text{–}30\text{s}$); WebDriver footprint is prone to detection if CDC variables or `navigator.webdriver` flags leak; synthetic mouse clicks lack human-like Bézier acceleration and jitter.
+  - **TerriX Utility**: Serves as a fallback coordinate-clicking template if Cloudflare escalates specific IP subnets to mandatory interactive mode.
+
+##### 4. CircuitSavage (scrapy-turnstile)
+- **Repository**: [CircuitSavage/scrapy-turnstile](https://github.com/CircuitSavage/scrapy-turnstile)
+- **Operational Mechanics**:
+  1. Implemented as a Downloader Middleware for Scrapy web-crawling spiders.
+  2. Intercepts HTTP 403 / challenge responses, parses page metadata (`sitekey`, `page_url`), and dispatches solve tasks to third-party commercial CAPTCHA solving farms (CapSolver, 2Captcha, AntiCaptcha).
+  3. Injects solved tokens into spider request headers to resume crawling.
+- **Red Team Assessment**:
+  - **Pros**: Zero local CPU or GPU overhead.
+  - **Cons**: High latency ($20\text{–}45\text{s}$ per solve); requires external API accounts and recurring financial subscription costs; tightly coupled to Scrapy's asynchronous crawler pipeline.
+  - **TerriX Verdict**: Unsuitable for zero-cost, high-frequency autonomous multiplayer game swarms.
+
+##### 5. FlareSolverr & Cloudscraper (HTTP Cookie Harvesters)
+- **Repositories**: [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) | [cloudscraper](https://github.com/VeNois/cloudscraper)
+- **Operational Mechanics**:
+  1. Reverse HTTP proxy daemons that intercept requests, load target URLs in headless Chromium to defeat Cloudflare's Under Attack Mode (UAM) and Managed Challenges, and capture the resulting `cf_clearance` cookie and User-Agent.
+  2. Forward these session tokens back to standard HTTP clients (`requests`, `aiohttp`).
+- **Red Team Assessment**:
+  - **Critical Incompatibility**: Territorial.io does **not** protect static website entry via HTTP cookies. The static client (`territorial.io/index.html`) loads cleanly without challenge.
+  - Verification occurs strictly when joining a match: client connects to `wss://1.territorial.io/s52/` and transmits **Opcode 6** with the raw ASCII token generated by the client-side widget.
+  - An HTTP `cf_clearance` cookie provides zero bypass authorization to the WebSocket server cluster.
+
+---
 
 ---
 

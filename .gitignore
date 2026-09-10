@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Chrome sessions & temporary profiles
+.chrome_sessions/
+.chrome_debug/
+
+# Runtime logs & capture dumps
+logs/
+*.log
+turnstile_result.txt
+
+# Environment & credentials
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE / Editor artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS artifacts
+.DS_Store
+Thumbs.db

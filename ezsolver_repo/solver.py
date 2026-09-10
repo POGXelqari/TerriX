@@ -3,7 +3,9 @@ import json
 import os
 import platform
 import random
+import shutil
 import subprocess
+import tempfile
 import time
 from typing import Optional
 """
@@ -68,6 +70,10 @@ def _start_xvfb_if_needed() -> Optional[subprocess.Popen]:
 
 
 async def _solve(sitekey: str, siteurl: str, timeout: int = 45, action: str = "enter_lobby", proxy: Optional[str] = None) -> str:
+    sessions_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".chrome_sessions")
+    os.makedirs(sessions_base, exist_ok=True)
+    worker_profile = tempfile.mkdtemp(prefix="ez_worker_", dir=sessions_base)
+
     browser_args = [
         "--window-position=-2500,-2500",
         "--window-size=960,720",
@@ -79,52 +85,79 @@ async def _solve(sitekey: str, siteurl: str, timeout: int = 45, action: str = "e
     if proxy:
         browser_args.append(f"--proxy-server={proxy}")
 
-    browser = await uc.start(
-        browser_executable_path=_find_chrome(),
-        headless=False,
-        user_data_dir=_get_profile_dir(),
-        browser_args=browser_args,
-    )
-
+    browser = None
     try:
+        browser = await uc.start(
+            browser_executable_path=_find_chrome(),
+            headless=False,
+            user_data_dir=worker_profile,
+            browser_args=browser_args,
+        )
         page = await browser.get(siteurl)
-        await asyncio.sleep(random.uniform(2.0, 3.0))
+        await asyncio.sleep(1.0)
 
-        # Inject widget into the live page DOM
+        # 1. Wait for window.turnstile to become available and render explicit widget
         action_opt = f"action: '{action}'," if action else ""
-        await page.evaluate(f"""
-            (() => {{
-                if (document.getElementById('_ts_box')) return;
-                window._tsToken = null;
-                const wrap = document.createElement('div');
-                wrap.id = '_ts_box';
-                wrap.style = 'position:fixed;top:20px;left:20px;z-index:2147483647;';
-                document.body.appendChild(wrap);
-                window._tsLoad = function () {{
-                    turnstile.render('#_ts_box', {{
-                        sitekey: '{sitekey}',
-                        {action_opt}
-                        callback: function(token) {{ window._tsToken = token; }}
-                    }});
-                }};
-                const s = document.createElement('script');
-                s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=_tsLoad&render=explicit';
-                s.async = true;
-                document.head.appendChild(s);
-            }})();
-        """)
-
-        # Give Turnstile time to load and potentially auto-complete (invisible mode)
-        await asyncio.sleep(5.0)
+        rendered = False
+        for step in range(25):
+            await asyncio.sleep(0.4)
+            raw = await page.evaluate(f"""
+                JSON.stringify((() => {{
+                    if (typeof window.turnstile !== 'undefined' && typeof window.turnstile.render === 'function') {{
+                        if (!document.getElementById('_ts_box')) {{
+                            const wrap = document.createElement('div');
+                            wrap.id = '_ts_box';
+                            wrap.style = 'position:fixed;top:10px;left:10px;z-index:2147483647;';
+                            document.body.appendChild(wrap);
+                            window._tsToken = null;
+                            const wid = window.turnstile.render('#_ts_box', {{
+                                sitekey: '{sitekey}',
+                                {action_opt}
+                                callback: function(t) {{ window._tsToken = t; }}
+                            }});
+                            return {{ rendered: true, wid: wid }};
+                        }}
+                        return {{ rendered: true }};
+                    }} else if (step > 6 && !document.getElementById('_ts_script')) {{
+                        const s = document.createElement('script');
+                        s.id = '_ts_script';
+                        s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+                        s.async = true;
+                        document.head.appendChild(s);
+                    }}
+                    return {{ rendered: false }};
+                }})())
+            """)
+            if raw and isinstance(raw, str) and raw != 'null':
+                try:
+                    data = json.loads(raw)
+                    if data.get('rendered'):
+                        rendered = True
+                        break
+                except Exception:
+                    pass
 
         async def get_token() -> Optional[str]:
-            return await page.evaluate("""
-                (() => {
+            raw = await page.evaluate("""
+                JSON.stringify((() => {
                     if (window._tsToken) return window._tsToken;
-                    const inp = document.querySelector('#_ts_box [name="cf-turnstile-response"]');
-                    return (inp && inp.value) ? inp.value : null;
-                })()
+                    const customInp = document.querySelector('#_ts_box input[name="cf-turnstile-response"]');
+                    if (customInp && customInp.value) return customInp.value;
+                    const nativeInp = document.querySelector('input[name="cf-turnstile-response"]');
+                    if (nativeInp && nativeInp.value) return nativeInp.value;
+                    const anyInp = document.querySelector('input[name*="turnstile"]');
+                    if (anyInp && anyInp.value) return anyInp.value;
+                    return null;
+                })())
             """)
+            if raw and isinstance(raw, str) and raw != 'null':
+                try:
+                    val = json.loads(raw)
+                    if val and isinstance(val, str) and len(val) > 20:
+                        return val
+                except Exception:
+                    pass
+            return None
 
         async def get_cf_iframe_rect() -> Optional[dict]:
             raw = await page.evaluate("""
@@ -138,8 +171,11 @@ async def _solve(sitekey: str, siteurl: str, timeout: int = 45, action: str = "e
                     return null;
                 })())
             """)
-            if raw and raw != 'null':
-                return json.loads(raw)
+            if raw and isinstance(raw, str) and raw != 'null':
+                try:
+                    return json.loads(raw)
+                except Exception:
+                    pass
             return None
 
         async def do_click(rect: Optional[dict]):
@@ -148,7 +184,6 @@ async def _solve(sitekey: str, siteurl: str, timeout: int = 45, action: str = "e
                 cy = rect["y"] + rect["h"] / 2 + random.uniform(-3, 3)
                 print(f"[solver] clicking Cloudflare iframe at ({cx:.0f}, {cy:.0f})")
             else:
-                # Widget is fixed at top:20px left:20px
                 cx = 20 + 28 + random.uniform(-3, 3)
                 cy = 20 + 32 + random.uniform(-3, 3)
                 print(f"[solver] iframe not in DOM, clicking fixed position ({cx:.0f}, {cy:.0f})")
@@ -158,46 +193,53 @@ async def _solve(sitekey: str, siteurl: str, timeout: int = 45, action: str = "e
             await asyncio.sleep(random.uniform(0.08, 0.15))
             await page.mouse_click(cx, cy)
 
-        # Check if already auto-solved (invisible widget)
-        token = await get_token()
-        if token:
-            return token
-
-        # Wait up to 10s for the visible checkbox iframe to appear
-        rect = None
-        for _ in range(20):
-            rect = await get_cf_iframe_rect()
-            if rect:
-                break
-            await asyncio.sleep(0.5)
-
-        # Click loop: click, wait, retry up to 3 times
+        # Passive resolution loop (up to 20s)
+        token = None
         deadline = asyncio.get_event_loop().time() + timeout
-        click_count = 0
-        last_click = 0.0
-
         while asyncio.get_event_loop().time() < deadline:
             token = await get_token()
             if token:
                 break
+            await asyncio.sleep(0.5)
 
-            now = asyncio.get_event_loop().time()
-            if click_count == 0 or (not token and now - last_click > 8):
-                if click_count >= 3:
-                    await asyncio.sleep(0.3)
+        # If still not resolved after passive window, fallback to interactive iframe clicking
+        if not token:
+            rect = None
+            for _ in range(10):
+                rect = await get_cf_iframe_rect()
+                if rect:
+                    break
+                await asyncio.sleep(0.5)
+
+            click_count = 0
+            last_click = 0.0
+            while asyncio.get_event_loop().time() < deadline:
+                token = await get_token()
+                if token:
+                    break
+
+                now = asyncio.get_event_loop().time()
+                if click_count == 0 or (now - last_click > 8):
+                    if click_count >= 3:
+                        await asyncio.sleep(0.5)
+                        continue
+                    await do_click(rect)
+                    last_click = asyncio.get_event_loop().time()
+                    click_count += 1
+                    await asyncio.sleep(1.0)
+                    rect = await get_cf_iframe_rect() or rect
                     continue
-                await do_click(rect)
-                last_click = asyncio.get_event_loop().time()
-                click_count += 1
-                # After a click, refresh iframe rect in case it moved
-                await asyncio.sleep(1.0)
-                rect = await get_cf_iframe_rect() or rect
-                continue
 
-            await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
 
     finally:
-        browser.stop()
+        if browser:
+            try:
+                browser.stop()
+            except Exception:
+                pass
+        if worker_profile and os.path.exists(worker_profile):
+            shutil.rmtree(worker_profile, ignore_errors=True)
 
     if not token:
         raise TimeoutError(f"Turnstile token not obtained within {timeout}s")

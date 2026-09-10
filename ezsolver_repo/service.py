@@ -28,8 +28,8 @@ from solver import solve
 
 PORT = int(os.environ.get("PORT", 8191))
 # How many Chrome instances to run in parallel.
-# Rule of thumb: ~500 MB RAM per worker. 4 workers = ~2 GB.
-MAX_WORKERS = int(os.environ.get("MAX_WORKERS", 4))
+# Rule of thumb: ~400-500 MB RAM per worker. 6 workers = ~2.5-3 GB.
+MAX_WORKERS = int(os.environ.get("MAX_WORKERS", 6))
 
 # Semaphore caps concurrent Chrome instances; threads above the limit
 # block here (queued) until a slot opens — no requests are dropped.

@@ -34,7 +34,19 @@ sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+def find_chrome() -> str:
+    candidates = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return candidates[0]
+
+
+CHROME_PATH = find_chrome()
 DEFAULT_URL = "https://territorial.io/"
 CDP_PORT = 9444
 
@@ -323,13 +335,26 @@ class TerritorialAutomation:
         self.temp_dir = tempfile.mkdtemp(prefix=f"bot_{self.instance_id}_", dir=sessions_base)
         self.cdp_port = self._find_free_port(self.cdp_port)
         
-        # Window geometry: standard desktop viewport ensures proper canvas and button positioning
-        win_w = 960 if self.headless else 480
-        win_h = 720 if self.headless else 360
-        col = self.instance_id % 4
-        row = self.instance_id // 4
-        win_x = col * (win_w + 5)
-        win_y = row * (win_h + 35)
+        # Standard desktop geometry ensures proper canvas and button positioning
+        if self.headless:
+            win_w = 1280
+            win_h = 800
+            win_x = -2500
+            win_y = -2500 - (self.instance_id * 200)
+        else:
+            # Visible mode: Single bot gets full desktop window; multi-bots tile cleanly
+            if self.instance_id == 0 and (not self.coordinator or self.coordinator.target_count <= 1):
+                win_w = 1280
+                win_h = 800
+                win_x = 60
+                win_y = 40
+            else:
+                win_w = 720
+                win_h = 540
+                col = self.instance_id % 3
+                row = self.instance_id // 3
+                win_x = col * (win_w + 10)
+                win_y = row * (win_h + 35)
 
         flags = [
             CHROME_PATH,
@@ -346,13 +371,6 @@ class TerritorialAutomation:
         ]
         if self.proxy:
             flags.append(f"--proxy-server={self.proxy['protocol']}://{self.proxy['host']}:{self.proxy['port']}")
-        if self.headless:
-            # High-performance offscreen stealth window placement:
-            # Gives Chrome genuine OS HWND window handle & D3D11 hardware rendering
-            # to pass Cloudflare Turnstile passive evaluation while remaining
-            # completely invisible to the user offscreen.
-            flags = [f for f in flags if not f.startswith("--window-position=")]
-            flags.append(f"--window-position=-2500,-{2500 + self.instance_id * 250}")
 
         self.chrome_proc = subprocess.Popen(flags, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"[*] [Worker {self.instance_id}] Spawned Chrome (PID: {self.chrome_proc.pid}, Offscreen/Headless: {self.headless}) on port {self.cdp_port}")
@@ -403,6 +421,17 @@ class TerritorialAutomation:
         await self.cdp.call("Runtime.enable")
         await self.cdp.call("Page.enable")
         await self.cdp.call("Network.enable")
+
+        # Standardize viewport metrics to authentic full desktop layout
+        try:
+            await self.cdp.call("Emulation.setDeviceMetricsOverride", {
+                "width": 1280,
+                "height": 800,
+                "deviceScaleFactor": 1,
+                "mobile": False
+            })
+        except Exception:
+            pass
 
         # Anti-detection stealth script, pre-provisioned credentials & tactical autonomous engine
         tactical_engine_path = os.path.join(os.path.dirname(__file__), "tactical_gameplay_engine.js")
@@ -551,6 +580,11 @@ class TerritorialAutomation:
 
         if not nav_confirmed:
             print(f"[-] [Worker {self.instance_id}] Navigation confirmation warning; continuing with evaluation...")
+
+        try:
+            await self.cdp.evaluate("window.focus();")
+        except Exception:
+            pass
 
         # Step 2: Wait for Turnstile passive clearance before entering Multiplayer
         print(f"[*] [Worker {self.instance_id}] Queuing for Turnstile clearance slot...")

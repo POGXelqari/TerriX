@@ -278,7 +278,10 @@ class SwarmBot:
                     await ws.send(self.craft_mode_heartbeat(mode_id))
 
         except Exception as e:
-            print(f"[-] [Bot #{self.bot_id}] Connection error: {e}")
+            err_type = type(e).__name__
+            err_msg = str(e).strip()
+            detail = f"{err_type}: {err_msg}" if err_msg else err_type
+            print(f"[-] [Bot #{self.bot_id}] Connection error: {detail}")
         finally:
             print(f"[*] [Bot #{self.bot_id}] Session closed.")
 
@@ -346,9 +349,10 @@ async def main_async():
     print(f"[*] Loaded {pm.count()} proxy endpoint(s) from '{pm.proxy_file}'")
 
     # 2. Initialize and start EzSolver Token Pool
-    token_pool = TokenPool(min_pool_size=min(args.count, 20), max_pool_size=args.count + 10)
+    token_pool = TokenPool(min_pool_size=min(args.count, 15), max_pool_size=args.count + 10)
     token_pool.ensure_service()
     await token_pool.start_background_replenisher()
+    await token_pool.warm_up(target=min(args.count, 4))
 
     # 3. Generate swarm identities
     usernames = load_names(args.count, clan_tag=args.tag)

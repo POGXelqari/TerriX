@@ -20,7 +20,7 @@ import urllib.request
 import urllib.error
 from typing import Optional, List, Dict, Tuple
 
-PYTHON_EXE = r"C:\Users\a2b\AppData\Local\Programs\Python\Python312\python.exe"
+PYTHON_EXE = sys.executable
 EZSOLVER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ezsolver_repo")
 EZSOLVER_SERVICE = os.path.join(EZSOLVER_DIR, "service.py")
 DEFAULT_API_URL = "http://127.0.0.1:8191"
@@ -28,6 +28,7 @@ SITEKEY = "0x4AAAAAAEI8HZoG8nJMzxt1"
 SITEURL = "https://territorial.io/"
 ACTION = "enter_lobby"
 MAX_TOKEN_AGE_SEC = 240.0  # Expire tokens older than 4 minutes (game allows 5 min)
+
 
 
 class TokenPool:
@@ -102,32 +103,71 @@ class TokenPool:
         loop = asyncio.get_running_loop()
 
         def do_request():
-            with urllib.request.urlopen(req, timeout=timeout + 5) as resp:
-                res_body = resp.read().decode("utf-8")
-                return json.loads(res_body)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout + 5) as resp:
+                    res_body = resp.read().decode("utf-8")
+                    return json.loads(res_body)
+            except urllib.error.HTTPError as e:
+                err_text = e.read().decode("utf-8", errors="ignore")
+                try:
+                    err_json = json.loads(err_text)
+                    msg = err_json.get("error", err_text)
+                except Exception:
+                    msg = err_text or str(e)
+                raise RuntimeError(f"EzSolver HTTP {e.code}: {msg}")
 
         res = await loop.run_in_executor(None, do_request)
         if "token" in res and res["token"]:
             return res["token"]
         raise RuntimeError(f"EzSolver returned error: {res.get('error', 'unknown error')}")
 
-    async def get_token(self, proxy: Optional[str] = None, timeout: int = 50) -> str:
+    async def get_token(self, proxy: Optional[str] = None, timeout: int = 120) -> str:
         """
         Retrieves a valid Turnstile token. Returns immediately if a pre-cached token exists,
-        otherwise requests one directly from EzSolver.
+        otherwise requests one directly from EzSolver or waits for background replenishment.
         """
-        async with self._lock:
-            self._purge_expired()
-            if self._tokens:
-                token, ts = self._tokens.pop(0)
-                age = time.time() - ts
-                print(f"[+] [TokenPool] Instant token retrieved from pool (Age: {age:.1f}s | Remaining in pool: {len(self._tokens)})")
-                return token
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            async with self._lock:
+                self._purge_expired()
+                if self._tokens:
+                    token, ts = self._tokens.pop(0)
+                    age = time.time() - ts
+                    print(f"[+] [TokenPool] Instant token retrieved from pool (Age: {age:.1f}s | Remaining in pool: {len(self._tokens)})")
+                    return token
 
-        # If pool is empty, fetch directly via EzSolver
-        print(f"[*] [TokenPool] Pool empty. Fetching live token via EzSolver...")
-        token = await self.fetch_token_from_ezsolver(timeout=timeout)
-        return token
+            # Pool empty: attempt live solve
+            remaining = max(15, int(deadline - asyncio.get_event_loop().time()))
+            try:
+                print(f"[*] [TokenPool] Pool empty. Fetching live token via EzSolver...")
+                token = await self.fetch_token_from_ezsolver(timeout=min(remaining, 55))
+                return token
+            except Exception as e:
+                # If solve timed out or collided, check if a buffered token arrived before failing
+                await asyncio.sleep(1.0)
+                async with self._lock:
+                    self._purge_expired()
+                    if self._tokens:
+                        token, ts = self._tokens.pop(0)
+                        return token
+                if asyncio.get_event_loop().time() >= deadline:
+                    raise RuntimeError(f"Turnstile token acquisition timed out: {e}")
+
+        raise TimeoutError("Timed out waiting for Turnstile clearance token.")
+
+    async def warm_up(self, target: int = 3, timeout: int = 45):
+        """Pre-buffers tokens before bot launch to eliminate startup burst latency."""
+        print(f"[*] [TokenPool] Pre-warming {target} token(s) before swarm dispatch...")
+        start = time.time()
+        while len(self._tokens) < target and (time.time() - start) < timeout:
+            try:
+                tok = await self.fetch_token_from_ezsolver(timeout=35)
+                async with self._lock:
+                    self._tokens.append((tok, time.time()))
+                    print(f"[+] [TokenPool] Pre-warmed token ({len(self._tokens)}/{target})")
+            except Exception as e:
+                print(f"[-] [TokenPool] Pre-warm fetch failed: {e}")
+                break
 
     async def start_background_replenisher(self):
         """Asynchronously maintains pool size between min_pool_size and max_pool_size."""

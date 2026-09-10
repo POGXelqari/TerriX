@@ -108,19 +108,29 @@ async def test_proxy_tunnel(proxy_url: str, timeout: float = 2.5) -> Optional[Di
             writer.write(b"\x05\x01\x00")
             await writer.drain()
             resp = await asyncio.wait_for(reader.read(2), timeout=timeout)
-            writer.close()
-            await writer.wait_closed()
             if resp == b"\x05\x00":
-                latency = round((time.perf_counter() - t0) * 1000, 1)
-                return {
-                    "protocol": "socks5",
-                    "host": host,
-                    "port": port,
-                    "user": auth_user,
-                    "password": auth_pass,
-                    "url": f"socks5://{host}:{port}",
-                    "latency_ms": latency
-                }
+                # Complete end-to-end SOCKS5 CONNECT to TARGET_HOST:TARGET_PORT
+                host_b = TARGET_HOST.encode("ascii")
+                port_b = TARGET_PORT.to_bytes(2, "big")
+                writer.write(b"\x05\x01\x00\x03" + bytes([len(host_b)]) + host_b + port_b)
+                await writer.drain()
+                conn_resp = await asyncio.wait_for(reader.read(10), timeout=timeout)
+                writer.close()
+                await writer.wait_closed()
+                if len(conn_resp) >= 4 and conn_resp[1] == 0x00:
+                    latency = round((time.perf_counter() - t0) * 1000, 1)
+                    return {
+                        "protocol": "socks5",
+                        "host": host,
+                        "port": port,
+                        "user": auth_user,
+                        "password": auth_pass,
+                        "url": f"socks5://{host}:{port}",
+                        "latency_ms": latency
+                    }
+            else:
+                writer.close()
+                await writer.wait_closed()
     except Exception:
         pass
     return None

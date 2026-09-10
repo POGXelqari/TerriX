@@ -1,0 +1,12 @@
+{
+  "sourceUrl": "https://territorial.io/",
+  "retrievedAt": "2026-08-21T14:56:46.000Z",
+  "sourceSha256": "5d51de89ae036cf568dba29382610147494d5ffda028c4f28e83e5e1a0025e12",
+  "scriptSha256": "43cb76082aa0e3b32b740594092cf122a3d8382f508eba64d586e94d94f6c48b",
+  "sourceBytes": 674415,
+  "scriptBytes": 673582,
+  "gameVersion": "2.16.46",
+  "gameBuildDate": "21 Aug 2026",
+  "assetVersion": 1759,
+  "assetVersionProperty": "du"
+}

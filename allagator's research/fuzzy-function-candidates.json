@@ -1,0 +1,2097 @@
+{
+  "unmatchedLatest": 209,
+  "unmatchedSemanticReference": 57,
+  "highConfidence": 53,
+  "candidates": [
+    {
+      "obfuscated": "aNq",
+      "readable": "LocalCommandProcessor",
+      "score": 0.9983164885192396,
+      "margin": 0.4628749034038596,
+      "mutualBest": true,
+      "reverseMargin": 0.4132314913950407,
+      "latestTokenCount": 1691,
+      "referenceTokenCount": 1697
+    },
+    {
+      "obfuscated": "bW",
+      "readable": "PixelUtils",
+      "score": 0.9948048653321886,
+      "margin": 0.46080330697829863,
+      "mutualBest": true,
+      "reverseMargin": 0.3730263318840541,
+      "latestTokenCount": 1636,
+      "referenceTokenCount": 1654
+    },
+    {
+      "obfuscated": "x7",
+      "readable": "ClanChart",
+      "score": 0.99128845850268,
+      "margin": 0.4397752686398755,
+      "mutualBest": true,
+      "reverseMargin": 0.3586893016986191,
+      "latestTokenCount": 3407,
+      "referenceTokenCount": 3398
+    },
+    {
+      "obfuscated": "oS",
+      "readable": "IncomingPacketDispatcher",
+      "score": 0.9904350626336009,
+      "margin": 0.42824187868501484,
+      "mutualBest": true,
+      "reverseMargin": 0.38332808729800305,
+      "latestTokenCount": 1178,
+      "referenceTokenCount": 1158
+    },
+    {
+      "obfuscated": "aXh",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.9898528579513299,
+      "margin": 0.3868492289472124,
+      "mutualBest": true,
+      "reverseMargin": 0.33892024862816506,
+      "latestTokenCount": 279,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "zl",
+      "readable": "ContextMenu",
+      "score": 0.9895518451035199,
+      "margin": 0.47559663857082146,
+      "mutualBest": true,
+      "reverseMargin": 0.4445638669872899,
+      "latestTokenCount": 1939,
+      "referenceTokenCount": 1936
+    },
+    {
+      "obfuscated": "lc",
+      "readable": "MatchLauncher",
+      "score": 0.9888365932617086,
+      "margin": 0.3878451885294283,
+      "mutualBest": true,
+      "reverseMargin": 0.3546093168449863,
+      "latestTokenCount": 1005,
+      "referenceTokenCount": 990
+    },
+    {
+      "obfuscated": "aCs",
+      "readable": "ProfilePacketHandler",
+      "score": 0.9843246090268213,
+      "margin": 0.5059351708413219,
+      "mutualBest": true,
+      "reverseMargin": 0.4690467838838732,
+      "latestTokenCount": 595,
+      "referenceTokenCount": 615
+    },
+    {
+      "obfuscated": "aVf",
+      "readable": "DateTimeUtils",
+      "score": 0.9822864897927976,
+      "margin": 0.5837399950622153,
+      "mutualBest": true,
+      "reverseMargin": 0.518905596650042,
+      "latestTokenCount": 316,
+      "referenceTokenCount": 328
+    },
+    {
+      "obfuscated": "aR7",
+      "readable": "EndGameTransitionController",
+      "score": 0.981834807073955,
+      "margin": 0.46625421865100247,
+      "mutualBest": true,
+      "reverseMargin": 0.45680198565726715,
+      "latestTokenCount": 308,
+      "referenceTokenCount": 320
+    },
+    {
+      "obfuscated": "aEI",
+      "readable": "TextFitUtils",
+      "score": 0.9807227829848596,
+      "margin": 0.5645916387463423,
+      "mutualBest": true,
+      "reverseMargin": 0.4604023432975788,
+      "latestTokenCount": 146,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "zk",
+      "readable": "RoomState",
+      "score": 0.9807161557540776,
+      "margin": 0.462769203894591,
+      "mutualBest": true,
+      "reverseMargin": 0.43749261600879874,
+      "latestTokenCount": 443,
+      "referenceTokenCount": 430
+    },
+    {
+      "obfuscated": "vU",
+      "readable": "LobbyPacketHandler",
+      "score": 0.980449019716384,
+      "margin": 0.4683929868875857,
+      "mutualBest": true,
+      "reverseMargin": 0.4295245266736383,
+      "latestTokenCount": 1671,
+      "referenceTokenCount": 1613
+    },
+    {
+      "obfuscated": "aJ0",
+      "readable": "IconCanvasUtils",
+      "score": 0.9796268713236224,
+      "margin": 0.45374831197224497,
+      "mutualBest": true,
+      "reverseMargin": 0.421576171520183,
+      "latestTokenCount": 274,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "aH7",
+      "readable": "EndGameNotificationController",
+      "score": 0.9725251912670274,
+      "margin": 0.5216561674041869,
+      "mutualBest": true,
+      "reverseMargin": 0.4480975236978898,
+      "latestTokenCount": 460,
+      "referenceTokenCount": 466
+    },
+    {
+      "obfuscated": "a6x",
+      "readable": "SettingsStore",
+      "score": 0.9722502810370321,
+      "margin": 0.5846083870690859,
+      "mutualBest": true,
+      "reverseMargin": 0.5746638025390277,
+      "latestTokenCount": 1198,
+      "referenceTokenCount": 1195
+    },
+    {
+      "obfuscated": "aVe",
+      "readable": "Color",
+      "score": 0.971358797331585,
+      "margin": 0.4966247624064325,
+      "mutualBest": true,
+      "reverseMargin": 0.4849771320547288,
+      "latestTokenCount": 984,
+      "referenceTokenCount": 1029
+    },
+    {
+      "obfuscated": "aF8",
+      "readable": "SettingsPacketHandler",
+      "score": 0.9688527828204294,
+      "margin": 0.3924359311056502,
+      "mutualBest": true,
+      "reverseMargin": 0.4098463344814218,
+      "latestTokenCount": 1032,
+      "referenceTokenCount": 979
+    },
+    {
+      "obfuscated": "abW",
+      "readable": "LanguageRegistry",
+      "score": 0.9685543493171822,
+      "margin": 0.6074791591850526,
+      "mutualBest": true,
+      "reverseMargin": 0.6146248742613651,
+      "latestTokenCount": 983,
+      "referenceTokenCount": 980
+    },
+    {
+      "obfuscated": "pq",
+      "readable": "ColorPickerScreen",
+      "score": 0.9683290120512,
+      "margin": 0.38484693244453083,
+      "mutualBest": true,
+      "reverseMargin": 0.31188544185223044,
+      "latestTokenCount": 1731,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aAU",
+      "readable": "EndGameParticipantSelector",
+      "score": 0.9669179784589893,
+      "margin": 0.40886727865554995,
+      "mutualBest": true,
+      "reverseMargin": 0.3069506114801591,
+      "latestTokenCount": 331,
+      "referenceTokenCount": 355
+    },
+    {
+      "obfuscated": "aVc",
+      "readable": "ArrayUtils",
+      "score": 0.9663646337199401,
+      "margin": 0.41425217803753434,
+      "mutualBest": true,
+      "reverseMargin": 0.3631468695174649,
+      "latestTokenCount": 1638,
+      "referenceTokenCount": 1737
+    },
+    {
+      "obfuscated": "zj",
+      "readable": "PlayerFormatter",
+      "score": 0.9660534614296287,
+      "margin": 0.43673354449496327,
+      "mutualBest": true,
+      "reverseMargin": 0.4341595368583673,
+      "latestTokenCount": 1824,
+      "referenceTokenCount": 1809
+    },
+    {
+      "obfuscated": "aXx",
+      "readable": "EndGameRewardDisplay",
+      "score": 0.9653682646565728,
+      "margin": 0.43334797436808725,
+      "mutualBest": true,
+      "reverseMargin": 0.4020962412881822,
+      "latestTokenCount": 1528,
+      "referenceTokenCount": 1531
+    },
+    {
+      "obfuscated": "aQe",
+      "readable": "ScrollbarStylesheet",
+      "score": 0.9623490038781899,
+      "margin": 0.5352431000437408,
+      "mutualBest": true,
+      "reverseMargin": 0.4570788871547109,
+      "latestTokenCount": 451,
+      "referenceTokenCount": 445
+    },
+    {
+      "obfuscated": "yc",
+      "readable": "PlatformActions",
+      "score": 0.9619278225290884,
+      "margin": 0.42687225371919535,
+      "mutualBest": true,
+      "reverseMargin": 0.42467367037179105,
+      "latestTokenCount": 720,
+      "referenceTokenCount": 708
+    },
+    {
+      "obfuscated": "tD",
+      "readable": "EmojiRenderer",
+      "score": 0.9516087006256151,
+      "margin": 0.3467090678244904,
+      "mutualBest": true,
+      "reverseMargin": 0.342045754609854,
+      "latestTokenCount": 2342,
+      "referenceTokenCount": 2315
+    },
+    {
+      "obfuscated": "aIk",
+      "readable": "KeyBindings",
+      "score": 0.9474197775602675,
+      "margin": 0.5051412680219789,
+      "mutualBest": true,
+      "reverseMargin": 0.48585963384565467,
+      "latestTokenCount": 581,
+      "referenceTokenCount": 578
+    },
+    {
+      "obfuscated": "pm",
+      "readable": "MainMenu",
+      "score": 0.9407482898351607,
+      "margin": 0.34192484354910124,
+      "mutualBest": true,
+      "reverseMargin": 0.352052603083447,
+      "latestTokenCount": 2036,
+      "referenceTokenCount": 2088
+    },
+    {
+      "obfuscated": "a8O",
+      "readable": "ResponsePacketBuilder",
+      "score": 0.9368717186463952,
+      "margin": 0.3844200886437448,
+      "mutualBest": true,
+      "reverseMargin": 0.3866596997697944,
+      "latestTokenCount": 1029,
+      "referenceTokenCount": 960
+    },
+    {
+      "obfuscated": "a2M",
+      "readable": "installErrorReporter",
+      "score": 0.9335192319330032,
+      "margin": 0.39587354998157576,
+      "mutualBest": true,
+      "reverseMargin": 0.4159818481100337,
+      "latestTokenCount": 952,
+      "referenceTokenCount": 919
+    },
+    {
+      "obfuscated": "px",
+      "readable": "OverallExpensesScreen",
+      "score": 0.920237935539726,
+      "margin": 0.07959149300349444,
+      "mutualBest": true,
+      "reverseMargin": 0.06295784050483033,
+      "latestTokenCount": 718,
+      "referenceTokenCount": 700
+    },
+    {
+      "obfuscated": "zm",
+      "readable": "PlayerTooltip",
+      "score": 0.9163859945655664,
+      "margin": 0.37551177992630047,
+      "mutualBest": true,
+      "reverseMargin": 0.35716999674012406,
+      "latestTokenCount": 616,
+      "referenceTokenCount": 604
+    },
+    {
+      "obfuscated": "aF3",
+      "readable": "ConnectionManager",
+      "score": 0.9162219980238656,
+      "margin": 0.37782122975682664,
+      "mutualBest": true,
+      "reverseMargin": 0.30376501795230226,
+      "latestTokenCount": 1227,
+      "referenceTokenCount": 1315
+    },
+    {
+      "obfuscated": "py",
+      "readable": "PlayerNamesScreen",
+      "score": 0.9156885758998435,
+      "margin": 0.10108795432733741,
+      "mutualBest": true,
+      "reverseMargin": 0.10290124701480108,
+      "latestTokenCount": 648,
+      "referenceTokenCount": 636
+    },
+    {
+      "obfuscated": "pd",
+      "readable": "UiScreenState",
+      "score": 0.9143761209811403,
+      "margin": 0.40328361623730724,
+      "mutualBest": true,
+      "reverseMargin": 0.3992110627097697,
+      "latestTokenCount": 801,
+      "referenceTokenCount": 867
+    },
+    {
+      "obfuscated": "q2",
+      "readable": "OverallIncomeScreen",
+      "score": 0.9136441336441337,
+      "margin": 0.011704653371320095,
+      "mutualBest": true,
+      "reverseMargin": 0.011704653371320095,
+      "latestTokenCount": 660,
+      "referenceTokenCount": 642
+    },
+    {
+      "obfuscated": "q1",
+      "readable": "ReceivedSupportScreen",
+      "score": 0.9136441336441337,
+      "margin": 0.011704653371320095,
+      "mutualBest": true,
+      "reverseMargin": 0.011704653371320095,
+      "latestTokenCount": 660,
+      "referenceTokenCount": 642
+    },
+    {
+      "obfuscated": "pa",
+      "readable": "StartingResourcesScreen",
+      "score": 0.9108471288438224,
+      "margin": 0.05225059377535346,
+      "mutualBest": true,
+      "reverseMargin": 0.04438147700931805,
+      "latestTokenCount": 645,
+      "referenceTokenCount": 627
+    },
+    {
+      "obfuscated": "jQ",
+      "readable": "CanvasUtils",
+      "score": 0.9086819667016365,
+      "margin": 0.377878612424445,
+      "mutualBest": true,
+      "reverseMargin": 0.3851052002563953,
+      "latestTokenCount": 1443,
+      "referenceTokenCount": 1403
+    },
+    {
+      "obfuscated": "f",
+      "readable": "interactiveButton",
+      "score": 0.90736000435482,
+      "margin": 0.34029759222608524,
+      "mutualBest": true,
+      "reverseMargin": 0.33250897410397195,
+      "latestTokenCount": 778,
+      "referenceTokenCount": 751
+    },
+    {
+      "obfuscated": "a9h",
+      "readable": "CanvasFontFingerprint",
+      "score": 0.9064186354946491,
+      "margin": 0.4532236095775837,
+      "mutualBest": true,
+      "reverseMargin": 0.43209825869414076,
+      "latestTokenCount": 233,
+      "referenceTokenCount": 224
+    },
+    {
+      "obfuscated": "q0",
+      "readable": "BotDifficultyScreen",
+      "score": 0.8946403293306173,
+      "margin": 0.18485680121543968,
+      "mutualBest": true,
+      "reverseMargin": 0.16757436102968004,
+      "latestTokenCount": 1033,
+      "referenceTokenCount": 994
+    },
+    {
+      "obfuscated": "po",
+      "readable": "PlayerProfileScreen",
+      "score": 0.8935669944408179,
+      "margin": 0.5557943285897098,
+      "mutualBest": true,
+      "reverseMargin": 0.3408593995376942,
+      "latestTokenCount": 9391,
+      "referenceTokenCount": 9361
+    },
+    {
+      "obfuscated": "pw",
+      "readable": "MapSettingsScreen",
+      "score": 0.8864499670183061,
+      "margin": 0.25078227188578384,
+      "mutualBest": true,
+      "reverseMargin": 0.25502381100049853,
+      "latestTokenCount": 1563,
+      "referenceTokenCount": 1539
+    },
+    {
+      "obfuscated": "pr",
+      "readable": "ChartOptionsScreen",
+      "score": 0.8831792596201742,
+      "margin": 0.2844429553799507,
+      "mutualBest": true,
+      "reverseMargin": 0.27397333379648814,
+      "latestTokenCount": 793,
+      "referenceTokenCount": 778
+    },
+    {
+      "obfuscated": "aCG",
+      "readable": "PropagandaDialog",
+      "score": 0.8799448496162848,
+      "margin": 0.31433158773218006,
+      "mutualBest": true,
+      "reverseMargin": 0.2882848704752634,
+      "latestTokenCount": 1992,
+      "referenceTokenCount": 1917
+    },
+    {
+      "obfuscated": "q5",
+      "readable": "PropagandaSettingsScreen",
+      "score": 0.879872024001858,
+      "margin": 0.2870449209464909,
+      "mutualBest": true,
+      "reverseMargin": 0.2831962696850038,
+      "latestTokenCount": 1363,
+      "referenceTokenCount": 1345
+    },
+    {
+      "obfuscated": "aLS",
+      "readable": "EndGameResult",
+      "score": 0.877765639589169,
+      "margin": 0.2268330302660041,
+      "mutualBest": true,
+      "reverseMargin": 0.27476201058505145,
+      "latestTokenCount": 268,
+      "referenceTokenCount": 350
+    },
+    {
+      "obfuscated": "v2",
+      "readable": "DefaultStrings",
+      "score": 0.8733357581271828,
+      "margin": 0.7257657041774973,
+      "mutualBest": true,
+      "reverseMargin": 0.7242101078670787,
+      "latestTokenCount": 1112,
+      "referenceTokenCount": 1122
+    },
+    {
+      "obfuscated": "a1M",
+      "readable": "ShipGlowRenderer",
+      "score": 0.8625339880686661,
+      "margin": 0.3544128786733083,
+      "mutualBest": true,
+      "reverseMargin": 0.30410988241793246,
+      "latestTokenCount": 552,
+      "referenceTokenCount": 656
+    },
+    {
+      "obfuscated": "qC",
+      "readable": "BoatNotificationHandler",
+      "score": 0.861832611832612,
+      "margin": 0.4426375653929834,
+      "mutualBest": true,
+      "reverseMargin": 0.3708272435976422,
+      "latestTokenCount": 126,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "pz",
+      "readable": "SpawningSettingsScreen",
+      "score": 0.8494543568561888,
+      "margin": 0.11220825543750357,
+      "mutualBest": true,
+      "reverseMargin": 0.0708401887691037,
+      "latestTokenCount": 954,
+      "referenceTokenCount": 837
+    },
+    {
+      "obfuscated": "pk",
+      "readable": "SettingsScreen",
+      "score": 0.8470567122234582,
+      "margin": 0.21563055620565064,
+      "mutualBest": true,
+      "reverseMargin": 0.21138901709093594,
+      "latestTokenCount": 1509,
+      "referenceTokenCount": 1500
+    },
+    {
+      "obfuscated": "q4",
+      "readable": "GameLogScreen",
+      "score": 0.8249062304150074,
+      "margin": 0.24917875480847995,
+      "mutualBest": true,
+      "reverseMargin": 0.22681202297566005,
+      "latestTokenCount": 916,
+      "referenceTokenCount": 868
+    },
+    {
+      "obfuscated": "a",
+      "readable": "CustomScenarioScreen",
+      "score": 0.8069690937600598,
+      "margin": 0.19740614774429865,
+      "mutualBest": true,
+      "reverseMargin": 0.20206946095893508,
+      "latestTokenCount": 2546,
+      "referenceTokenCount": 2339
+    },
+    {
+      "obfuscated": "b6",
+      "readable": "ColorSettingsScreen",
+      "score": 0.7959228243021347,
+      "margin": 0.12087905767592888,
+      "mutualBest": true,
+      "reverseMargin": 0.058676722883449495,
+      "latestTokenCount": 1160,
+      "referenceTokenCount": 946
+    },
+    {
+      "obfuscated": "aHI",
+      "readable": "EndGameParticipantSelector",
+      "score": 0.6599673669788302,
+      "margin": 0.11790784316930636,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 328,
+      "referenceTokenCount": 355
+    },
+    {
+      "obfuscated": "aI3",
+      "readable": "ColorPickerScreen",
+      "score": 0.6564435701989696,
+      "margin": 0.101316451736567,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 1748,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "a75",
+      "readable": "ClanChart",
+      "score": 0.6325991568040609,
+      "margin": 0.08994091773597257,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 3910,
+      "referenceTokenCount": 3398
+    },
+    {
+      "obfuscated": "aEh",
+      "readable": "PixelUtils",
+      "score": 0.6217785334481345,
+      "margin": 0.007860371721075676,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 1643,
+      "referenceTokenCount": 1654
+    },
+    {
+      "obfuscated": "ts",
+      "readable": "ClanChart",
+      "score": 0.6160538385904432,
+      "margin": 0.1433204634894404,
+      "mutualBest": false,
+      "reverseMargin": -0.01654531821361771,
+      "latestTokenCount": 4311,
+      "referenceTokenCount": 3398
+    },
+    {
+      "obfuscated": "aHy",
+      "readable": "ColorPickerScreen",
+      "score": 0.6156666349419735,
+      "margin": 0.04391362097620344,
+      "mutualBest": false,
+      "reverseMargin": -0.040776935256996105,
+      "latestTokenCount": 1914,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aI4",
+      "readable": "ConnectionManager",
+      "score": 0.6124569800715634,
+      "margin": 0.015007261945556793,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 1264,
+      "referenceTokenCount": 1315
+    },
+    {
+      "obfuscated": "aaq",
+      "readable": "ColorSettingsScreen",
+      "score": 0.6117779805652839,
+      "margin": 0.033679594888675335,
+      "mutualBest": false,
+      "reverseMargin": -0.1254681208534013,
+      "latestTokenCount": 903,
+      "referenceTokenCount": 946
+    },
+    {
+      "obfuscated": "pn",
+      "readable": "StartingResourcesScreen",
+      "score": 0.6107730761203845,
+      "margin": 0.002635121170115662,
+      "mutualBest": false,
+      "reverseMargin": -0.25569257571411985,
+      "latestTokenCount": 630,
+      "referenceTokenCount": 627
+    },
+    {
+      "obfuscated": "aWD",
+      "readable": "ColorSettingsScreen",
+      "score": 0.6068548403946362,
+      "margin": 0.02216940214288521,
+      "mutualBest": false,
+      "reverseMargin": -0.13039126102404897,
+      "latestTokenCount": 1071,
+      "referenceTokenCount": 946
+    },
+    {
+      "obfuscated": "a45",
+      "readable": "ColorPickerScreen",
+      "score": 0.6056834977496928,
+      "margin": 0.006314703311462555,
+      "mutualBest": false,
+      "reverseMargin": -0.05076007244927683,
+      "latestTokenCount": 1768,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aUA",
+      "readable": "ArrayUtils",
+      "score": 0.6032177642024752,
+      "margin": 0.03994574083408464,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 1281,
+      "referenceTokenCount": 1737
+    },
+    {
+      "obfuscated": "pv",
+      "readable": "ColorSettingsScreen",
+      "score": 0.602316213972126,
+      "margin": 0.011424850522596786,
+      "mutualBest": false,
+      "reverseMargin": -0.1349298874465592,
+      "latestTokenCount": 915,
+      "referenceTokenCount": 946
+    },
+    {
+      "obfuscated": "aI2",
+      "readable": "ColorPickerScreen",
+      "score": 0.5990223461926552,
+      "margin": 0.06490547971743998,
+      "mutualBest": false,
+      "reverseMargin": -0.05742122400631444,
+      "latestTokenCount": 1338,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "e",
+      "readable": "MapSettingsScreen",
+      "score": 0.5986635030096917,
+      "margin": 0.03184001363193645,
+      "mutualBest": false,
+      "reverseMargin": -0.03276265300811587,
+      "latestTokenCount": 1543,
+      "referenceTokenCount": 1539
+    },
+    {
+      "obfuscated": "a09",
+      "readable": "GameLogScreen",
+      "score": 0.5980942074393474,
+      "margin": 0.04925478481530399,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 851,
+      "referenceTokenCount": 868
+    },
+    {
+      "obfuscated": "pQ",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.5977042566039455,
+      "margin": 0.007292696412724342,
+      "mutualBest": false,
+      "reverseMargin": -0.05322835271921933,
+      "latestTokenCount": 364,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "aHv",
+      "readable": "ClanChart",
+      "score": 0.5974247903403435,
+      "margin": 0.08835595155806797,
+      "mutualBest": false,
+      "reverseMargin": -0.03517436646371741,
+      "latestTokenCount": 4534,
+      "referenceTokenCount": 3398
+    },
+    {
+      "obfuscated": "aAq",
+      "readable": "MapSettingsScreen",
+      "score": 0.5961615849038907,
+      "margin": 0.02947365305907823,
+      "mutualBest": false,
+      "reverseMargin": -0.0352645711139169,
+      "latestTokenCount": 1511,
+      "referenceTokenCount": 1539
+    },
+    {
+      "obfuscated": "aNF",
+      "readable": "EmojiRenderer",
+      "score": 0.5948350253117756,
+      "margin": 0.0041152848720571455,
+      "mutualBest": false,
+      "reverseMargin": -0.014727920703985542,
+      "latestTokenCount": 2253,
+      "referenceTokenCount": 2315
+    },
+    {
+      "obfuscated": "aI0",
+      "readable": "ColorPickerScreen",
+      "score": 0.5944400973972241,
+      "margin": 0.035321338472354524,
+      "mutualBest": false,
+      "reverseMargin": -0.06200347280174545,
+      "latestTokenCount": 1562,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aGh",
+      "readable": "MapSettingsScreen",
+      "score": 0.5941952880439549,
+      "margin": 0.0025353089029335196,
+      "mutualBest": false,
+      "reverseMargin": -0.037230867973852666,
+      "latestTokenCount": 1725,
+      "referenceTokenCount": 1539
+    },
+    {
+      "obfuscated": "a6z",
+      "readable": "EndGameParticipantSelector",
+      "score": 0.589907748337217,
+      "margin": 0.03160483795392799,
+      "mutualBest": false,
+      "reverseMargin": -0.07005961864161314,
+      "latestTokenCount": 473,
+      "referenceTokenCount": 355
+    },
+    {
+      "obfuscated": "fp",
+      "readable": "ColorPickerScreen",
+      "score": 0.5874374769257418,
+      "margin": 0.02426575972873679,
+      "mutualBest": false,
+      "reverseMargin": -0.06900609327322782,
+      "latestTokenCount": 1457,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "wF",
+      "readable": "SpawningSettingsScreen",
+      "score": 0.5855495447114609,
+      "margin": 0.012709561587752938,
+      "mutualBest": false,
+      "reverseMargin": -0.19306462337562413,
+      "latestTokenCount": 906,
+      "referenceTokenCount": 837
+    },
+    {
+      "obfuscated": "a3f",
+      "readable": "ClanChart",
+      "score": 0.5846179464263428,
+      "margin": 0.030288921490215337,
+      "mutualBest": false,
+      "reverseMargin": -0.047981210377718075,
+      "latestTokenCount": 2735,
+      "referenceTokenCount": 3398
+    },
+    {
+      "obfuscated": "aCR",
+      "readable": "ColorPickerScreen",
+      "score": 0.584378668502915,
+      "margin": 0.05491748561998022,
+      "mutualBest": false,
+      "reverseMargin": -0.07206490169605462,
+      "latestTokenCount": 2427,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aIm",
+      "readable": "ColorPickerScreen",
+      "score": 0.5843030556656076,
+      "margin": 0.07224077370473336,
+      "mutualBest": false,
+      "reverseMargin": -0.07214051453336201,
+      "latestTokenCount": 1350,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "wT",
+      "readable": "ColorPickerScreen",
+      "score": 0.5840576433971176,
+      "margin": 0.05017978188047123,
+      "mutualBest": false,
+      "reverseMargin": -0.07238592680185196,
+      "latestTokenCount": 1744,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aI1",
+      "readable": "ClanChart",
+      "score": 0.5822531903462413,
+      "margin": 0.044416974588825986,
+      "mutualBest": false,
+      "reverseMargin": -0.050345966457819524,
+      "latestTokenCount": 2927,
+      "referenceTokenCount": 3398
+    },
+    {
+      "obfuscated": "j",
+      "readable": "StartingResourcesScreen",
+      "score": 0.5809291600553329,
+      "margin": 0.0013443755373281352,
+      "mutualBest": false,
+      "reverseMargin": -0.2855364917791714,
+      "latestTokenCount": 616,
+      "referenceTokenCount": 627
+    },
+    {
+      "obfuscated": "aKq",
+      "readable": "SettingsScreen",
+      "score": 0.5789338177238891,
+      "margin": 0.008069056257328011,
+      "mutualBest": false,
+      "reverseMargin": -0.056733877408633226,
+      "latestTokenCount": 1468,
+      "referenceTokenCount": 1500
+    },
+    {
+      "obfuscated": "aAc",
+      "readable": "IncomingPacketDispatcher",
+      "score": 0.5779597623141194,
+      "margin": 0.04822924603825218,
+      "mutualBest": false,
+      "reverseMargin": -0.02914721302147849,
+      "latestTokenCount": 1161,
+      "referenceTokenCount": 1158
+    },
+    {
+      "obfuscated": "aIJ",
+      "readable": "EndGameResult",
+      "score": 0.5773586005830903,
+      "margin": 0.04529002517346903,
+      "mutualBest": false,
+      "reverseMargin": -0.025645028421027227,
+      "latestTokenCount": 342,
+      "referenceTokenCount": 350
+    },
+    {
+      "obfuscated": "kS",
+      "readable": "ColorPickerScreen",
+      "score": 0.569010069030277,
+      "margin": 0.006354361639334116,
+      "mutualBest": false,
+      "reverseMargin": -0.08743350116869264,
+      "latestTokenCount": 2184,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aBZ",
+      "readable": "ColorPickerScreen",
+      "score": 0.5670180243241114,
+      "margin": 0.04292703020287936,
+      "mutualBest": false,
+      "reverseMargin": -0.08942554587485818,
+      "latestTokenCount": 1614,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "cz",
+      "readable": "MatchLauncher",
+      "score": 0.5662441862847543,
+      "margin": 0.018098319946668218,
+      "mutualBest": false,
+      "reverseMargin": -0.06798309013196802,
+      "latestTokenCount": 988,
+      "referenceTokenCount": 990
+    },
+    {
+      "obfuscated": "aIA",
+      "readable": "ClanChart",
+      "score": 0.5612971676856666,
+      "margin": 0.009386339296150958,
+      "mutualBest": false,
+      "reverseMargin": -0.07130198911839425,
+      "latestTokenCount": 2410,
+      "referenceTokenCount": 3398
+    },
+    {
+      "obfuscated": "aRN",
+      "readable": "EndGameParticipantSelector",
+      "score": 0.5612346711850047,
+      "margin": 0.0322242820319848,
+      "mutualBest": false,
+      "reverseMargin": -0.09873269579382549,
+      "latestTokenCount": 351,
+      "referenceTokenCount": 355
+    },
+    {
+      "obfuscated": "q6",
+      "readable": "StartingResourcesScreen",
+      "score": 0.5605691516553636,
+      "margin": 0.00222514555664044,
+      "mutualBest": false,
+      "reverseMargin": -0.3058965001791407,
+      "latestTokenCount": 470,
+      "referenceTokenCount": 627
+    },
+    {
+      "obfuscated": "aHt",
+      "readable": "PlayerTooltip",
+      "score": 0.5592159978254423,
+      "margin": 0.0020760946758556775,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 602,
+      "referenceTokenCount": 604
+    },
+    {
+      "obfuscated": "aKM",
+      "readable": "IncomingPacketDispatcher",
+      "score": 0.5583150959459533,
+      "margin": 0.05878880704724265,
+      "mutualBest": false,
+      "reverseMargin": -0.04879187938964458,
+      "latestTokenCount": 891,
+      "referenceTokenCount": 1158
+    },
+    {
+      "obfuscated": "qo",
+      "readable": "ConnectionManager",
+      "score": 0.5548931555240239,
+      "margin": 0.029587372096897657,
+      "mutualBest": false,
+      "reverseMargin": -0.0575638245475395,
+      "latestTokenCount": 1092,
+      "referenceTokenCount": 1315
+    },
+    {
+      "obfuscated": "aBA",
+      "readable": "ColorPickerScreen",
+      "score": 0.5533102553659854,
+      "margin": 0.012730686949102843,
+      "mutualBest": false,
+      "reverseMargin": -0.10313331483298416,
+      "latestTokenCount": 1951,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "aFW",
+      "readable": "PlayerProfileScreen",
+      "score": 0.5527075949031237,
+      "margin": 0.1408662203304496,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 7382,
+      "referenceTokenCount": 9361
+    },
+    {
+      "obfuscated": "sZ",
+      "readable": "LobbyPacketHandler",
+      "score": 0.5509244930427457,
+      "margin": 0.04875669364659485,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 2273,
+      "referenceTokenCount": 1613
+    },
+    {
+      "obfuscated": "aVg",
+      "readable": "LobbyPacketHandler",
+      "score": 0.5504112870075015,
+      "margin": 0.023801528999659594,
+      "mutualBest": false,
+      "reverseMargin": -0.0005132060352441847,
+      "latestTokenCount": 1697,
+      "referenceTokenCount": 1613
+    },
+    {
+      "obfuscated": "a8n",
+      "readable": "ColorPickerScreen",
+      "score": 0.5472939081733239,
+      "margin": 0.029330683446813555,
+      "mutualBest": false,
+      "reverseMargin": -0.10914966202564569,
+      "latestTokenCount": 1666,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "q3",
+      "readable": "MainMenu",
+      "score": 0.5472401702338099,
+      "margin": 0.008937751290432172,
+      "mutualBest": false,
+      "reverseMargin": -0.0414555165179038,
+      "latestTokenCount": 2873,
+      "referenceTokenCount": 2088
+    },
+    {
+      "obfuscated": "aPj",
+      "readable": "IconCanvasUtils",
+      "score": 0.5466150516150516,
+      "margin": 0.03675670279398535,
+      "mutualBest": false,
+      "reverseMargin": -0.011435648188387715,
+      "latestTokenCount": 280,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "aHz",
+      "readable": "MainMenu",
+      "score": 0.5454592740853149,
+      "margin": 0.0014697242205419236,
+      "mutualBest": false,
+      "reverseMargin": -0.04323641266639877,
+      "latestTokenCount": 2334,
+      "referenceTokenCount": 2088
+    },
+    {
+      "obfuscated": "pl",
+      "readable": "PlayerNamesScreen",
+      "score": 0.5453522255409048,
+      "margin": 0.0022312652454292703,
+      "mutualBest": false,
+      "reverseMargin": -0.26743510334413767,
+      "latestTokenCount": 462,
+      "referenceTokenCount": 636
+    },
+    {
+      "obfuscated": "ly",
+      "readable": "MatchLauncher",
+      "score": 0.5440280839895013,
+      "margin": 0.014109808928022272,
+      "mutualBest": false,
+      "reverseMargin": -0.09019919242722096,
+      "latestTokenCount": 1016,
+      "referenceTokenCount": 990
+    },
+    {
+      "obfuscated": "aPX",
+      "readable": "BotDifficultyScreen",
+      "score": 0.5403369140433605,
+      "margin": 0.011715244784389789,
+      "mutualBest": false,
+      "reverseMargin": -0.1867290542575768,
+      "latestTokenCount": 1228,
+      "referenceTokenCount": 994
+    },
+    {
+      "obfuscated": "aIF",
+      "readable": "PlayerTooltip",
+      "score": 0.5384014844074302,
+      "margin": 0.02017112657301623,
+      "mutualBest": false,
+      "reverseMargin": -0.020814513418012104,
+      "latestTokenCount": 498,
+      "referenceTokenCount": 604
+    },
+    {
+      "obfuscated": "bx",
+      "readable": "IconCanvasUtils",
+      "score": 0.5367366271947733,
+      "margin": 0.01687375595731111,
+      "mutualBest": false,
+      "reverseMargin": -0.021314072608666024,
+      "latestTokenCount": 395,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "pj",
+      "readable": "ColorPickerScreen",
+      "score": 0.5351567047227435,
+      "margin": 0.02828194887809754,
+      "mutualBest": false,
+      "reverseMargin": -0.12128686547622614,
+      "latestTokenCount": 1682,
+      "referenceTokenCount": 1719
+    },
+    {
+      "obfuscated": "a1W",
+      "readable": "MatchLauncher",
+      "score": 0.5329001454793079,
+      "margin": 0.0033839353707098008,
+      "mutualBest": false,
+      "reverseMargin": -0.10132713093741441,
+      "latestTokenCount": 831,
+      "referenceTokenCount": 990
+    },
+    {
+      "obfuscated": "zY",
+      "readable": "RoomState",
+      "score": 0.5314763206163625,
+      "margin": 0.008657917252767544,
+      "mutualBest": false,
+      "reverseMargin": -0.011747219128916297,
+      "latestTokenCount": 461,
+      "referenceTokenCount": 430
+    },
+    {
+      "obfuscated": "a5B",
+      "readable": "LocalCommandProcessor",
+      "score": 0.5308083451931148,
+      "margin": 0.016586409425415116,
+      "mutualBest": false,
+      "reverseMargin": -0.05427665193108411,
+      "latestTokenCount": 1737,
+      "referenceTokenCount": 1697
+    },
+    {
+      "obfuscated": "aHx",
+      "readable": "PlayerTooltip",
+      "score": 0.5284197626296105,
+      "margin": 0.024549882152425484,
+      "mutualBest": false,
+      "reverseMargin": -0.030796235195831745,
+      "latestTokenCount": 778,
+      "referenceTokenCount": 604
+    },
+    {
+      "obfuscated": "i3",
+      "readable": "MatchLauncher",
+      "score": 0.5283114263386118,
+      "margin": 0.007868151612411167,
+      "mutualBest": false,
+      "reverseMargin": -0.10591585007811044,
+      "latestTokenCount": 884,
+      "referenceTokenCount": 990
+    },
+    {
+      "obfuscated": "a54",
+      "readable": "IconCanvasUtils",
+      "score": 0.5279502785037841,
+      "margin": 0.017147079072271088,
+      "mutualBest": false,
+      "reverseMargin": -0.03010042129965529,
+      "latestTokenCount": 262,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "acP",
+      "readable": "ShipGlowRenderer",
+      "score": 0.5263528281443559,
+      "margin": 0.03680703431478061,
+      "mutualBest": false,
+      "reverseMargin": -0.03207127750637773,
+      "latestTokenCount": 633,
+      "referenceTokenCount": 656
+    },
+    {
+      "obfuscated": "aQV",
+      "readable": "RoomState",
+      "score": 0.526253019763076,
+      "margin": 0.03378014076446678,
+      "mutualBest": false,
+      "reverseMargin": -0.01697051998220278,
+      "latestTokenCount": 375,
+      "referenceTokenCount": 430
+    },
+    {
+      "obfuscated": "a3k",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.5255491757838768,
+      "margin": 0.033055839698991396,
+      "mutualBest": false,
+      "reverseMargin": -0.12538343353928805,
+      "latestTokenCount": 295,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "aVo",
+      "readable": "EndGameTransitionController",
+      "score": 0.5250328214166878,
+      "margin": 0.026262728640794264,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 405,
+      "referenceTokenCount": 320
+    },
+    {
+      "obfuscated": "jt",
+      "readable": "RoomState",
+      "score": 0.5224482099758648,
+      "margin": 0.03190710491252696,
+      "mutualBest": false,
+      "reverseMargin": -0.020775329769413986,
+      "latestTokenCount": 480,
+      "referenceTokenCount": 430
+    },
+    {
+      "obfuscated": "lY",
+      "readable": "TextFitUtils",
+      "score": 0.5203204396872808,
+      "margin": 0.1322121521414933,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 157,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "lD",
+      "readable": "TextFitUtils",
+      "score": 0.5185172932330827,
+      "margin": 0.1394659098338732,
+      "mutualBest": false,
+      "reverseMargin": -0.0018031464541981013,
+      "latestTokenCount": 104,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "vH",
+      "readable": "ShipGlowRenderer",
+      "score": 0.5172926775773696,
+      "margin": 0.005094601757376971,
+      "mutualBest": false,
+      "reverseMargin": -0.04113142807336401,
+      "latestTokenCount": 545,
+      "referenceTokenCount": 656
+    },
+    {
+      "obfuscated": "aZ",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.5164205526770294,
+      "margin": 0.011232223764562566,
+      "mutualBest": false,
+      "reverseMargin": -0.13451205664613552,
+      "latestTokenCount": 300,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "bJ",
+      "readable": "PlayerNamesScreen",
+      "score": 0.5159416993056384,
+      "margin": 0.007128276443245207,
+      "mutualBest": false,
+      "reverseMargin": -0.2968456295794041,
+      "latestTokenCount": 580,
+      "referenceTokenCount": 636
+    },
+    {
+      "obfuscated": "aIl",
+      "readable": "MatchLauncher",
+      "score": 0.514690386289651,
+      "margin": 0.017992652538420195,
+      "mutualBest": false,
+      "reverseMargin": -0.11953689012707125,
+      "latestTokenCount": 1088,
+      "referenceTokenCount": 990
+    },
+    {
+      "obfuscated": "lX",
+      "readable": "TextFitUtils",
+      "score": 0.5111089841227794,
+      "margin": 0.14345550670604623,
+      "mutualBest": false,
+      "reverseMargin": -0.009211455564501425,
+      "latestTokenCount": 143,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aU",
+      "readable": "GameLogScreen",
+      "score": 0.5105619242603663,
+      "margin": 0.007393515429460429,
+      "mutualBest": false,
+      "reverseMargin": -0.0875322831789811,
+      "latestTokenCount": 685,
+      "referenceTokenCount": 868
+    },
+    {
+      "obfuscated": "aIB",
+      "readable": "PlayerTooltip",
+      "score": 0.5055040345605974,
+      "margin": 0.03302025685014953,
+      "mutualBest": false,
+      "reverseMargin": -0.05371196326484484,
+      "latestTokenCount": 610,
+      "referenceTokenCount": 604
+    },
+    {
+      "obfuscated": "aEM",
+      "readable": "PlayerNamesScreen",
+      "score": 0.5044744938134451,
+      "margin": 0.001593371311260583,
+      "mutualBest": false,
+      "reverseMargin": -0.30831283507159735,
+      "latestTokenCount": 494,
+      "referenceTokenCount": 636
+    },
+    {
+      "obfuscated": "ai",
+      "readable": "IconCanvasUtils",
+      "score": 0.4996770679598004,
+      "margin": 0.008330705048196996,
+      "mutualBest": false,
+      "reverseMargin": -0.05837363184363897,
+      "latestTokenCount": 340,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "a6q",
+      "readable": "IconCanvasUtils",
+      "score": 0.4962370801033592,
+      "margin": 0.004997521539856997,
+      "mutualBest": false,
+      "reverseMargin": -0.06181361970008015,
+      "latestTokenCount": 344,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "dn",
+      "readable": "IconCanvasUtils",
+      "score": 0.4932537299540305,
+      "margin": 0.0410716571248988,
+      "mutualBest": false,
+      "reverseMargin": -0.06479696984940886,
+      "latestTokenCount": 268,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "lE",
+      "readable": "TextFitUtils",
+      "score": 0.49191233622029756,
+      "margin": 0.11569218540337256,
+      "mutualBest": false,
+      "reverseMargin": -0.028408103466983248,
+      "latestTokenCount": 91,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aCH",
+      "readable": "BoatNotificationHandler",
+      "score": 0.49100536823496976,
+      "margin": 0.02720315169618026,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 153,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aIH",
+      "readable": "EndGameResult",
+      "score": 0.4759774436090226,
+      "margin": 0.006843773664829189,
+      "mutualBest": false,
+      "reverseMargin": -0.12702618539509491,
+      "latestTokenCount": 340,
+      "referenceTokenCount": 350
+    },
+    {
+      "obfuscated": "aKD",
+      "readable": "EndGameTransitionController",
+      "score": 0.47472870132974104,
+      "margin": 0.0016002335533858991,
+      "mutualBest": false,
+      "reverseMargin": -0.05030412008694679,
+      "latestTokenCount": 209,
+      "referenceTokenCount": 320
+    },
+    {
+      "obfuscated": "jU",
+      "readable": "CanvasFontFingerprint",
+      "score": 0.4743203768005083,
+      "margin": 0.011283312282099722,
+      "mutualBest": false,
+      "reverseMargin": 0,
+      "latestTokenCount": 356,
+      "referenceTokenCount": 224
+    },
+    {
+      "obfuscated": "st",
+      "readable": "TextFitUtils",
+      "score": 0.4683092562867843,
+      "margin": 0.008542818049449064,
+      "mutualBest": false,
+      "reverseMargin": -0.052011183400496486,
+      "latestTokenCount": 210,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aQz",
+      "readable": "IconCanvasUtils",
+      "score": 0.46775110364495837,
+      "margin": 0.04296440958489428,
+      "mutualBest": false,
+      "reverseMargin": -0.09029959615848099,
+      "latestTokenCount": 257,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "aI5",
+      "readable": "PlayerTooltip",
+      "score": 0.4669935153381748,
+      "margin": 0.014589462792454821,
+      "mutualBest": false,
+      "reverseMargin": -0.0922224824872675,
+      "latestTokenCount": 605,
+      "referenceTokenCount": 604
+    },
+    {
+      "obfuscated": "v3",
+      "readable": "EndGameNotificationController",
+      "score": 0.46594947597863734,
+      "margin": 0.016124015730299868,
+      "mutualBest": false,
+      "reverseMargin": -0.05847819159050027,
+      "latestTokenCount": 426,
+      "referenceTokenCount": 466
+    },
+    {
+      "obfuscated": "a0r",
+      "readable": "IncomingPacketDispatcher",
+      "score": 0.4659412480087304,
+      "margin": 0.003144231580164969,
+      "mutualBest": false,
+      "reverseMargin": -0.1411657273268675,
+      "latestTokenCount": 1089,
+      "referenceTokenCount": 1158
+    },
+    {
+      "obfuscated": "qH",
+      "readable": "BoatNotificationHandler",
+      "score": 0.46458761252694314,
+      "margin": 0.1021092036669553,
+      "mutualBest": false,
+      "reverseMargin": -0.026417755708026625,
+      "latestTokenCount": 113,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "pu",
+      "readable": "IconCanvasUtils",
+      "score": 0.4636706138131954,
+      "margin": 0.014075869450851819,
+      "mutualBest": false,
+      "reverseMargin": -0.09438008599024394,
+      "latestTokenCount": 309,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "y8",
+      "readable": "EndGameParticipantSelector",
+      "score": 0.4602107602622474,
+      "margin": 0.03965987624122436,
+      "mutualBest": false,
+      "reverseMargin": -0.1997566067165828,
+      "latestTokenCount": 313,
+      "referenceTokenCount": 355
+    },
+    {
+      "obfuscated": "aZg",
+      "readable": "IconCanvasUtils",
+      "score": 0.4585946311752763,
+      "margin": 0.07487661115302935,
+      "mutualBest": false,
+      "reverseMargin": -0.09945606862816303,
+      "latestTokenCount": 216,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "up",
+      "readable": "EmojiRenderer",
+      "score": 0.4552719132355409,
+      "margin": 0.016955052033694573,
+      "mutualBest": false,
+      "reverseMargin": -0.15429103278022022,
+      "latestTokenCount": 2284,
+      "referenceTokenCount": 2315
+    },
+    {
+      "obfuscated": "wu",
+      "readable": "IconCanvasUtils",
+      "score": 0.4530741606023773,
+      "margin": 0.04394119655845968,
+      "mutualBest": false,
+      "reverseMargin": -0.10497653920106204,
+      "latestTokenCount": 163,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "pt",
+      "readable": "RoomState",
+      "score": 0.4502044730904884,
+      "margin": 0.044652103149740774,
+      "mutualBest": false,
+      "reverseMargin": -0.09301906665479043,
+      "latestTokenCount": 397,
+      "referenceTokenCount": 430
+    },
+    {
+      "obfuscated": "aa",
+      "readable": "EndGameNotificationController",
+      "score": 0.44721771123733844,
+      "margin": 0.013285624021103615,
+      "mutualBest": false,
+      "reverseMargin": -0.07720995633179917,
+      "latestTokenCount": 446,
+      "referenceTokenCount": 466
+    },
+    {
+      "obfuscated": "aL0",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.4465688620920495,
+      "margin": 0.014559791797264854,
+      "mutualBest": false,
+      "reverseMargin": -0.2043637472311154,
+      "latestTokenCount": 244,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "aZe",
+      "readable": "TextFitUtils",
+      "score": 0.4425040319408386,
+      "margin": 0.07372324376349865,
+      "mutualBest": false,
+      "reverseMargin": -0.07781640774644222,
+      "latestTokenCount": 77,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "a3e",
+      "readable": "TextFitUtils",
+      "score": 0.4397773853818503,
+      "margin": 0.01304436114201768,
+      "mutualBest": false,
+      "reverseMargin": -0.08054305430543052,
+      "latestTokenCount": 157,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "rq",
+      "readable": "BoatNotificationHandler",
+      "score": 0.4372645780514307,
+      "margin": 0.07405691636955075,
+      "mutualBest": false,
+      "reverseMargin": -0.053740790183539056,
+      "latestTokenCount": 125,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aGw",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.4333789133523526,
+      "margin": 0.023491529014731338,
+      "mutualBest": false,
+      "reverseMargin": -0.21755369597081226,
+      "latestTokenCount": 289,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "kN",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.42880416809659,
+      "margin": 0.0100884635113202,
+      "mutualBest": false,
+      "reverseMargin": -0.22212844122657488,
+      "latestTokenCount": 203,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "fz",
+      "readable": "BoatNotificationHandler",
+      "score": 0.42576950608446673,
+      "margin": 0.016971964785964966,
+      "mutualBest": false,
+      "reverseMargin": -0.06523586215050303,
+      "latestTokenCount": 128,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "rr",
+      "readable": "IconCanvasUtils",
+      "score": 0.4170645486777751,
+      "margin": 0.022146772309142637,
+      "mutualBest": false,
+      "reverseMargin": -0.14098615112566426,
+      "latestTokenCount": 219,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "L",
+      "readable": "TextFitUtils",
+      "score": 0.41451868299874417,
+      "margin": 0.05931548102830081,
+      "mutualBest": false,
+      "reverseMargin": -0.10580175668853664,
+      "latestTokenCount": 188,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "di",
+      "readable": "EndGameTransitionController",
+      "score": 0.4134235031992688,
+      "margin": 0.0758210958600194,
+      "mutualBest": false,
+      "reverseMargin": -0.11160931821741904,
+      "latestTokenCount": 233,
+      "referenceTokenCount": 320
+    },
+    {
+      "obfuscated": "lC",
+      "readable": "TextFitUtils",
+      "score": 0.4118082368082368,
+      "margin": 0.11673172915747171,
+      "mutualBest": false,
+      "reverseMargin": -0.108512202879044,
+      "latestTokenCount": 76,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "a44",
+      "readable": "TextFitUtils",
+      "score": 0.40902494583917426,
+      "margin": 0.03322994888981484,
+      "mutualBest": false,
+      "reverseMargin": -0.11129549384810655,
+      "latestTokenCount": 149,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aNi",
+      "readable": "IconCanvasUtils",
+      "score": 0.4086511120693426,
+      "margin": 0.007930596451519889,
+      "mutualBest": false,
+      "reverseMargin": -0.14939958773409673,
+      "latestTokenCount": 93,
+      "referenceTokenCount": 286
+    },
+    {
+      "obfuscated": "aZo",
+      "readable": "BoatNotificationHandler",
+      "score": 0.4041318994917775,
+      "margin": 0.003995386979637305,
+      "mutualBest": false,
+      "reverseMargin": -0.08687346874319224,
+      "latestTokenCount": 137,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aIG",
+      "readable": "DateTimeUtils",
+      "score": 0.40079800633854323,
+      "margin": 0.001259368384523618,
+      "mutualBest": false,
+      "reverseMargin": -0.06258288680421237,
+      "latestTokenCount": 348,
+      "referenceTokenCount": 328
+    },
+    {
+      "obfuscated": "aZt",
+      "readable": "TextFitUtils",
+      "score": 0.38581081081081087,
+      "margin": 0.13583831140010919,
+      "mutualBest": false,
+      "reverseMargin": -0.13450962887646994,
+      "latestTokenCount": 76,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "lN",
+      "readable": "TextFitUtils",
+      "score": 0.3812045357295678,
+      "margin": 0.045001800411788195,
+      "mutualBest": false,
+      "reverseMargin": -0.139115903957713,
+      "latestTokenCount": 100,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "fO",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.37957356076759063,
+      "margin": 0.0038137886248397757,
+      "mutualBest": false,
+      "reverseMargin": -0.27135904855557424,
+      "latestTokenCount": 190,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "lo",
+      "readable": "RoomState",
+      "score": 0.3650691662958018,
+      "margin": 0.04723110016527815,
+      "mutualBest": false,
+      "reverseMargin": -0.17815437344947704,
+      "latestTokenCount": 432,
+      "referenceTokenCount": 430
+    },
+    {
+      "obfuscated": "aYU",
+      "readable": "RoomState",
+      "score": 0.3527831564781963,
+      "margin": 0.01812140318691302,
+      "mutualBest": false,
+      "reverseMargin": -0.1904403832670825,
+      "latestTokenCount": 274,
+      "referenceTokenCount": 430
+    },
+    {
+      "obfuscated": "aZd",
+      "readable": "EndGameTransitionController",
+      "score": 0.3511764705882353,
+      "margin": 0.006115625921091439,
+      "mutualBest": false,
+      "reverseMargin": -0.17385635082845252,
+      "latestTokenCount": 128,
+      "referenceTokenCount": 320
+    },
+    {
+      "obfuscated": "aNh",
+      "readable": "BoatNotificationHandler",
+      "score": 0.335366937531742,
+      "margin": 0.024019079822141354,
+      "mutualBest": false,
+      "reverseMargin": -0.15563843070322775,
+      "latestTokenCount": 53,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "lL",
+      "readable": "TextFitUtils",
+      "score": 0.33459655130978133,
+      "margin": 0.014025351153154009,
+      "mutualBest": false,
+      "reverseMargin": -0.18572388837749948,
+      "latestTokenCount": 73,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "lG",
+      "readable": "TextFitUtils",
+      "score": 0.3273684210526316,
+      "margin": 0.02717380434858091,
+      "mutualBest": false,
+      "reverseMargin": -0.19295201863464922,
+      "latestTokenCount": 86,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aDU",
+      "readable": "ConnectionManager",
+      "score": 0.31397060633484053,
+      "margin": 0.00943274111123904,
+      "mutualBest": false,
+      "reverseMargin": -0.2984863737367228,
+      "latestTokenCount": 1180,
+      "referenceTokenCount": 1315
+    },
+    {
+      "obfuscated": "dl",
+      "readable": "BoatNotificationHandler",
+      "score": 0.31114583333333334,
+      "margin": 0.07599780701754386,
+      "mutualBest": false,
+      "reverseMargin": -0.17985953490163642,
+      "latestTokenCount": 66,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aca",
+      "readable": "BoatNotificationHandler",
+      "score": 0.2984683794466403,
+      "margin": 0.0017108606496478163,
+      "mutualBest": false,
+      "reverseMargin": -0.19253698878832948,
+      "latestTokenCount": 127,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "lM",
+      "readable": "TextFitUtils",
+      "score": 0.29576023391812867,
+      "margin": 0.1047069212887291,
+      "mutualBest": false,
+      "reverseMargin": -0.22456020576915214,
+      "latestTokenCount": 52,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aZc",
+      "readable": "BoatNotificationHandler",
+      "score": 0.2919103194103194,
+      "margin": 0.056125659590036986,
+      "mutualBest": false,
+      "reverseMargin": -0.19909504882465034,
+      "latestTokenCount": 59,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "fn",
+      "readable": "EndGameWinnerResolver",
+      "score": 0.27488721804511274,
+      "margin": 0.028497035322215286,
+      "mutualBest": false,
+      "reverseMargin": -0.37604539127805214,
+      "latestTokenCount": 253,
+      "referenceTokenCount": 285
+    },
+    {
+      "obfuscated": "aEp",
+      "readable": "TextFitUtils",
+      "score": 0.2675268717568569,
+      "margin": 0.0701469848044311,
+      "mutualBest": false,
+      "reverseMargin": -0.2527935679304239,
+      "latestTokenCount": 67,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "lB",
+      "readable": "BoatNotificationHandler",
+      "score": 0.2550757575757576,
+      "margin": 0.003960396498646213,
+      "mutualBest": false,
+      "reverseMargin": -0.23592961065921214,
+      "latestTokenCount": 69,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "a4M",
+      "readable": "TextFitUtils",
+      "score": 0.24528013582342956,
+      "margin": 0.05158648008158101,
+      "mutualBest": false,
+      "reverseMargin": -0.27504030386385125,
+      "latestTokenCount": 40,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aEu",
+      "readable": "TextFitUtils",
+      "score": 0.24344094247246026,
+      "margin": 0.03836518489670268,
+      "mutualBest": false,
+      "reverseMargin": -0.2768794972148205,
+      "latestTokenCount": 69,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aZj",
+      "readable": "BoatNotificationHandler",
+      "score": 0.23787922578385007,
+      "margin": 0.006375515082225558,
+      "mutualBest": false,
+      "reverseMargin": -0.2531261424511197,
+      "latestTokenCount": 47,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aMY",
+      "readable": "TextFitUtils",
+      "score": 0.23512257884595883,
+      "margin": 0.06233058325984561,
+      "mutualBest": false,
+      "reverseMargin": -0.285197860841322,
+      "latestTokenCount": 27,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "dm",
+      "readable": "BoatNotificationHandler",
+      "score": 0.2289345063538612,
+      "margin": 0.03396458656776491,
+      "mutualBest": false,
+      "reverseMargin": -0.26207086188110856,
+      "latestTokenCount": 60,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aWY",
+      "readable": "TextFitUtils",
+      "score": 0.21782283088674065,
+      "margin": 0.04141905549080402,
+      "mutualBest": false,
+      "reverseMargin": -0.30249760880054016,
+      "latestTokenCount": 50,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "dc",
+      "readable": "BoatNotificationHandler",
+      "score": 0.20533279220779221,
+      "margin": 0.04900238285106706,
+      "mutualBest": false,
+      "reverseMargin": -0.28567257602717755,
+      "latestTokenCount": 34,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "vt",
+      "readable": "TextFitUtils",
+      "score": 0.19552955133735977,
+      "margin": 0.0371826068707834,
+      "mutualBest": false,
+      "reverseMargin": -0.32479088834992104,
+      "latestTokenCount": 37,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "dh",
+      "readable": "BoatNotificationHandler",
+      "score": 0.18511434217955958,
+      "margin": 0.04951038444316988,
+      "mutualBest": false,
+      "reverseMargin": -0.3058910260554102,
+      "latestTokenCount": 35,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "lK",
+      "readable": "TextFitUtils",
+      "score": 0.18403843294677372,
+      "margin": 0.051799891233709705,
+      "mutualBest": false,
+      "reverseMargin": -0.3362820067405071,
+      "latestTokenCount": 31,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "acO",
+      "readable": "CanvasFontFingerprint",
+      "score": 0.18065164361500569,
+      "margin": 0.01147581347325971,
+      "mutualBest": false,
+      "reverseMargin": -0.29366873318550263,
+      "latestTokenCount": 217,
+      "referenceTokenCount": 224
+    },
+    {
+      "obfuscated": "uo",
+      "readable": "BoatNotificationHandler",
+      "score": 0.14287058482918355,
+      "margin": 0.009453620808963503,
+      "mutualBest": false,
+      "reverseMargin": -0.3481347834057862,
+      "latestTokenCount": 31,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aZf",
+      "readable": "BoatNotificationHandler",
+      "score": 0.1400040827436037,
+      "margin": 0.000832584459955904,
+      "mutualBest": false,
+      "reverseMargin": -0.35100128549136606,
+      "latestTokenCount": 41,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aFs",
+      "readable": "BoatNotificationHandler",
+      "score": 0.09396014943960149,
+      "margin": 0.0037413796234949392,
+      "mutualBest": false,
+      "reverseMargin": -0.39704521879536825,
+      "latestTokenCount": 20,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aMv",
+      "readable": "BoatNotificationHandler",
+      "score": 0.09396014943960149,
+      "margin": 0.0037413796234949392,
+      "mutualBest": false,
+      "reverseMargin": -0.39704521879536825,
+      "latestTokenCount": 20,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "lH",
+      "readable": "BoatNotificationHandler",
+      "score": 0.09267676767676766,
+      "margin": 0.019425804903982033,
+      "mutualBest": false,
+      "reverseMargin": -0.3983286005582021,
+      "latestTokenCount": 18,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aZl",
+      "readable": "BoatNotificationHandler",
+      "score": 0.09080431979368149,
+      "margin": 0.011405414922808652,
+      "mutualBest": false,
+      "reverseMargin": -0.4002010484412883,
+      "latestTokenCount": 15,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aZb",
+      "readable": "BoatNotificationHandler",
+      "score": 0.08793939393939394,
+      "margin": 0.018372830471901677,
+      "mutualBest": false,
+      "reverseMargin": -0.40306597429557584,
+      "latestTokenCount": 24,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "lO",
+      "readable": "TextFitUtils",
+      "score": 0.08340377830049986,
+      "margin": 0.0050232751558457744,
+      "mutualBest": false,
+      "reverseMargin": -0.436916661386781,
+      "latestTokenCount": 33,
+      "referenceTokenCount": 152
+    },
+    {
+      "obfuscated": "aI6",
+      "readable": "BoatNotificationHandler",
+      "score": 0.0809090909090909,
+      "margin": 0.010218301435406696,
+      "mutualBest": false,
+      "reverseMargin": -0.41009627732587883,
+      "latestTokenCount": 14,
+      "referenceTokenCount": 132
+    },
+    {
+      "obfuscated": "aXb",
+      "readable": "BoatNotificationHandler",
+      "score": 0.061535317200784825,
+      "margin": 0.007825866687709682,
+      "mutualBest": false,
+      "reverseMargin": -0.42947005103418495,
+      "latestTokenCount": 13,
+      "referenceTokenCount": 132
+    }
+  ]
+}

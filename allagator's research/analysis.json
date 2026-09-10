@@ -1,0 +1,10 @@
+{
+  "counts": {
+    "functions": 2973,
+    "variables": 4598,
+    "identifiers": 74034,
+    "calls": 10505,
+    "memberExpressions": 28463
+  },
+  "topLevelBindings": []
+}

@@ -1,0 +1,15 @@
+{
+  "gameVersion": "2.16.46",
+  "topLevelFunctions": 338,
+  "referenceSemanticFunctionsMapped": 187,
+  "appliedTopLevelLexicalMappings": 444,
+  "appliedExactLocalMappings": 2429,
+  "appliedConventionalLocalMappings": 14,
+  "appliedLocalMappings": 2443,
+  "conventionalLocalOccurrences": 50,
+  "conventionalLocalCollisionSkips": 3,
+  "appliedCollisionSafePropertyMappings": 778,
+  "contextualPropertyCandidates": -366,
+  "unresolvedShortTopLevelFunctions": 0,
+  "unresolved": []
+}

@@ -28,13 +28,14 @@ import urllib.request
 from typing import Optional, Dict, Any, List, Tuple
 
 import websockets
+from proxy_manager import ProxyManager
 
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-DEFAULT_URL = "https://territorial.io"
+DEFAULT_URL = "https://territorial.io/"
 CDP_PORT = 9444
 
 
@@ -281,7 +282,8 @@ class TerritorialAutomation:
                  headless: bool = False, target_url: str = DEFAULT_URL, username: str = "",
                  cdp_port: int = CDP_PORT, instance_id: int = 0,
                  coordinator: Optional[LobbyCoordinator] = None,
-                 turnstile_semaphore: Optional[asyncio.Semaphore] = None):
+                 turnstile_semaphore: Optional[asyncio.Semaphore] = None,
+                 proxy: Optional[Dict[str, Any]] = None):
         self.account_name = account_name
         self.password = password
         self.mode = mode.lower()
@@ -293,6 +295,7 @@ class TerritorialAutomation:
         self.instance_id = instance_id
         self.coordinator = coordinator
         self.turnstile_semaphore = turnstile_semaphore
+        self.proxy = proxy
         self.device_token = generate_device_token(15)
         self.chrome_proc = None
         self.temp_dir = None
@@ -301,11 +304,24 @@ class TerritorialAutomation:
         self.is_in_match = False
         self.tick_count = 0
 
+    def _find_free_port(self, base_port: int) -> int:
+        import socket
+        for p in range(base_port, base_port + 100):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind(("127.0.0.1", p))
+                    return p
+            except Exception:
+                continue
+        return base_port
+
     def start_chrome(self) -> str:
         """Launches isolated Chrome instance configured for CDP automation."""
         sessions_base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".chrome_sessions")
         os.makedirs(sessions_base, exist_ok=True)
         self.temp_dir = tempfile.mkdtemp(prefix=f"bot_{self.instance_id}_", dir=sessions_base)
+        self.cdp_port = self._find_free_port(self.cdp_port)
         
         # Window geometry: standard desktop viewport ensures proper canvas and button positioning
         win_w = 960 if self.headless else 480
@@ -328,6 +344,8 @@ class TerritorialAutomation:
             "--mute-audio",
             "about:blank"
         ]
+        if self.proxy:
+            flags.append(f"--proxy-server={self.proxy['protocol']}://{self.proxy['host']}:{self.proxy['port']}")
         if self.headless:
             # High-performance offscreen stealth window placement:
             # Gives Chrome genuine OS HWND window handle & D3D11 hardware rendering
@@ -498,8 +516,41 @@ class TerritorialAutomation:
         await self.cdp.call("Page.addScriptToEvaluateOnNewDocument", {"source": init_script})
 
         # Step 1: Navigate to game URL (pre-authenticated with zero reload needed)
-        print(f"[*] [Worker {self.instance_id}] Navigating to {self.target_url} (Pre-provisioned: '{self.account_name}' / '{self.username}')...")
-        await self.cdp.call("Page.navigate", {"url": self.target_url})
+        target = self.target_url.strip()
+        if not target.startswith("http://") and not target.startswith("https://"):
+            target = "https://" + target
+        target = target.rstrip('/') + '/'
+        print(f"[*] [Worker {self.instance_id}] Navigating to {target} (Pre-provisioned: '{self.account_name}' / '{self.username}')...")
+        try:
+            await self.cdp.call("Page.bringToFront")
+        except Exception:
+            pass
+        await self.cdp.call("Page.navigate", {"url": target})
+
+        # Actively confirm navigation and wait for DOM & canvas initialization
+        nav_confirmed = False
+        for step in range(50):
+            await asyncio.sleep(0.4)
+            try:
+                curr_url = await self.cdp.evaluate("window.location.href")
+                ready = await self.cdp.evaluate("document.readyState")
+                has_canvas = await self.cdp.evaluate("!!document.getElementById('canvasA')")
+                if has_canvas or ("territorial.io" in str(curr_url) and ready in ("interactive", "complete")):
+                    nav_confirmed = True
+                    print(f"[+] [Worker {self.instance_id}] Navigation confirmed: {curr_url} (ReadyState: {ready})")
+                    break
+                elif "chrome-error://" in str(curr_url):
+                    print(f"[-] [Worker {self.instance_id}] Network error ({curr_url}). Retrying navigation...")
+                    await self.cdp.call("Page.navigate", {"url": target})
+                    await asyncio.sleep(1.0)
+                elif str(curr_url) == "about:blank" and step >= 6 and step % 6 == 0:
+                    print(f"[*] [Worker {self.instance_id}] Re-triggering navigation to {target} (still on about:blank)...")
+                    await self.cdp.call("Page.navigate", {"url": target})
+            except Exception:
+                pass
+
+        if not nav_confirmed:
+            print(f"[-] [Worker {self.instance_id}] Navigation confirmation warning; continuing with evaluation...")
 
         # Step 2: Wait for Turnstile passive clearance before entering Multiplayer
         print(f"[*] [Worker {self.instance_id}] Queuing for Turnstile clearance slot...")
@@ -884,7 +935,9 @@ def main():
     parser.add_argument("--count", type=int, default=1, help="Number of concurrent bot instances to run (default: 1)")
     parser.add_argument("--multi", type=int, default=0, help="Alias for --count: run N concurrent bots")
     parser.add_argument("--ensure-accounts", type=int, default=0, help="Ensure at least N verified accounts exist before running")
-    parser.add_argument("--auto-generate", action="store_true", help="Auto-generate accounts if index exceeds pool")
+    parser.add_argument("--auto-generate", action="store_true", help="Automatically generate accounts if insufficient verified accounts exist")
+    parser.add_argument("--proxies", type=str, default="", help="Path to proxy list (optional, default: none / direct)")
+    parser.add_argument("--use-proxy", action="store_true", help="Enable proxy routing for browser instances")
     args = parser.parse_args()
 
     # Pre-provision account pool if requested
@@ -898,6 +951,14 @@ def main():
     auto_prov = args.auto_generate or (args.ensure_accounts > 0)
     bot_count = max(args.count, args.multi, 1)
     names_list = load_names(args.names or None)
+
+    use_proxy = args.use_proxy or bool(args.proxies)
+    pm = None
+    if use_proxy:
+        p_file = args.proxies if args.proxies else "proxy.txt"
+        pm = ProxyManager(proxy_file=p_file, auto_dynamic=False)
+        if pm.count() > 0:
+            print(f"[*] Loaded {pm.count()} proxy endpoint(s) from '{pm.proxy_file}'")
 
     if bot_count > 1:
         # Multi-bot execution mode with Centralized Synchronization Coordinator
@@ -922,6 +983,7 @@ def main():
             acc_name, acc_pass, nick = load_verified_account(i, auto_provision=auto_prov, names_file=args.names or None)
             assigned_nick = args.username if (args.username and bot_count == 1) else (nick or names_list[i % len(names_list)])
             port = CDP_PORT + i
+            assigned_proxy = pm.get_proxy(i) if (pm and pm.count() > 0) else None
             runner = TerritorialAutomation(
                 account_name=acc_name,
                 password=acc_pass,
@@ -933,7 +995,8 @@ def main():
                 cdp_port=port,
                 instance_id=i,
                 coordinator=coordinator,
-                turnstile_semaphore=turnstile_sem
+                turnstile_semaphore=turnstile_sem,
+                proxy=assigned_proxy
             )
             runners.append(runner)
 
@@ -973,6 +1036,7 @@ def main():
         acc_nick = names_list[0]
 
     coordinator = LobbyCoordinator(target_count=1, target_map=args.map, mode=args.mode)
+    assigned_proxy = pm.get_proxy(args.account_index) if (pm and pm.count() > 0) else None
     runner = TerritorialAutomation(
         account_name=acc_name,
         password=acc_pass,
@@ -983,7 +1047,8 @@ def main():
         username=acc_nick,
         cdp_port=CDP_PORT,
         instance_id=0,
-        coordinator=coordinator
+        coordinator=coordinator,
+        proxy=assigned_proxy
     )
 
     async def run_single():

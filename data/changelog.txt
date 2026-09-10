@@ -1,0 +1,531 @@
+11 Jul 2026 [2.16.8]
+a) Bug fixes
+
+7 Jun 2026 [2.16.2]
+a) Zombs harder
+b) No dono to zombs
+c) Limit dono in zomb mode
+
+31 May 2026 [2.16.0]
+a) Email verification added
+b) Zombie leaderboard added
+c) Zombies can be boosted
+
+15 May 2026 [2.15.25]
+a) Softer Highlighting & Intensity Settings
+
+12 May 2026 [2.15.23]
+2.15.21 b) has been reverted according to a community poll
+
+10 May 2026 [2.15.21]
+a) Highlight territory
+b) Limited territorial expansion speed
+
+19 Apr 2026 [2.15.18]
+a) Ships can reach water areas connected by a single adjacent water pixel.
+b) Added new map "Mare Nostrum" (created by [OG] Neutronian).
+c) Neutral nations now have a new spawn background shadow color.
+
+12 Apr 2026 [2.15.17]
+a) Fixed an issue where Hindi characters (Devanagari) were not displayed correctly.
+b) 8-team mode has been removed from multiplayer.
+
+5 Apr 2026 [2.15.15]
+a) Bot players are now neutral in multiplayer team games.
+
+10 Mar 2026 [2.15.14]
+a) All 1v1 winners now earn gold, with the reward scaling based on the winner's Elo.
+
+9 Mar 2026 [2.15.13]
+a) 1v1 players with 80 or more Elo earn gold for each game they win.
+
+26 Feb 2026 [2.15.11]
+a) Minor improvements.
+b) Added "Lobby 2" button.
+c) A lobby vote is only valid if at least 3 players vote for the same option.
+
+22 Feb 2026 [2.15.9]
+a) Lobby: Maps and team numbers can now be voted on in the lobby chat.
+
+7 Feb 2026 [2.15.7]
+a) Performance optimizations (improved text rendering)
+b) Fixed font rendering bug in Chrome on macOS
+c) New default font: system-ui (replaces sans-serif)
+
+3 Dec 2025 [2.14.3]
+a) Show account names when clicking the leaderboard
+
+26 Nov 2025 [2.13.7]
+a) Critical Bug Fix, when using the "log in with a different account"
+
+26 Nov 2025 [2.13.6]
+a) Password strength has been changed from 48 to 90 bit.
+b) Territorial.io API added: https://territorial.io/wiki/api
+
+21 Nov 2025 [2.13.5]
+a) new wiki: https://territorial.io/wiki/clans
+b) some other fixes, updates and security improvements.
+
+3 Oct 2025 [2.13.0]
+a) Propaganda Feature added.
+
+23 Sep 2025 [2.12.5]
+a) The Territorial.io chat is permanently mirrored to Discord to enhance transparency and accountability.
+
+17 Sep 2025 [2.12.5]
+a) Blue Selection Bug on MacOs fixed
+b) Custom Map Bug on iOS fixed
+c) iOS app updated
+d) Wikis added at territorial.io/wiki
+e) Banks (top 60 wealthy players) pay lower fees
+
+27 Aug 2025 [2.11.8]
+a) Top Right Chat Box Bug fixed.
+b) Temporarely remove gold income for 1v1 games to prevent cheating.
+c) Updated how peace call works to prevent cheating.
+d) Show account names in 1v1 logs in Discord
+e) River completed in new British Isles map
+f) Blockchain: More fees, if the block chain gets spammed.
+Thanks for the feedback, Dr. Yes and oi
+
+25 Aug 2025 [2.11.6]
+a) New map: World 2
+b) New map: Britain & Ireland
+c) Higher Elo decay for top 100 1v1 players
+d) Blockchain channel in Discord added
+Thank you for the map idea, Fakeaccount12312
+Also thanks to viktorexe (https://terripetition.vercel.app/)
+
+16 Aug 2025 [2.11.3]
+a) Fixed: A language bug in the settings
+Thanks for flagging this, Ruin (d6451953@gmail.com)!
+
+13 Aug 2025 [2.11.0]
+a) Some in-game UI changes (Left Popup and Pie Chart)
+b) Languages came back.
+
+10 Aug 2025 [2.10.4]
+a) Updated how bots support other players.
+b) Simple Account Follow Feature (followed accounts saved as cookies)
+c) Languages removed
+d) Some other smaller changes
+
+30 Jul 2025 [2.10.3]
+a) Better clan leader protection against reports
+b) Chat Window Update for mobile devices
+c) Ship Bug fixed when 0 territory
+
+27 Jul 2025 [2.10.0]
+a) More anti-cheating measures
+
+18 Jul 2025 [2.09.1]
+a) Boat interception bug fixed
+b) Replay bug fixed
+c) Game Log: Show supports
+d) Zomb Boat Red Color
+e) Zombs harder
+f) Rivers in Caucasia Map: now navigable
+g) Some other fixes
+
+14 Jul 2025 [2.09.0]
+a) New simplified boating mechanism for interceptions.
+b) New path finder algorithm for boats.
+c) Some smaller improvements.
+
+4 Jul 2025 [2.08.9]
+a) Stealth-reports have been removed.
+b) Some fixes.
+
+3 Jul 2025 [2.08.8]
+a) Some fixes.
+
+30 June 2025 [2.08.6]
+a) Top 100 1v1 players receive a daily gold payout.
+b) 1v1 players no longer receive gold in 1v1 games.
+
+24 June 2025 [2.08.0]
+a) Lobby Update: Admins no longer receive gold when moderating a user.
+b) Some smaller bug fixes and improved server robustness.
+
+22 June 2025 [2.07.9]
+a) Lobby Update: Admins can now be stealth-reported.
+b) Zomb mode easier.
+
+21 June 2025 [2.07.6]
+a) Improved lobby security.
+b) Clan leader bug fixed.
+
+20 June 2025 [2.07.5]
+a) Admins now receive 5 gold for each administrative action.
+b) Users lose 5 gold per violation when administrated or reported.
+d) Improved server security.
+
+20 June 2025 [2.07.4]
+a) Admins can no longer deduct gold or ELO points.
+b) The report mechanism has been updated.
+c) Improved server security.
+
+13 May 2025 [2.06.9]
+a) Server improvements.
+
+27 Mar 2025 [2.06.8]
+a) Thanks to Platz1de: Game Log added
+b) 1v1 players earn more gold depending on their Elo score.
+
+26 Mar 2025 [2.06.7]
+a) Lobby improvements.
+b) Audit log added.
+c) Winning clan members earn 20% instead of 40% more gold.
+d) Clan leaders earn 4% of all income earned in games (not only team games) of their primary members, and 2% of their secondary members.
+e) Some other improvements.
+
+23 Mar 2025 [2.06.6]
+a) Lobby: No double punishments.
+b) Patreon transactions shown in Blockchain (Search for the CRTOR account).
+c) Some other improvements.
+
+19 Mar 2025 [2.06.2]
+a) Some improvements.
+
+18 Mar 2025 [2.06.1]
+a) Boats are faster now.
+b) Bug Fix: Bots are now able to find the last neutral pixel.
+c) Change password bug fixed.
+d) Patreon membership improved.
+
+17 Mar 2025 [2.06.0]
+a) Patreon subscriptions and leaderboard added.
+
+12 Mar 2025 [2.05.9] 
+a) The zombie mode was made a bit easier if there are more than 22 human players.
+b) Meaning that the number of red zombie bots was slightly reduced.
+c) It should still be hard, but not that hard.
+d) Such updates can cause temporary sync problems and old zombie game replays might not work correctly anymore.
+
+9 Mar 2025 [2.05.4]
+a) Gold transactions now incur a fee of 1% of the transferred value.
+b) Rich players can no longer deduct gold in the lobby.
+c) Additional improvements.
+
+8 Mar 2025 [2.05.0] 
+a) Zombie mode is easier if there are fewer than 40 players, harder otherwise.
+b) Some fixes.
+
+4 Mar 2025 [2.04.5]
+a) Some fixes.
+
+27 Feb 2025 [2.04.4]
+a) Some lobby improvements.
+
+19 Feb 2025 [2.04.2]
+a) Double zombie mode earnings.
+b) Clan member points small display update.
+c) Some other small improvements.
+
+15 Feb 2025 [2.03.9]
+a) Some lobby improvements.
+b) Zombie difficulty adjusted again.
+
+13 Feb 2025 [2.03.7]
+a) Some bug fixes.
+b) Mention a user in the lobby.
+c) Mention all users of a clan: @[CLAN]
+d) Mention all users speaking a specific language: @fr, @en, @ru, @tr, ...
+e) Mention a sublobby: @room3
+f) Mention all playes: @all, @everyone
+g) Link mentions: Mention all french speaking users of room 2: @room2 @fr
+h) Link mentions: Mention all Russian and Turkish players: @ru @tr
+i) Next contests messages fixed.
+j) More in-game tips added.
+k) Clan leader points bug fixed: Clan leaders lose points every day.
+l) Show IP hash in lobby.
+m) Show online status in lobby.
+n) terms updated: https://territorial.io/terms
+
+3 Feb 2025 [2.03.5]
+a) Wrong clan winning points: fixed.
+
+2 Feb 2025 [2.03.3]
+a) Translation bugs fixed.
+
+1 Feb 2025 [2.03.2]
+a) Updated conditions for triggering the automatic peace vote.
+b) Some smaller fixes.
+
+31 Jan 2025 [2.02.8]
+a) Bot improvements: improved support system
+b) Automatic peace vote display
+c) Some other smaller fixes
+
+29 Jan 2025 [2.02.7]
+a) Some smaller fixes.
+b) Due to a bug, all accounts and clans have been reset to their status from 3 hours ago.
+
+28 Jan 2025 [2.02.6]
+a) Some smaller fixes.
+
+26 Jan 2025 [2.02.5]
+a) Some lobby changes: Show gold of user, 1 Day censorships
+b) Some other smaller fixes.
+
+25 Jan 2025 [2.02.4]
+a) Some lobby improvements and fixes.
+b) Some other fixes.
+
+22 Jan 2025 [2.02.3]
+a) New leaderboards and roles added: "Wealthy Player" and "Battle Royale"
+b) Some other improvements and fixes.
+c) Zombie mode easier.
+
+18 Jan 2025 [2.02.2]
+a) Zombie mode updated.
+b) From now on only the best clan earns points.
+c) Some other clan changes.
+d) Some lobby fixes.
+
+15 Jan 2025 [2.01.7]
+a) Zombie mode updated: Harder.
+b) Reports can also lead to short-term username redactions.
+c) Some other improvements and fixes.
+
+13 Jan 2025 [2.01.6]
+a) Very new accounts can't send messages in the lobby.
+b) Limited number of reports and moderations.
+c) Better chat feedback system.
+d) Better spam filter.
+e) Faster moderation actions with short keys 1-9
+
+12 Jan 2025 [2.01.3]
+a) Display clan member count in lobby.
+b) Scroll position in chat fixed.
+c) Other chat improvements.
+d) Improved lobby security.
+e) Lobby: Hover Panel added.
+
+11 Jan 2025 [2.00.8]
+a) Admins can no longer kick players who are rank 200 or lower.
+b) Usernames are now available for all players.
+c) Limited chat is now available for all players.
+d) Lower ranked players can censor and mute higher ranked players with a gray color.
+e) Some other improvements.
+
+9 Jan 2025 [2.00.2]
+a) Lobby Update: Chat and admin system added.
+
+25 Dec 2024 [1.99.9.9]
+a) Old game versions are available at territorial.io/n, where n is the version number, starting at 0.
+
+24 Dec 2024 [1.99.9.8]
+a) Custom Scenario bugs fixed.
+b) Replay bugs fixed.
+c) Some other small improvements.
+
+23 Dec 2024 [1.99.8.6]
+a) Custom Scenario Menu has been added.
+b) Replays now work for custom maps.
+
+12 Dec 2024 [Server Update]
+a) Simple hate speech filter added.
+
+17 Nov 2024 [1.99.8.3]
+a) Ship exploit has been fixed.
+
+14 Nov 2024 [1.99.8.1]
+a) In-game statistics fixed and extended
+b) Shortcut key settings added
+c) Ship selection radius increased depending on zoom level
+d) Ship action messages like "Ship Launched!"
+e) UI fixes
+f) Some other small fixes
+
+9 Oct 2024 [1.99.7.9]
+a) Some small fixes.
+
+15 Sep 2024 [1.99.7.6]
+a) Mountain attacks added. Click on bordering mountains to launch mountain attacks.
+b) New map added: "Mountains 2"
+
+9 Sep 2024 [1.99.7.4]
+a) Profile descriptions added.
+
+1 Sep 2024 [1.99.7.0]
+a) Language algo version 1.2.
+
+31 Aug 2024 [1.99.6.9]
+a) Language algo version 1.1: Improved language algo.
+
+28 Aug 2024 [1.99.6.8]
+a) Lists and logs added.
+b) Account system refined.
+c) Each account now has its own query string: https://territorial.io/?account=CRTOR
+d) Language algo version 1.0: The game is automatically translated to every major language.
+
+11 Aug 2024 [1.98.6]
+a) Peace vote can now be called by top 10 players!
+b) Some small fixes and improvements.
+
+10 Aug 2024 [1.98.5]
+a) Border attacks always conquer at least one "row" of pixels.
+b) Boats always have an initial strength of at least 60.
+c) "Sticky" boats when attacked.
+d) Replay file fix.
+e) Some small fixes and improvements.
+
+7 Aug 2024 [1.98.1]
+a) Zombie mode easier now.
+b) Some small fixes and improvements.
+
+30 Jul 2024 [1.97.5]
+a) Sticky mouse drag fixed when game was paused.
+b) Game ending camera for team games fixed.
+
+29 Jul 2024 [1.97.3]
+a) Default usernames changed from "" to "Player nnn".
+b) Yellow sword for single player fixed.
+c) Clan points didn't count sometimes. Fixed now.
+
+27 Jul 2024 [1.97.2]
+a) New UI element in the landing page: rankings
+b) New ranking window: top clan members
+c) soft keyboard fix for mobile? If not contact davidtschacher@gmail.com
+
+19 Jul 2024 [1.97.1]
+a) Clan chart bugs removed.
+b) Code cleaning. 
+c) White screen bug fix attempt.
+
+13 Jul 2024 [1.97.0]
+a) iOS offline version UI bug fix.
+b) Android memory leak bug fix.
+
+27 Jun 2024 [1.96.4]
+a) Clan statistics have been added.
+
+4 Jun 2024 [1.95.1]
+a) Improved emoji window.
+b) Boat update has been reverted back after several complaints.
+c) Support is visualized by a green bold font.
+
+28 May 2024 [1.94.8]
+a) New emojis and flags added.
+b) The B key in combination with the cursor spawns ships.
+c) New stalemate and victory procedure.
+
+13 May 2024 [1.94.5]
+a) Due to a server bug, all accounts have been reset to their status as of May 7.
+
+30 Apr 2024 [1.94.3]
+a) Accounts extended by the Gold attribute.
+b) Now the space key also changes the percentage bar.
+c) Troop counter colors improved.
+
+3 Apr 2024
+a) Security update 4.1
+b) Corrupt Replays fixed.
+c) Privacy button bug fixed.
+d) Space attack improved.
+
+2 Apr 2024
+a) Security update 4.0
+b) Account System 1.0
+c) New Usernames: All Characters are allowed to let users better express themselves.
+
+21 Mar 2024 [1.93.2]
+a) The settings have been extended by the language option. Which new languages shall be added?
+b) The space key is used to attack the country at which the mouse is pointing.
+c) The WASD keys have been brought back to control your balance.
+
+20 Mar 2024 [1.93.1]
+a) UI update
+b) Please report bugs of this update to davidtschacher@gmail.com
+
+24 Feb 2024 [1.92.9]
+a) Limited attack game variant has been brought back.
+b) If over 50% of players are from the same clan, additional members from that clan will be moved to the other team.
+c) iOS bug fixed: Improved game reloading after game updates.
+d) Zombie and 1v1 modes appear more frequently in the lobby.
+e) Replay links appear in the replay window.
+f) Security update 3.1
+g) Base64 error: new error handling
+
+22 Feb 2024 [1.92.4]
+a) Security update 3.
+b) If over 50% of players are from the same clan, additional members from that clan will be barred from entering the game.
+c) Improved handling of tab and window switching.
+
+20 Feb 2024 [1.92.0]
+a) Security update 2.
+
+19 Feb 2024 [1.91.9]
+a) Security update 1.
+b) The default resolution has been increased.
+
+18 Feb 2024 [1.91.7]
+a) The "sync bug" has been fixed.
+
+15 Feb 2024 [1.90.3]
+a) A new map has been added: Australia
+b) Zombies have been further nerfed.
+
+10 Feb 2024 [1.90.1]
+a) Space-attack has been added again, but attacks now neutral squares only.
+
+10 Feb 2024 [1.89.9]
+a) Ads for browsers have been added.
+b) Space-attack has been removed because of sync bugs.
+
+4 Feb 2024 [1.89.9]
+a) TV bug fixed.
+
+3 Feb 2024 [1.89.8]
+a) 1vs1 games and zombie games appear more frequently in the lobby.
+b) The point system for the clans was updated: Clans win now more points in games, but they lose also more points over time.
+
+2 Feb 2024 [1.89.7]
+a) In-Game messages repaint bug fixed.
+b) Space key conquers random nation.
+c) Replay window can't be openend in custom scenarios.
+d) https://territorial.io/clans now refreshing every 2 minutes.
+
+1 Feb 2024 [1.89.6]
+a) Clicking in-game messages containing links opens them.
+b) The zombie mode is easier now.
+c) If a clan has more members than NumberHumans/NumberTeams, NumberTeams is decreased until the formula is right. This logic was already there, but now it is done server side instead client side.
+
+31 Jan 2024 [1.89.5]
+a) The territorial.io server performance was improved.
+b) Clan results can now be accessed under territorial.io/clan-results.
+c) In-Game messages updated: Now shows links to clan-results after game ending.
+d) Attack icon bug fixed: Not showing if the nation can't be attacked.
+e) Contact page added: territorial.io/contact
+f) Discord bot updated.
+g) In-Game messages updated: Prevent too many messages.
+h) territorial.io/tutorial updated
+
+b) The zombie mode is easier now.
+c) If a clan has more members than NumberHumans/NumberTeams, NumberTeams is decreased until the formula is right. This logic was already there, but now it is done server side instead client side.
+
+30 Jan 2024 [1.89.4]
+a) Now no longer only the first clan of a winning team earns points. The top 8 clans win points based on their territory.
+b) Game icon: Question mark replaced by pointing man.
+c) 1vs1 mode frequency increased to below 2 minutes in the lobby.
+d) Zombie mode has been updated: This is now a 100% human vs bots game mode. There are no friendly bots anymore.
+e) Zombie names have been updated.
+
+21 Jan 2024 [1.89.3]
+a) Ship Visibility Bug Fixed: Ships will no longer be suddenly hidden at the screen's edge.
+b) Right-Click on a Ship: Now reveals ship information such as name and balance.
+c) Two-Finger Tap on Touch Devices: This is now equivalent to a right-click on desktop devices.
+d) Updated Ship Battle System: The closer two enemy ships are to each other, the more damage they deal.
+e) Chat Emoji Limit: A player can see no more than 3 emojis in the chat to prevent spamming.
+
+20 Jan 2024 [1.89.2]
+a) Ship Bug Fixed: You can now cross 1-pixel rivers.
+b) Zoom-In Feature: When zoomed in, ships display the player's name under the balance.
+c) Expanded Map Compatibility: Ships now function on maps larger than 1024x1024.
+
+17 Jan 2024 [1.89.1]
+a) Asia Map Added: A map of Asia is now available.
+b) Improved Percentage Bar: Now accurately shows the percentage of the attack.
+c) Lobby Map Display Logic: The logic for displaying maps in the lobby has been changed.
+d) Mouse Wheel Scrolling: Map scrolling intensity with mouse wheels was decreased by 10%.

@@ -1,0 +1,202 @@
+The Territorial Tutorial
+
+Last Update: 28 Jul 2024
+
+
+
+1. Frequently Asked Questions (Q & A)
+
+
+
+QUESTION: Do clans lose points if they don't play?
+
+Answer: Yes. Clans experience a small percentage loss for each alliance game in which clans gained points. For a more detailed explanation of how the clan system operates, please refer to Section 7.
+
+
+
+QUESTION: How can I join a clan?
+
+Answer: In the username box, type your desired username in the format "[CLAN] user", replacing "CLAN" and "user" as you wish. The clan's ranking is visible on the clan leaderboard. Note that a clan's name must be under 8 letters in length. Players sharing the same clan tag are always placed on the same team.
+
+
+
+QUESTION: How do I create a clan?
+
+Answer: To create a clan, follow the same steps as outlined in the previous answer. Your clan will appear on the clan leaderboard once it wins at least one alliance game. Clans scoring below 0.001 points are purged from the leaderboard daily.
+
+
+
+QUESTION: The game tends to lag, particularly when the map is zoomed out. 
+
+Answer: To improve performance, you can try reducing the resolution in the settings. Additionally, in the Android app, you might sometimes need to tap the "Force Restart" button to eliminate lags.
+
+
+
+QUESTION: Why is the game so blurry?
+
+Answer: Go to the main menu, click on "More", select "Settings" and increase the resolution there.
+
+
+
+QUESTION: How can I play only with my friends?
+
+Answer: To play only with friends, navigate to the main menu, select "More," and choose lobby 2. This lobby tends to have fewer active players, making it an ideal place for friend matches.
+
+
+
+QUESTION: How do I reset my settings?
+
+Answer: To reset your settings, click on the "More" button. Then, navigate to "Settings" and select "Reset Settings".
+
+
+
+QUESTION: When do special games take place?
+
+Answer: Special contests occur every 15 minutes, starting at the top of the hour.
+
+
+
+QUESTION: How do I create a one-vs-one account?
+
+Answer: Your one-vs-one account is automatically generated. If playing in a browser, ensure cookies are enabled. You can retrieve your account password in the main menu by typing "password" into the username field. A number other than 0 confirms a valid account. Safeguard your password to maintain account access after app deletion or cookie clearing. Lost passwords necessitate ELO rebuilding from scratch. Accounts inactive for over a month lose one ELO point daily and are deleted once they reach 0 ELO.
+
+
+
+QUESTION: How can I transfer my one-vs-one account from mobile to desktop?
+
+Answer: Retrieve your password as previously described from your mobile device. Then go to your desktop computer and open the game. Navigate to the username box, enter "password" and press enter, replace the existing password, and press enter. This process is reversible for desktop-to-mobile transfers.
+
+
+
+QUESTION: How can I change the color of my territory?
+
+Answer: To change your territory's color, click the color grid icon in the main menu's bottom left corner. Here, you can adjust the RGB values to your preference.
+
+
+
+QUESTION: How can I create my own maps?
+
+Answer: Users can upload and play on custom maps in single-player mode. In the main menu, select "Singleplayer", then press the "Custom" button to choose an image file, such as a PNG image, from your device. Refer to Section 6 for comprehensive information on creating custom scenarios.
+
+
+
+QUESTION: Is it possible to report users with offensive usernames?
+
+Answer: For immediate relief from offensive usernames, enable "Hide Usernames" in the main menu. To formally report an issue, refer to the contact information in Section 9.
+
+
+
+QUESTION: How can I report a bug?
+
+Answer: Bug reports can be submitted via the email address listed in Section 9.
+
+
+
+QUESTION: How can I support Territorial.io?
+
+Answer: Support Territorial.io by playing the game, creating content, and sharing it within the gaming community. To facilitate video creation, take advantage of the replay feature, which allows you to save and revisit important games.
+
+
+
+
+2. The balance
+
+Your balance, displayed within a mostly green rectangle at the screen's top, steadily increases up to a maximum dictated by your territorial size. The balance also appears on the map, positioned below or above usernames. This placement allows for constant visibility of both your and other players' balances.
+Your balance generates interest income, with higher balances yielding greater returns. Balance also dictates your attack investment, adjustable via a percentage bar at the screen's bottom, and represents your defensive strength.
+The balance encapsulates economic, population, and military facets of gameplay.
+
+
+
+3. Borders
+
+Consideration of bordering nations is crucial when conquering new territories, as sometimes retaining a weak intermediary nation between you and a powerful foe is advantageous. Efficient strategies involve minimizing border expanses and utilizing natural barriers like mountains and oceans.
+To fully conquer a nation, your attack forces must double the enemy's defense forces.
+
+
+
+4. Maximum income
+
+I, the creator of Territorial.io, would like to briefly discuss the concept of maximum income here. You might have noticed that your interest income can significantly exceed your territorial income. The maximum balance you can achieve is 150 times your pixel count, while maximum interest income is attained when your balance equals 100 times your pixel count. Once peak income is reached, your balance will turn red, indicating that further income increases are only possible through territorial expansion.
+
+To illustrate this with an example: suppose you control 1000 pixels. Your maximum income occurs at a balance of 100 x 1000 = 100,000. If your balance falls below or rises above 100,000, your interest income diminishes. In this scenario, your maximum balance would be 150 x 1000, or 150,000.
+
+It's important to note that the interest rate decreases at the game's onset, and it is proportional to the size of your territory.
+
+In one-vs-one endgames, especially when territories are equally distributed, my recommended strategy is to launch repeated attacks at the point of maximum income, which is when your balance turns red.
+
+
+
+5. Taxes, Fees, and Charges
+
+You can refer to them in various ways, but the game includes several hidden costs that you should be aware of:
+
+Land Attacks: Each land attack costs you 1.17% of your balance, calculated as (100 * 12 / 1024)%.
+
+Spawning New Boats: Each new boat spawned costs 3.125% of your balance, calculated as (100 * 32 / 1024)%.
+
+Relocating Boats: Sending a boat to a new location costs you 0.78% of your balance, calculated as (100 * 8 / 1024)%.
+
+Supporting an Ally: Supporting an ally costs you 6.25% of your balance, calculated as (100 * 64 / 1024)%, plus an additional tax. This extra tax initially starts at (100 - 6.25)% and steadily decreases to 0% over the next two minutes.
+
+Note: There are no other taxes besides these.
+
+Strategy Tip: To minimize the impact of these costs, avoid unnecessary or frequent attacks. Instead, adopt a strategy that is economical with your attacks to optimize your expenditures.
+
+
+
+6. Custom Single-Player Scenarios
+
+Create custom maps and scenarios using JSON files, specifying player details like spawn coordinates, colors, and team IDs. Note: Water is defined by blue values exceeding red and green values, and mountains by equal red, green, and blue values (gray).
+
+To use your custom scenario, go to the single-player menu in the game, and drag and drop your .json file or upload it via the "Custom" button.
+
+Example JSON files are available for download:
+https://territorial.io/demo0
+https://territorial.io/demo1
+
+
+
+7. Clan Points Calculation
+
+In our scoring system, all clans undergo a small percentage reduction in their points each time a clan wins points. This reduction is calculated using the following formula:
+
+NewClanPoints = OldClanPoints * (10 / (10 + 1.9 * SumPoints)
+
+Where:
+- SumPoints is the sum of all points that have been collected (further explanation needed, the (64 - OldClanPoints) factor has been eliminated from the summands)
+- TeamTerritory is the total territory controlled by the winning team.
+- NumberOfHumans refers to the number of human players in the game.
+
+Conversely, when a clan wins a game, the new points are calculated as follows:
+
+NewClanPoints = OldClanPoints + Contest * (ClanTerritory / TeamTerritory) * (64 - OldClanPoints) * NumberOfHumans / 18000
+
+Where:
+- ClanTerritory is the territory controlled by the specific clan in the winning team.
+- Contest is normally set to 1 but increases to 2 for games designated as contests.
+
+These formulas ensure that the point system remains balanced, especially in games with varying numbers of players.
+
+(Formula could slightly differ in some cases for security reasons.)
+
+
+
+8. Links
+
+Territorial.io: https://territorial.io
+The Territorial Tutorial: https://territorial.io/tutorial
+Discord: https://discord.gg/pthqvpTXmh
+Player List: https://territorial.io/players
+Clan List: https://territorial.io/clans
+Android App: https://play.google.com/store/apps/details?id=territorial.io
+iOS App: https://apps.apple.com/app/id1581110913
+YouTube: https://www.youtube.com/watch?v=toZTQ8aRdFc
+Instagram: https://www.instagram.com/davidtschacher/
+Privacy Policy: https://territorial.io/privacy_policy
+Cookie Policy: https://territorial.io/cookie_policy
+
+
+
+9. Contact Information
+
+If you have more questions, please contact us at this email address: davidtschacher@gmail.com

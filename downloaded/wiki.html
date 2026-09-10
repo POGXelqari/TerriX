@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>Gold – Territorial.io Wiki</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="https://territorial.io/favicon.png">
+  <meta name="theme-color" content="#1c1f24">
+  <style>
+    :root {
+      --bg: #0f1115;
+      --bg-soft: #141821;
+      --panel: #1a1f2a;
+      --panel-2: #202636;
+      --text: #e7ecf3;
+      --text-dim: #b8c0cc;
+      --link: #7ec7ff;
+      --accent: #38d27a;
+      --border: rgba(255, 255, 255, 0.08);
+      --shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+      --maxw: 1100px;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%
+    }
+
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, var(--bg) 0%, #0f131a 100%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Inter, Arial, sans-serif;
+      line-height: 1.6;
+    }
+
+    a {
+      color: var(--link);
+      text-decoration: none
+    }
+
+    a:hover {
+      text-decoration: underline
+    }
+
+    header.site {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(15, 17, 21, .9);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+      box-shadow: var(--shadow)
+    }
+
+    .site-inner {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px
+    }
+
+    .logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, .35);
+      object-fit: cover;
+      background: #111
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 2px
+    }
+
+    .brand b {
+      font-size: 18px
+    }
+
+    .brand span {
+      font-size: 12px;
+      color: var(--text-dim)
+    }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      column-gap: 22px;
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 18px 16px 14px
+    }
+
+    .sidebar {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      position: sticky;
+      top: 76px;
+      box-shadow: var(--shadow)
+    }
+
+    .filter {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 10px;
+      margin-bottom: 10px
+    }
+
+    .filter input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: 14px
+    }
+
+    .nav ul {
+      list-style: none;
+      margin: 0;
+      padding: 0
+    }
+
+    .nav li {
+      margin: 4px 0
+    }
+
+    .nav a {
+      display: block;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid transparent
+    }
+
+    .nav a:hover {
+      background: var(--panel-2);
+      border-color: var(--border);
+      text-decoration: none
+    }
+
+    main {
+      min-width: 0
+    }
+
+    article {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+      overflow-wrap: anywhere;
+      word-break: break-word
+    }
+
+    article h1 {
+      margin-top: 0;
+      font-size: 30px;
+      line-height: 1.2
+    }
+
+    article h2 {
+      margin-top: 28px;
+      font-size: 22px
+    }
+
+    article h3 {
+      margin-top: 20px;
+      font-size: 18px
+    }
+
+    .lead {
+      color: var(--text-dim)
+    }
+
+    .callout {
+      background: var(--panel-2);
+      border-left: 4px solid var(--accent);
+      padding: 12px 14px;
+      border-radius: 12px;
+      margin: 14px 0
+    }
+
+    .toc {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin: 14px 0 20px
+    }
+
+    .toc b {
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--text-dim)
+    }
+
+    .toc ol {
+      margin: 8px 0 0 18px;
+      padding: 0
+    }
+
+    code,
+    pre {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 2px 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace
+    }
+
+    pre {
+      padding: 12px;
+      overflow: auto
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border)
+    }
+
+    th {
+      text-align: left;
+      color: var(--text-dim);
+      font-weight: 600
+    }
+
+    img,
+    table,
+    input,
+    button {
+      max-width: 100%
+    }
+
+    footer {
+      max-width: var(--maxw);
+      margin: 10px auto 12px;
+      color: var(--text-dim);
+      font-size: 14px;
+      padding: 0 16px 12px
+    }
+
+    footer .line {
+      border-top: 1px solid var(--border);
+      margin: 12px 0 10px;
+      opacity: .8
+    }
+
+    @media (max-width:880px) {
+      .wrap {
+        grid-template-columns: 1fr
+      }
+
+      .sidebar {
+        position: static;
+        order: 2;
+        margin-top: 12px
+      }
+
+      article {
+        order: 1
+      }
+
+      table {
+        display: block;
+        overflow-x: auto
+      }
+    }
+
+    .mini {
+      font-size: 12px;
+      color: var(--text-dim)
+    }
+  </style>
+</head>
+
+<body>
+  <header class="site">
+    <div class="site-inner">
+      <img class="logo" src="https://territorial.io/favicon.png" alt="Territorial.io icon">
+      <div class="brand">
+        <b>Territorial.io Wiki</b>
+        <span>Gold • economy, titles, nightly decay</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <aside class="sidebar">
+      <div class="filter">
+        <input id="navFilter" type="search" placeholder="Filter pages…">
+      </div>
+      <nav class="nav" aria-label="Wiki navigation">
+        <ul id="navList">
+          <li><a href="https://territorial.io/wiki/api">API</a></li>
+          <li><a href="https://territorial.io/wiki/clans">Clans</a></li>
+          <li><a href="https://territorial.io/wiki/faq">FAQ</a></li>
+          <li><a href="https://territorial.io/wiki/gold">Gold</a></li>
+          <li><a href="https://territorial.io/wiki/propaganda">Propaganda War</a></li>
+          <li><a href="https://territorial.io/wiki/reports">Report War</a></li>
+          <li><a href="https://territorial.io/wiki/transactions">Transactions</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <main>
+      <article id="content">
+        <h1>Gold</h1>
+        <p class="lead">Gold is your persistent currency. It determines your <b>title</b> (shown in the account view).
+          It also decays a little each night to prevent infinite hoarding.</p>
+
+        <p class="lead">You earn gold by playing and winning games. If an account reaches <b>0 gold</b>, it may be
+          <b>automatically
+            deleted by the system</b>.
+        </p>
+
+        <p class="lead">Accounts can transfer gold to each other. <b>Banks</b> (top-ranked accounts) pay <b>lower
+            transaction
+            costs</b>.
+          See <a href="https://territorial.io/wiki/transactions">Transactions</a> for fee details and
+          examples.
+        </p>
+
+        <div class="toc" id="toc"><b>On this page</b>
+          <ol id="tocList"></ol>
+        </div>
+
+        <h2 id="titles">Titles (Account View)</h2>
+        <p>Two ways to receive a title:</p>
+        <ol>
+          <li><b>Top banks by rank</b> (richest first, <b>rank starts at 1</b>):
+            <ul>
+              <li><b>Large Bank</b> — ranks 1–10</li>
+              <li><b>Medium Bank</b> — ranks 11–30</li>
+              <li><b>Small Bank</b> — ranks 31–60</li>
+            </ul>
+          </li>
+          <li><b>By your Gold amount</b> (if you are not in the top 60):</li>
+        </ol>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Gold (≥)</th>
+              <th>Title</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>30,000.00</td>
+              <td>Capitalist</td>
+            </tr>
+            <tr>
+              <td>12,000.00</td>
+              <td>Rich Person</td>
+            </tr>
+            <tr>
+              <td>7,000.00</td>
+              <td>Landowner</td>
+            </tr>
+            <tr>
+              <td>3,000.00</td>
+              <td>Merchant</td>
+            </tr>
+            <tr>
+              <td>1,000.00</td>
+              <td>Taxpayer</td>
+            </tr>
+            <tr>
+              <td>500.00</td>
+              <td>Worker</td>
+            </tr>
+            <tr>
+              <td>200.00</td>
+              <td>Peasant</td>
+            </tr>
+            <tr>
+              <td>70.00</td>
+              <td>Serf</td>
+            </tr>
+            <tr>
+              <td>20.00</td>
+              <td>Daylaborer</td>
+            </tr>
+            <tr>
+              <td>3.00</td>
+              <td>Nomad</td>
+            </tr>
+            <tr>
+              <td>&lt; 3.00</td>
+              <td>Beggar</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="callout">
+          <b>Note:</b> If you are ranks 1–60 you always get a Bank title, regardless of your exact gold. Everyone else
+          gets a title by the thresholds above.
+        </div>
+
+        <h2 id="nightly">Nightly Gold Deduction</h2>
+        <ul>
+          <li><b>All players lose at least 0.50 gold per night.</b></li>
+          <li><b>Top ranks (1–90):</b> loss is the larger of <code>0.50</code> and
+            <code>rate(k) × gold</code> where <code>k = rank−1</code> and
+            <code>rate(k) = 0.00001 + 0.000001 × k</code>
+            <span class="mini">(0.001% at rank 1 up to 0.0099% at rank 90).</span>
+          </li>
+          <li><b>Everyone else (rank ≥ 91):</b> loss is the larger of <code>0.50</code> and <code>0.0001 × gold</code>
+            <span class="mini">(= 0.01%).</span>
+          </li>
+          <li>All calculations use cents internally and are floored to the next lower cent before applying, then capped
+            so you never go below 0.</li>
+        </ul>
+
+        <h2 id="calculator">Title & Nightly Loss Calculator</h2>
+        <form id="calc" onsubmit="return false" class="callout">
+          <label>Gold (e.g. 12345.67):<br>
+            <input id="inGold" type="text" inputmode="decimal" placeholder="12345.00" style="width:220px">
+          </label>
+          <br>
+          <label>Rank position (1 = richest):<br>
+            <input id="inRank" type="number" min="1" step="1" value="120" style="width:220px">
+          </label>
+          <br><br>
+          <button id="btnCalc" type="button">Compute</button>
+          <span id="outMsg" class="mini"></span>
+        </form>
+
+        <div id="calcResults" style="display:none">
+          <h3 id="result-header">Your Result</h3>
+          <table>
+            <tbody>
+              <tr>
+                <th>Parsed Gold</th>
+                <td id="rGold">—</td>
+              </tr>
+              <tr>
+                <th>Rank (1-based)</th>
+                <td id="rRank">—</td>
+              </tr>
+              <tr>
+                <th>Title</th>
+                <td id="rTitle">—</td>
+              </tr>
+              <tr>
+                <th>Nightly Loss</th>
+                <td id="rLoss">—</td>
+              </tr>
+              <tr>
+                <th>Rate Used</th>
+                <td id="rRate">—</td>
+              </tr>
+              <tr>
+                <th>After-Night Balance</th>
+                <td id="rAfter">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </article>
+    </main>
+  </div>
+
+  <footer>
+    <div class="line"></div>
+    © <span id="year"></span> Territorial.io — <a href="https://territorial.io/privacy">Privacy
+      Policy</a>
+  </footer>
+
+  <script>
+    (function () {
+      var yEl = document.getElementById("year");
+      if (yEl) { yEl.textContent = new Date().getFullYear(); }
+
+      var article = document.getElementById("content");
+      var tocList = document.getElementById("tocList");
+      if (article && tocList) {
+        var heads = article.querySelectorAll("h2, h3");
+        for (var i = 0; i < heads.length; i++) {
+          var h = heads[i];
+          if (!h.id) { h.id = "sec-" + (i + 1); }
+          var li = document.createElement("li");
+          if (h.tagName === "H3") { li.style.marginLeft = "14px"; }
+          var a = document.createElement("a");
+          a.href = "#" + h.id;
+          a.textContent = h.textContent.replace(new RegExp("\\s+#$"), "");
+          li.appendChild(a);
+          tocList.appendChild(li);
+        }
+      }
+
+      var input = document.getElementById("navFilter");
+      function filterNav() {
+        var q = input.value || "";
+        var re;
+        try { re = new RegExp(q, "i"); }
+        catch (e) { re = new RegExp(q.replace(new RegExp("[.*+?^${}()|[\\]\\\\]", "g"), "\\$&"), "i"); }
+        var items = document.querySelectorAll("#navList li");
+        for (var j = 0; j < items.length; j++) {
+          var a = items[j].querySelector("a");
+          var show = re.test(a ? a.textContent : "");
+          items[j].style.display = show ? "" : "none";
+        }
+      }
+      if (input) { input.addEventListener("input", filterNav, false); }
+
+      var TITLE_NAMES = [
+        "Large Bank", "Medium Bank", "Small Bank", "Capitalist", "Rich Person",
+        "Landowner", "Merchant", "Taxpayer", "Worker", "Peasant", "Serf", "Daylaborer", "Nomad", "Beggar"
+      ];
+
+      function parseGoldToCents(s) {
+        if (typeof s !== "string") { return null; }
+        var t = s.trim();
+        if (t.length === 0) { return null; }
+        if (new RegExp(",", "g").test(t) && !new RegExp("\\.", "g").test(t)) {
+          t = t.replace(new RegExp(",", "g"), ".");
+        } else {
+          t = t.replace(new RegExp(",", "g"), "");
+        }
+        var v = Number(t);
+        if (!isFinite(v) || v < 0) { return null; }
+        return Math.floor(v * 100 + 0.00001);
+      }
+
+      function fmtCents(c) {
+        var neg = c < 0 ? "-" : "";
+        c = Math.max(0, Math.floor(Math.abs(c)));
+        var whole = Math.floor(c / 100);
+        var cents = (c % 100).toString().padStart(2, "0");
+        var s = whole.toString();
+        var out = "";
+        for (var i = s.length - 1, k = 0; i >= 0; i--, k++) {
+          out = s[i] + out;
+          if (k % 3 === 2 && i !== 0) { out = "," + out; }
+        }
+        return neg + out + "." + cents;
+      }
+
+      function titleIndex(rankZero, goldCents) {
+        if (rankZero < 10) { return 0; }
+        if (rankZero < 30) { return 1; }
+        if (rankZero < 60) { return 2; }
+        var gold = Math.floor(goldCents / 100);
+        if (gold >= 30000) { return 3; }
+        if (gold >= 12000) { return 4; }
+        if (gold >= 7000) { return 5; }
+        if (gold >= 3000) { return 6; }
+        if (gold >= 1000) { return 7; }
+        if (gold >= 500) { return 8; }
+        if (gold >= 200) { return 9; }
+        if (gold >= 70) { return 10; }
+        if (gold >= 20) { return 11; }
+        if (gold >= 3) { return 12; }
+        return 13;
+      }
+
+      function nightlyLossCents(rankZero, goldCents) {
+        var rate = (rankZero < 90) ? (0.00001 + 0.000001 * rankZero) : 0.0001;
+        var perc = Math.floor(rate * goldCents);
+        var d = Math.min(Math.max(50, perc), Math.max(0, goldCents));
+        return d;
+      }
+
+      var inGold = document.getElementById("inGold");
+      var inRank = document.getElementById("inRank");
+      var btn = document.getElementById("btnCalc");
+      var outMsg = document.getElementById("outMsg");
+      var box = document.getElementById("calcResults");
+
+      function compute() {
+        outMsg.textContent = "";
+        var gCents = parseGoldToCents(inGold.value || "");
+        var r1 = Number(inRank.value);
+        if (gCents === null || !isFinite(r1) || r1 < 1) {
+          outMsg.textContent = "Enter gold and a rank ≥ 1.";
+          box.style.display = "none";
+          return;
+        }
+        var r0 = Math.floor(r1) - 1;
+
+        var loss = nightlyLossCents(r0, gCents);
+        var after = gCents - loss;
+        var tName = TITLE_NAMES[titleIndex(r0, gCents)];
+        var usedRate = (r0 < 90) ? (0.00001 + 0.000001 * r0) : 0.0001;
+
+        document.getElementById("rGold").textContent = fmtCents(gCents);
+        document.getElementById("rRank").textContent = r1.toString();
+        document.getElementById("rTitle").textContent = tName;
+        document.getElementById("rLoss").textContent = fmtCents(loss);
+        document.getElementById("rAfter").textContent = fmtCents(after);
+        document.getElementById("rRate").textContent = (usedRate * 100).toFixed(4) + "%";
+        box.style.display = "";
+      }
+
+      if (btn) { btn.addEventListener("click", function () { compute(); }, false); }
+      if (inGold && !inGold.value) { inGold.value = "12345.00"; }
+    })();
+  </script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"865f05e0ab3e4d9eaaa6967df93decdd","r":1,"spa":2}' crossorigin="anonymous"></script>
+</body>
+
+</html>

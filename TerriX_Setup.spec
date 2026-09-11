@@ -15,6 +15,10 @@ datas = [
     (os.path.join(INSTALLER_DIR, 'uninstaller.py'), '.'),
 ]
 
+dist_terrix = os.path.join(BASE_DIR, 'dist', 'terrix.exe')
+if os.path.exists(dist_terrix):
+    datas.append((dist_terrix, '.'))
+
 hiddenimports = [
     'tkinter',
     'tkinter.ttk',

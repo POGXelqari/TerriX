@@ -24,16 +24,49 @@ try:
 except ImportError:
     tk = None
 
-INSTALLER_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = os.path.dirname(INSTALLER_DIR)
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    BUNDLE_DIR = sys._MEIPASS
+    BASE_DIR = sys._MEIPASS
+    INSTALLER_DIR = sys._MEIPASS
+else:
+    INSTALLER_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(INSTALLER_DIR)
+    BUNDLE_DIR = BASE_DIR
 
 sys.path.insert(0, INSTALLER_DIR)
 sys.path.insert(0, os.path.join(BASE_DIR, "scripts"))
 
 import windows_env_helper
 
+def resolve_file(filename: str):
+    """Finds bundled or local file across possible paths."""
+    candidates = [
+        os.path.join(BUNDLE_DIR, filename),
+        os.path.join(BUNDLE_DIR, "assets", filename),
+        os.path.join(BUNDLE_DIR, "dist", filename),
+        os.path.join(BASE_DIR, filename),
+        os.path.join(BASE_DIR, "assets", filename),
+        os.path.join(BASE_DIR, "dist", filename),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return os.path.abspath(c)
+    return None
+
+def load_version() -> str:
+    v_file = resolve_file("version.json")
+    if v_file and os.path.exists(v_file):
+        try:
+            import json
+            with open(v_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("version", "4.0.0.0.0.0.0.7")
+        except Exception:
+            pass
+    return "4.0.0.0.0.0.0.7"
+
 DEFAULT_TARGET = os.path.expandvars(r"%LOCALAPPDATA%\Programs\TerriX")
-VERSION = "4.0.0.0.0.0.0.0"
+VERSION = load_version()
 
 class SetupWizard:
     def __init__(self, root):
@@ -44,8 +77,8 @@ class SetupWizard:
         self.root.configure(bg="#12161f")
 
         # Set icon if available
-        icon_path = os.path.join(BASE_DIR, "terrix-logo.ico")
-        if os.path.exists(icon_path):
+        icon_path = resolve_file("terrix-logo.ico")
+        if icon_path and os.path.exists(icon_path):
             try:
                 self.root.iconbitmap(icon_path)
             except Exception:
@@ -253,64 +286,120 @@ class SetupWizard:
 
         try:
             os.makedirs(target, exist_ok=True)
-            
-            # Copy application contents
-            payload_zip = os.path.join(INSTALLER_DIR, "payload.zip")
-            if os.path.exists(payload_zip):
-                with zipfile.ZipFile(payload_zip, "r") as z:
-                    z.extractall(target)
-            else:
-                # Running from repository / dev build
-                for item in ["executor_app.py", "version.json", "terrix-logo.ico", "terrix-logo.png", "proxy.txt"]:
-                    src = os.path.join(BASE_DIR, item)
-                    if os.path.exists(src):
-                        shutil.copy2(src, os.path.join(target, item))
 
-                # Copy directories
+            # 1. Primary Executable: terrix.exe
+            target_exe = os.path.join(target, "terrix.exe")
+            bundled_exe = resolve_file("terrix.exe")
+            if bundled_exe and os.path.exists(bundled_exe):
+                try:
+                    shutil.copy2(bundled_exe, target_exe)
+                except Exception as e:
+                    print(f"[!] Warning copying terrix.exe: {e}")
+
+            # 2. Extract payload if packed as payload.zip
+            payload_zip = resolve_file("payload.zip")
+            if payload_zip and os.path.exists(payload_zip):
+                try:
+                    with zipfile.ZipFile(payload_zip, "r") as z:
+                        z.extractall(target)
+                except Exception as e:
+                    print(f"[!] Warning extracting payload: {e}")
+
+            # 3. Core assets & metadata
+            for item in ["terrix-logo.ico", "terrix-logo.png", "version.json", "proxy.txt"]:
+                src = resolve_file(item)
+                if src and os.path.exists(src):
+                    try:
+                        shutil.copy2(src, os.path.join(target, item))
+                    except Exception as e:
+                        print(f"[!] Warning copying {item}: {e}")
+
+            # 4. Source/Dev fallback if terrix.exe was not bundled
+            if not os.path.exists(target_exe):
+                for item in ["executor_app.py", "version.json"]:
+                    src = resolve_file(item)
+                    if src and os.path.exists(src):
+                        try:
+                            shutil.copy2(src, os.path.join(target, item))
+                        except Exception:
+                            pass
+
                 for folder in ["gui", "scripts", "assets", "data", "ezsolver_repo"]:
                     src = os.path.join(BASE_DIR, folder)
                     dst = os.path.join(target, folder)
                     if os.path.exists(src):
-                        if os.path.exists(dst):
-                            shutil.rmtree(dst)
-                        shutil.copytree(src, dst)
+                        try:
+                            if os.path.exists(dst):
+                                shutil.rmtree(dst)
+                            shutil.copytree(src, dst)
+                        except Exception:
+                            pass
 
-                # Create wrapper batch terrix.cmd or terrix.exe
                 cmd_wrapper = os.path.join(target, "terrix.cmd")
-                with open(cmd_wrapper, "w") as f:
-                    f.write(f'@echo off\n"{sys.executable}" "%~dp0executor_app.py" %*\n')
+                try:
+                    with open(cmd_wrapper, "w") as f:
+                        f.write(f'@echo off\n"{sys.executable}" "%~dp0executor_app.py" %*\n')
+                except Exception:
+                    pass
 
-            # Uninstaller
-            uninstaller_src = os.path.join(INSTALLER_DIR, "uninstaller.py")
-            if os.path.exists(uninstaller_src):
-                shutil.copy2(uninstaller_src, os.path.join(target, "Uninstall.py"))
+                if not os.path.exists(target_exe):
+                    try:
+                        shutil.copy2(sys.executable, target_exe)
+                    except Exception:
+                        pass
 
-            target_exe = os.path.join(target, "terrix.exe")
-            # If terrix.exe does not exist yet (dev mode), copy python.exe or create terrix.cmd
-            if not os.path.exists(target_exe):
-                shutil.copy2(sys.executable, target_exe)
+            # 5. Uninstaller
+            uninstaller_src = resolve_file("uninstaller.py")
+            if uninstaller_src and os.path.exists(uninstaller_src):
+                try:
+                    shutil.copy2(uninstaller_src, os.path.join(target, "Uninstall.py"))
+                except Exception:
+                    pass
 
+            # 6. Shortcut icon resolution
             icon_target = os.path.join(target, "terrix-logo.ico")
             if not os.path.exists(icon_target):
-                shutil.copy2(os.path.join(BASE_DIR, "terrix-logo.ico"), icon_target)
+                src_ico = resolve_file("terrix-logo.ico")
+                if src_ico and os.path.exists(src_ico):
+                    try:
+                        shutil.copy2(src_ico, icon_target)
+                    except Exception:
+                        pass
 
-            # System tasks
+            shortcut_icon = icon_target if os.path.exists(icon_target) else None
+
+            # 7. System tasks
             if self.add_path.get():
-                windows_env_helper.add_to_user_path(target)
+                try:
+                    windows_env_helper.add_to_user_path(target)
+                except Exception as e:
+                    print(f"[!] Warning updating PATH: {e}")
 
             if self.reg_proto.get():
-                windows_env_helper.register_protocol_handler(target_exe)
+                try:
+                    windows_env_helper.register_protocol_handler(target_exe)
+                except Exception as e:
+                    print(f"[!] Warning registering protocol: {e}")
 
             if self.desktop_icon.get():
-                desktop_lnk = os.path.expandvars(r"%USERPROFILE%\Desktop\TerriX.lnk")
-                windows_env_helper.create_windows_shortcut(target_exe, desktop_lnk, icon_target, target)
+                try:
+                    desktop_lnk = os.path.expandvars(r"%USERPROFILE%\Desktop\TerriX.lnk")
+                    windows_env_helper.create_windows_shortcut(target_exe, desktop_lnk, shortcut_icon, target)
+                except Exception as e:
+                    print(f"[!] Warning creating desktop shortcut: {e}")
 
             if self.start_menu.get():
-                start_dir = os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\TerriX")
-                start_lnk = os.path.join(start_dir, "TerriX Executor.lnk")
-                windows_env_helper.create_windows_shortcut(target_exe, start_lnk, icon_target, target)
+                try:
+                    start_dir = os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\TerriX")
+                    start_lnk = os.path.join(start_dir, "TerriX Executor.lnk")
+                    windows_env_helper.create_windows_shortcut(target_exe, start_lnk, shortcut_icon, target)
+                except Exception as e:
+                    print(f"[!] Warning creating start menu shortcut: {e}")
 
-            windows_env_helper.register_uninstaller(target, VERSION)
+            try:
+                windows_env_helper.register_uninstaller(target, VERSION)
+            except Exception as e:
+                print(f"[!] Warning registering uninstaller: {e}")
 
             self.progress_bar.stop()
             self.progress_bar.pack_forget()
@@ -336,9 +425,8 @@ class SetupWizard:
 
         if self.launch_after.get():
             try:
-                # Launch terrix.exe directly in target directory
                 if os.path.exists(target_exe):
-                    subprocess.Popen([target_exe, target_app], cwd=target)
+                    subprocess.Popen([target_exe], cwd=target)
                 elif os.path.exists(target_app):
                     subprocess.Popen([sys.executable, target_app], cwd=target)
             except Exception as e:

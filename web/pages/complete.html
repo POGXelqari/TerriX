@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verification Complete - Your 24-Hour Key</title>
+  <link rel="stylesheet" href="../static/styles.css">
+</head>
+<body>
+  <div class="checkpoint-card complete-card">
+    <div class="brand-header">
+      <div class="success-icon">✓</div>
+      <h2>Verification Complete!</h2>
+      <p class="subtitle">All tasks completed successfully. Your 24-hour key is ready below.</p>
+    </div>
+
+    <div class="key-box">
+      <label>YOUR 24-HOUR ACCESS KEY</label>
+      <div class="key-display-wrapper">
+        <input type="text" id="keyField" class="key-input" readonly value="Loading today's key...">
+      </div>
+
+      <div class="key-buttons">
+        <button id="copyBtn" class="btn btn-primary" onclick="copyKey()">
+          📋 Copy Key to Clipboard
+        </button>
+        <a id="protocolBtn" href="#" class="btn btn-success">
+          🚀 Open & Activate in TerriX
+        </a>
+      </div>
+      <p id="copiedNotice" class="copied-notice" style="display: none;">Key copied to clipboard!</p>
+    </div>
+
+    <div class="instructions-box">
+      <h4>How to Activate in TerriX:</h4>
+      <ol>
+        <li>Click <strong>"Open & Activate in TerriX"</strong> to activate automatically via Windows protocol.</li>
+        <li>Or copy the key above and paste it directly into the TerriX Executor window.</li>
+        <li>This key grants 24 hours of full, unrestricted software access.</li>
+      </ol>
+    </div>
+
+    <div class="card-footer">
+      <small>Need a new key tomorrow? Simply revisit this verification checkpoint.</small>
+    </div>
+  </div>
+
+  <script src="../static/app.js"></script>
+  <script>
+    loadFinalKey();
+  </script>
+</body>
+</html>

@@ -36,7 +36,11 @@ from typing import Dict, List, Optional, Tuple
 
 import websockets
 
-sys.stdout.reconfigure(encoding='utf-8')
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 ACCOUNTS_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "valid_accounts.json")

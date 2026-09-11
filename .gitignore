@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+build/
+dist/
 
 # Chrome sessions & temporary profiles
 .chrome_sessions/

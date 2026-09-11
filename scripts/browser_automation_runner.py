@@ -30,7 +30,11 @@ from typing import Optional, Dict, Any, List, Tuple
 import websockets
 from proxy_manager import ProxyManager
 
-sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+    except Exception:
+        pass
 
 sys.path.insert(0, os.path.dirname(__file__))
 

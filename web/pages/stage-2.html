@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Human Verification Checkpoint - Step 2 of 3</title>
+  <link rel="stylesheet" href="../static/styles.css">
+</head>
+<body>
+  <div class="checkpoint-card">
+    <div class="brand-header">
+      <img src="../static/logo.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+      <h2>Verification Checkpoint</h2>
+      <p class="subtitle">Complete 3 quick engagement tasks to unlock your 24-hour key.</p>
+    </div>
+
+    <div class="stepper">
+      <div class="step completed"><span>✓</span><p>Visit Link</p></div>
+      <div class="step-line completed"></div>
+      <div class="step active"><span>2</span><p>Explore App</p></div>
+      <div class="step-line"></div>
+      <div class="step"><span>3</span><p>Watch Video</p></div>
+    </div>
+
+    <div class="task-box">
+      <div class="task-badge">Task 2 of 3</div>
+      <h3>Explore Sponsored Software (OperaGX)</h3>
+      <p>Click below to discover OperaGX gaming browser. Explore features like RAM limiter and custom audio.</p>
+      
+      <div class="action-zone">
+        <a id="partnerBtn" href="https://www.opera.com/gx" target="_blank" class="btn btn-primary" onclick="startTimer()">
+          🌐 Explore OperaGX Gaming Browser
+        </a>
+      </div>
+
+      <div id="dwellNotice" class="dwell-notice" style="display: none;">
+        <div class="spinner"></div>
+        <p id="timerText">Verifying exploration... Please wait 20 seconds.</p>
+      </div>
+
+      <div class="continue-zone">
+        <button id="continueBtn" class="btn btn-success" disabled onclick="submitStage(2)">
+          Continue to Step 3 ➔
+        </button>
+      </div>
+    </div>
+
+    <div class="card-footer">
+      <small>Free Access Checkpoint • Powered by TerriCenter</small>
+    </div>
+  </div>
+
+  <script src="../static/app.js"></script>
+  <script>
+    initStage(2, 20);
+  </script>
+</body>
+</html>

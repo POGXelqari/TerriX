@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/", "destination": "/pages/stage-1.html" },
+    { "source": "/key", "destination": "/pages/complete.html" },
+    { "source": "/verify/stage-1", "destination": "/pages/stage-1.html" },
+    { "source": "/verify/stage-2", "destination": "/pages/stage-2.html" },
+    { "source": "/verify/stage-3", "destination": "/pages/stage-3.html" },
+    { "source": "/verify/complete", "destination": "/pages/complete.html" },
+    { "source": "/api/verify/(.*)", "destination": "/api/verify.py" },
+    { "source": "/api/verify", "destination": "/api/verify.py" },
+    { "source": "/api/version", "destination": "/api/verify.py" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, X-Requested-With" }
+      ]
+    }
+  ]
+}

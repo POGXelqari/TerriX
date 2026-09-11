@@ -29,7 +29,11 @@ import sys
 import websockets
 from typing import Dict, List, Optional, Tuple
 
-sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+    except Exception:
+        pass
 
 # 64-character charset from game.js
 ALPHABET = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"

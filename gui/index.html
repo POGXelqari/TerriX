@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="terrix">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TerriX Executor</title>
+  <link rel="icon" type="image/png" href="assets/logo.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <!-- TOP COMMAND BAR -->
+  <header class="top-bar">
+    <div class="brand-group">
+      <img src="assets/logo.png" alt="TerriX Logo" class="brand-icon">
+      <div class="brand-text">
+        <div class="title-row">
+          <span class="brand-name">TerriX</span>
+          <span class="brand-sub">EXECUTOR</span>
+          <span id="versionBadge" class="version-badge">v4.0.0.0.0.0.0.0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <!-- Theme Switcher -->
+      <div class="theme-switcher">
+        <button id="themeTerrixBtn" class="theme-btn active" onclick="setTheme('terrix')">TerriX Dark</button>
+        <button id="themeGameBtn" class="theme-btn" onclick="setTheme('territorial')">Territorial.io</button>
+      </div>
+
+      <!-- Key Status Pill -->
+      <div id="keyStatusPill" class="key-pill" onclick="openKeyModal()">
+        <span class="key-icon">🔑</span>
+        <span id="keyStatusText">Checking Key...</span>
+      </div>
+
+      <!-- Profile Badge -->
+      <div id="profileBadge" class="profile-pill" onclick="openProfileModal()">
+        <span class="profile-icon">👤</span>
+        <span id="profileText">Player</span>
+      </div>
+
+      <!-- Audio Toggle -->
+      <button id="sfxToggle" class="icon-btn" title="Toggle Sound Effects" onclick="toggleSFX()">
+        🔊
+      </button>
+    </div>
+  </header>
+
+  <!-- STATUS DASHBOARD BAR -->
+  <div class="status-strip">
+    <div class="status-item">
+      <span class="status-dot online"></span>
+      <span class="status-label">Engine:</span>
+      <span class="status-val">Protocol WebSockets</span>
+    </div>
+    <div class="status-item">
+      <span class="status-dot" id="dotChrome"></span>
+      <span class="status-label">Chrome:</span>
+      <span id="valChrome" class="status-val">Checking...</span>
+    </div>
+    <div class="status-item">
+      <span class="status-dot" id="dotToken"></span>
+      <span class="status-label">Turnstile Pool:</span>
+      <span id="valTokenPool" class="status-val">0 Cached</span>
+    </div>
+    <div class="status-item">
+      <span class="status-dot" id="dotProxy"></span>
+      <span class="status-label">Active Proxies:</span>
+      <span id="valProxyCount" class="status-val">0 Live</span>
+    </div>
+    <div class="status-item">
+      <span class="status-dot" id="dotCloud"></span>
+      <span class="status-label">TerriCenter Cloud:</span>
+      <span id="valCloudSync" class="status-val">Connected</span>
+    </div>
+  </div>
+
+  <!-- NAVIGATION TABS -->
+  <nav class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('swarm')">Swarm Controller</button>
+    <button class="nav-tab" onclick="switchTab('tokens')">Turnstile Manager</button>
+    <button class="nav-tab" onclick="switchTab('proxies')">Proxy Pool</button>
+    <button class="nav-tab" onclick="switchTab('accounts')">Account Manager</button>
+    <button class="nav-tab" onclick="switchTab('logs')">Event Log</button>
+  </nav>
+
+  <!-- TAB CONTENT -->
+  <main class="tab-viewport">
+    <!-- TAB 1: SWARM CONTROLLER -->
+    <section id="tab-swarm" class="tab-pane active">
+      <div class="grid-2col">
+        <!-- Configuration Card -->
+        <div class="card">
+          <h3 class="card-title">Swarm Configuration</h3>
+          
+          <div class="form-group">
+            <label>Target Map</label>
+            <div class="map-grid">
+              <div class="map-card active" onclick="selectMap('Europe', this)">
+                <div class="map-preview map-europe"></div>
+                <span>Europe</span>
+              </div>
+              <div class="map-card" onclick="selectMap('World', this)">
+                <div class="map-preview map-world"></div>
+                <span>World</span>
+              </div>
+              <div class="map-card" onclick="selectMap('Caucasia', this)">
+                <div class="map-preview map-caucasia"></div>
+                <span>Caucasia</span>
+              </div>
+              <div class="map-card" onclick="selectMap('Asia', this)">
+                <div class="map-preview map-asia"></div>
+                <span>Asia</span>
+              </div>
+              <div class="map-card" onclick="selectMap('Island', this)">
+                <div class="map-preview map-island"></div>
+                <span>Island</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Game Mode</label>
+              <select id="selGameMode" class="form-select">
+                <option value="team" selected>Team Mode (3/4/5 Teams)</option>
+                <option value="ffa">Free For All (FFA)</option>
+                <option value="br">Battle Royale</option>
+                <option value="1v1">1 vs 1</option>
+                <option value="zombies">Zombies</option>
+              </select>
+            </div>
+
+            <div class="form-group flex-1">
+              <label>Clan Tag Prefix</label>
+              <input type="text" id="inpClanTag" class="form-input" value="[TERRIX]">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="slider-header">
+              <label>Bot Density (Concurrent Swarm Size)</label>
+              <span id="botCountVal" class="slider-value">20 Bots</span>
+            </div>
+            <input type="range" id="sliderBotCount" class="form-range" min="1" max="100" value="20" oninput="updateBotCount(this.value)">
+            <small class="hint-text">Memory overhead: ~5MB per bot. 100 bots execute under 500MB total RAM.</small>
+          </div>
+
+          <div class="button-group">
+            <button id="btnLaunchSwarm" class="btn btn-primary btn-lg" onclick="launchSwarm()">
+              🚀 Launch Swarm
+            </button>
+            <button id="btnForceReady" class="btn btn-secondary btn-lg" onclick="forceReady()">
+              ⚡ Force Ready
+            </button>
+            <button id="btnStopSwarm" class="btn btn-danger btn-lg" onclick="stopSwarm()">
+              🛑 Disconnect All
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Match Monitor -->
+        <div class="card">
+          <h3 class="card-title">Live Match Monitor</h3>
+          <div class="metrics-grid">
+            <div class="metric-box">
+              <div class="metric-val" id="activeBotsCount">0</div>
+              <div class="metric-lbl">Active Connected</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-val" id="inLobbyCount">0</div>
+              <div class="metric-lbl">In Target Lobby</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-val" id="readyCount">0</div>
+              <div class="metric-lbl">Locked Ready</div>
+            </div>
+            <div class="metric-box">
+              <div class="metric-val" id="clusterPing">32ms</div>
+              <div class="metric-lbl">Server 1 Ping</div>
+            </div>
+          </div>
+
+          <h4 class="sub-title" style="margin-top: 18px;">Lobby Countdown & Status</h4>
+          <div class="lobby-banner" id="lobbyBanner">
+            <div class="banner-title" id="bannerMapName">Waiting for swarm launch...</div>
+            <div class="banner-timer" id="bannerTimer">--s</div>
+          </div>
+
+          <div class="quick-terminal" id="quickLog">
+            <div class="log-line text-muted">[System Ready] All protocols loaded. Build 1759 aligned.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: TURNSTILE MANAGER -->
+    <section id="tab-tokens" class="tab-pane">
+      <div class="card">
+        <h3 class="card-title">Cloudflare Turnstile Token Buffer</h3>
+        <p class="card-desc">Tokens are pre-solved offscreen and buffered in memory so swarms join with 0-second solve latency.</p>
+        
+        <div class="token-buffer-widget">
+          <div class="buffer-gauge">
+            <span id="tokenGaugeCount" class="gauge-number">0</span>
+            <span class="gauge-label">Tokens Ready</span>
+          </div>
+          
+          <div class="buffer-details">
+            <div class="detail-row"><span>Buffer Target:</span><strong>10 - 25 Tokens</strong></div>
+            <div class="detail-row"><span>Token Validity:</span><strong>240s per token</strong></div>
+            <div class="detail-row"><span>Local Solver:</span><strong id="solverStatus">Idle</strong></div>
+            <div class="detail-row"><span>Drive G: Quarantined:</span><strong style="color: var(--color-success);">Yes (.chrome_sessions)</strong></div>
+          </div>
+        </div>
+
+        <div class="button-group" style="margin-top: 20px;">
+          <button class="btn btn-primary" onclick="prewarmTokens()">
+            ⚡ Pre-warm Token Buffer
+          </button>
+          <button class="btn btn-secondary" onclick="checkSolverHealth()">
+            🩺 Check Solver Health
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: PROXY POOL -->
+    <section id="tab-proxies" class="tab-pane">
+      <div class="card">
+        <div class="card-header-flex">
+          <div>
+            <h3 class="card-title">Verified Forward Proxy Pool</h3>
+            <p class="card-desc">Dynamic SOCKS5 & HTTP proxies pre-tested via CONNECT to territorial.io:443.</p>
+          </div>
+          <button class="btn btn-primary" onclick="harvestProxies()">
+            🔄 Harvest & Test Proxies
+          </button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="proxyTable">
+            <thead>
+              <tr>
+                <th>Protocol</th>
+                <th>Endpoint (IP:Port)</th>
+                <th>Latency</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="proxyTableBody">
+              <tr><td colspan="4" class="text-center text-muted">No proxies loaded. Click "Harvest & Test" to scan live tunnels.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: ACCOUNT MANAGER -->
+    <section id="tab-accounts" class="tab-pane">
+      <div class="card">
+        <div class="card-header-flex">
+          <div>
+            <h3 class="card-title">Player Account Manager</h3>
+            <p class="card-desc">Game accounts with 127-bit credentials for Opcode 17 authentication.</p>
+          </div>
+          <div class="account-actions">
+            <button class="btn btn-primary" onclick="generateAccountsPrompt()">
+              ➕ Batch Generate Accounts
+            </button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table" id="accountTable">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Clan Tag</th>
+                <th>Password Alpha</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="accountTableBody">
+              <tr><td colspan="4" class="text-center text-muted">Loading accounts from data/generated_accounts.json...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: EVENT LOG -->
+    <section id="tab-logs" class="tab-pane">
+      <div class="card" style="height: 100%;">
+        <div class="card-header-flex">
+          <h3 class="card-title">Real-Time Event Stream</h3>
+          <div class="log-controls">
+            <button class="btn btn-sm btn-secondary" onclick="clearLogs()">Clear</button>
+            <label class="checkbox-label">
+              <input type="checkbox" id="autoScrollCheck" checked> Auto-Scroll
+            </label>
+          </div>
+        </div>
+
+        <div class="terminal-container" id="fullTerminal">
+          <div class="log-line text-muted">[System] Event stream initialized. Opcode logging enabled.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- KEY ACTIVATION MODAL -->
+  <div id="keyModal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Daily 24-Hour Access Key</h3>
+        <button class="close-btn" onclick="closeKeyModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <p>TerriX Executor requires a free daily key that renews every 24 hours. Complete the quick 3-step verification tasks to obtain today's key.</p>
+        
+        <div class="key-input-group">
+          <input type="text" id="modalKeyInput" class="form-input" placeholder="TERRIX-2026-XXXX-XXXX-XXXX">
+          <button class="btn btn-primary" onclick="submitKey()">Activate</button>
+        </div>
+
+        <div class="key-link-box">
+          <a href="https://terri-x.vercel.app/verify/stage-1" target="_blank" class="btn btn-success" style="width: 100%;" onclick="openKeyUrl()">
+            🌐 Get Free 24h Daily Key (Takes 60s)
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROFILE MODAL -->
+  <div id="profileModal" class="modal-overlay" style="display: none;">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>User Profile & Settings</h3>
+        <button class="close-btn" onclick="closeProfileModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Display Username</label>
+          <input type="text" id="modalUsername" class="form-input">
+        </div>
+        <div class="form-group">
+          <label>Default Clan Tag</label>
+          <input type="text" id="modalClanTag" class="form-input">
+        </div>
+        <div class="detail-row" style="margin-top: 15px;">
+          <span>Account Type:</span><strong>Unrestricted (Equal Access)</strong>
+        </div>
+        <div class="detail-row">
+          <span>Usage Quotas:</span><strong>None (Full Feature Access)</strong>
+        </div>
+        <button class="btn btn-primary" style="margin-top: 18px; width: 100%;" onclick="saveProfileChanges()">
+          Save Settings
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

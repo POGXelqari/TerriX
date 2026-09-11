@@ -58,5 +58,21 @@
     "password": "muLL4GeCJN0mZeY",
     "packet_hex": "25974b2c2a351aa300e5255180",
     "packet_size_bytes": 13
+  },
+  {
+    "username": "[SWARM] [FR] Zod",
+    "account_name": "MVvWM",
+    "password": "TUZ4fEXMZxQF6Qh",
+    "clan_tag": "",
+    "created_at": 1789088610,
+    "is_valid": true
+  },
+  {
+    "username": "[SWARM] [ARCH] V",
+    "account_name": "z7Fan",
+    "password": "cFCy7rOhqc5JHyB",
+    "clan_tag": "",
+    "created_at": 1789088610,
+    "is_valid": true
   }
 ]

@@ -22,7 +22,11 @@ import sys
 import time
 from typing import List, Dict, Optional, Any
 
-sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
+    except Exception:
+        pass
 sys.path.insert(0, os.path.dirname(__file__))
 
 from proxy_manager import ProxyManager
@@ -271,9 +275,12 @@ class SwarmBot:
                 print(f"[🚀 READY LOCK] [Bot #{self.bot_id}] Arming Ready toggle simultaneously!")
                 await ws.send(self.craft_ready_toggle())
                 self.is_ready_armed = True
+                await self.coordinator.register_ready(self.bot_id)
 
                 # Step 5: Hold connection into match rollover
                 for _ in range(30):
+                    if self.coordinator.abort_event.is_set():
+                        break
                     await asyncio.sleep(1)
                     await ws.send(self.craft_mode_heartbeat(mode_id))
 
@@ -287,21 +294,54 @@ class SwarmBot:
 
 
 class SwarmCoordinator:
-    def __init__(self, target_count: int, target_map: str = "Europe"):
+    def __init__(self, target_count: int, target_map: str = "Europe", telemetry_cb=None):
         self.target_count = target_count
         self.target_map = target_map.lower()
+        self.telemetry_cb = telemetry_cb
         self.arrived_bots = set()
+        self.ready_bots = set()
         self.ready_event = asyncio.Event()
+        self.abort_event = asyncio.Event()
         self._lock = asyncio.Lock()
+
+    def emit(self, event_type: str, data: dict):
+        if self.telemetry_cb:
+            try:
+                self.telemetry_cb(event_type, data)
+            except Exception:
+                pass
 
     async def register_arrival(self, bot_id: int):
         async with self._lock:
             self.arrived_bots.add(bot_id)
             print(f"  [Coordinator] Bot #{bot_id} assembled into lobby barrier [{len(self.arrived_bots)}/{self.target_count}]")
+            self.emit("lobby_arrival", {
+                "bot_id": bot_id,
+                "in_lobby": len(self.arrived_bots),
+                "target_count": self.target_count,
+                "map": self.target_map
+            })
             if len(self.arrived_bots) >= self.target_count:
                 print(f"[+] [Coordinator] ALL {self.target_count} BOTS ASSEMBLED IN LOBBY BARRIER!")
-                # Trigger ready convergence
                 self.ready_event.set()
+
+    async def register_ready(self, bot_id: int):
+        async with self._lock:
+            self.ready_bots.add(bot_id)
+            self.emit("ready_locked", {
+                "bot_id": bot_id,
+                "ready_count": len(self.ready_bots),
+                "target_count": self.target_count
+            })
+
+    def trigger_force_ready(self):
+        print("[*] [Coordinator] Force ready triggered!")
+        self.ready_event.set()
+
+    def abort(self):
+        print("[!] [Coordinator] Abort requested.")
+        self.abort_event.set()
+        self.ready_event.set()  # Unblock any waiting loops so they cleanly exit
 
 
 def load_names(count: int, clan_tag: str = "[SWARM]") -> List[str]:
@@ -325,6 +365,65 @@ def load_names(count: int, clan_tag: str = "[SWARM]") -> List[str]:
     return out
 
 
+async def run_swarm_in_process(
+    count: int = 20,
+    mode: str = "team",
+    target_map: str = "Europe",
+    tag: str = "[TERRIX]",
+    proxies_path: str = "proxy.txt",
+    dynamic_proxy: bool = False,
+    telemetry_cb=None,
+    coordinator_box: dict = None
+):
+    """Programmatic entry point for in-process execution from executor_app.py."""
+    pm = ProxyManager(proxy_file=proxies_path, auto_dynamic=True)
+    if dynamic_proxy:
+        pm.fetch_dynamic(target_count=max(count, 25))
+
+    token_pool = TokenPool(min_pool_size=min(count, 15), max_pool_size=count + 10)
+    token_pool.ensure_service()
+    await token_pool.start_background_replenisher()
+    await token_pool.warm_up(target=min(count, 4))
+
+    usernames = load_names(count, clan_tag=tag)
+    coordinator = SwarmCoordinator(target_count=count, target_map=target_map, telemetry_cb=telemetry_cb)
+    if coordinator_box is not None:
+        coordinator_box["instance"] = coordinator
+
+    bots = []
+    for i in range(count):
+        proxy = pm.get_proxy(i) if pm.count() > 0 else None
+        bot = SwarmBot(
+            bot_id=i,
+            username=usernames[i],
+            account_name=f"bot_{i:03d}",
+            password="pass",
+            mode=mode,
+            target_map=target_map,
+            proxy=proxy,
+            token_pool=token_pool,
+            coordinator=coordinator
+        )
+        bots.append(bot)
+
+    async def run_staggered(bot, delay):
+        if delay > 0:
+            await asyncio.sleep(delay)
+        if not coordinator.abort_event.is_set():
+            await bot.run()
+
+    tasks = [asyncio.create_task(run_staggered(b, i * 0.35)) for i, b in enumerate(bots)]
+    try:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    finally:
+        token_pool.close()
+        if telemetry_cb:
+            try:
+                telemetry_cb("swarm_finished", {})
+            except Exception:
+                pass
+
+
 async def main_async():
     parser = argparse.ArgumentParser(description="Territorial.io High-Density Swarm Orchestrator")
     parser.add_argument("--count", type=int, default=20, help="Number of concurrent swarm bots (e.g. 20 - 100)")
@@ -341,54 +440,14 @@ async def main_async():
     print(f" Clan Tag    : {args.tag}")
     print("=" * 75)
 
-    # 1. Initialize Proxy Manager
-    pm = ProxyManager(proxy_file=args.proxies, auto_dynamic=True)
-    if args.dynamic:
-        print("[*] --dynamic flag set. Refreshing dynamic proxy pool...")
-        pm.fetch_dynamic(target_count=max(args.count, 25))
-    print(f"[*] Loaded {pm.count()} proxy endpoint(s) from '{pm.proxy_file}'")
-
-    # 2. Initialize and start EzSolver Token Pool
-    token_pool = TokenPool(min_pool_size=min(args.count, 15), max_pool_size=args.count + 10)
-    token_pool.ensure_service()
-    await token_pool.start_background_replenisher()
-    await token_pool.warm_up(target=min(args.count, 4))
-
-    # 3. Generate swarm identities
-    usernames = load_names(args.count, clan_tag=args.tag)
-    coordinator = SwarmCoordinator(target_count=args.count, target_map=args.map)
-
-    # 4. Spawn bots
-    bots = []
-    for i in range(args.count):
-        proxy = pm.get_proxy(i) if pm.count() > 0 else None
-        bot = SwarmBot(
-            bot_id=i,
-            username=usernames[i],
-            account_name=f"bot_{i:03d}",
-            password="pass",
-            mode=args.mode,
-            target_map=args.map,
-            proxy=proxy,
-            token_pool=token_pool,
-            coordinator=coordinator
-        )
-        bots.append(bot)
-
-    # Stagger bot connections to prevent network burst spikes
-    async def run_staggered(bot, delay):
-        if delay > 0:
-            await asyncio.sleep(delay)
-        await bot.run()
-
-    print(f"[*] Launching {args.count} swarm bots with staggered delay...")
-    tasks = [asyncio.create_task(run_staggered(b, i * 0.35)) for i, b in enumerate(bots)]
-
-    try:
-        await asyncio.gather(*tasks, return_exceptions=True)
-    finally:
-        token_pool.close()
-        print("[+] Swarm session concluded.")
+    await run_swarm_in_process(
+        count=args.count,
+        mode=args.mode,
+        target_map=args.map,
+        tag=args.tag,
+        proxies_path=args.proxies,
+        dynamic_proxy=args.dynamic
+    )
 
 
 def main():

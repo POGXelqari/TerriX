@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Human Verification Checkpoint - Step 3 of 3</title>
+  <link rel="stylesheet" href="../static/styles.css">
+</head>
+<body>
+  <div class="checkpoint-card">
+    <div class="brand-header">
+      <img src="../static/logo.png" alt="Logo" class="logo" onerror="this.style.display='none'">
+      <h2>Verification Checkpoint</h2>
+      <p class="subtitle">Complete 3 quick engagement tasks to unlock your 24-hour key.</p>
+    </div>
+
+    <div class="stepper">
+      <div class="step completed"><span>✓</span><p>Visit Link</p></div>
+      <div class="step-line completed"></div>
+      <div class="step completed"><span>✓</span><p>Explore App</p></div>
+      <div class="step-line completed"></div>
+      <div class="step active"><span>3</span><p>Watch Video</p></div>
+    </div>
+
+    <div class="task-box">
+      <div class="task-badge">Final Task</div>
+      <h3>Watch Video to Completion</h3>
+      <p>Watch the promotional video below from start to finish to complete human verification.</p>
+      
+      <div class="video-container">
+        <iframe id="videoPlayer" src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=0&enablejsapi=1" title="Sponsor Video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      </div>
+
+      <div class="action-zone">
+        <button id="partnerBtn" class="btn btn-primary" onclick="startTimer()">
+          ▶️ Start Video Verification
+        </button>
+      </div>
+
+      <div id="dwellNotice" class="dwell-notice" style="display: none;">
+        <div class="spinner"></div>
+        <p id="timerText">Validating watch time... Please wait 30 seconds.</p>
+      </div>
+
+      <div class="continue-zone">
+        <button id="continueBtn" class="btn btn-success" disabled onclick="submitStage(3)">
+          Unlock Daily Key ➔
+        </button>
+      </div>
+    </div>
+
+    <div class="card-footer">
+      <small>Free Access Checkpoint • Powered by TerriCenter</small>
+    </div>
+  </div>
+
+  <script src="../static/app.js"></script>
+  <script>
+    initStage(3, 30);
+  </script>
+</body>
+</html>

@@ -26,6 +26,9 @@ hiddenimports = [
     'tkinter.messagebox',
     'winreg',
     'ctypes',
+    'win32com',
+    'win32com.client',
+    'pythoncom',
 ]
 
 a = Analysis(

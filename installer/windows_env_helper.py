@@ -90,8 +90,12 @@ def register_protocol_handler(exe_path: str) -> bool:
         print(f"[!] Error registering protocol: {e}")
         return False
 
-def create_windows_shortcut(target_exe: str, shortcut_path: str, icon_path: str = None, working_dir: str = None):
-    """Creates a Windows .lnk shortcut using WScript.Shell."""
+def create_windows_shortcut(target_exe: str, shortcut_path: str, icon_path: str = None, working_dir: str = None) -> bool:
+    """
+    Creates a Windows .lnk shortcut cleanly without spawning PowerShell or triggering AMSI.
+    Primary: In-process COM Dispatch (win32com.client).
+    Fallback: Native Windows Script Host (cscript.exe + temporary .vbs).
+    """
     target_exe = os.path.abspath(target_exe)
     shortcut_path = os.path.abspath(shortcut_path)
     if not working_dir:
@@ -99,17 +103,51 @@ def create_windows_shortcut(target_exe: str, shortcut_path: str, icon_path: str 
         
     os.makedirs(os.path.dirname(shortcut_path), exist_ok=True)
     
-    ps_cmd = f'''
-    $ws = New-Object -ComObject WScript.Shell;
-    $s = $ws.CreateShortcut("{shortcut_path}");
-    $s.TargetPath = "{target_exe}";
-    $s.WorkingDirectory = "{working_dir}";
-    '''
-    if icon_path and os.path.exists(icon_path):
-        ps_cmd += f'$s.IconLocation = "{os.path.abspath(icon_path)},0";'
-    ps_cmd += '$s.Save();'
-    
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # 1. Primary: In-process COM Dispatch (zero external processes, no AMSI interception)
+    try:
+        import win32com.client
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortcut(shortcut_path)
+        shortcut.TargetPath = target_exe
+        shortcut.WorkingDirectory = working_dir
+        if icon_path and os.path.exists(icon_path):
+            shortcut.IconLocation = f"{os.path.abspath(icon_path)},0"
+        shortcut.Save()
+        return True
+    except Exception:
+        pass
+
+    # 2. Fallback: Native Windows Scripting Host (cscript.exe) via temporary .vbs
+    try:
+        import tempfile
+        vbs_path = os.path.join(tempfile.gettempdir(), f"mklnk_{os.getpid()}.vbs")
+        escaped_sc = shortcut_path.replace('"', '""')
+        escaped_tgt = target_exe.replace('"', '""')
+        escaped_wd = working_dir.replace('"', '""')
+        
+        vbs_lines = [
+            'Set ws = CreateObject("WScript.Shell")',
+            f'Set s = ws.CreateShortcut("{escaped_sc}")',
+            f's.TargetPath = "{escaped_tgt}"',
+            f's.WorkingDirectory = "{escaped_wd}"',
+        ]
+        if icon_path and os.path.exists(icon_path):
+            escaped_ico = os.path.abspath(icon_path).replace('"', '""')
+            vbs_lines.append(f's.IconLocation = "{escaped_ico},0"')
+        vbs_lines.append('s.Save')
+        
+        with open(vbs_path, "w", encoding="utf-8") as f:
+            f.write("\r\n".join(vbs_lines))
+            
+        subprocess.run(["cscript.exe", "//nologo", vbs_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        try:
+            os.remove(vbs_path)
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        print(f"[!] Error creating shortcut: {e}")
+        return False
 
 def register_uninstaller(install_dir: str, version: str = "4.0.0.0.0.0.0.0") -> bool:
     """Registers the application in Windows Add/Remove Programs."""

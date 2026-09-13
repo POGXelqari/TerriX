@@ -24,16 +24,19 @@ from db_layer import CBMDatabase
 from deposit_daemon import CBMDepositDaemon
 from loan_engine import CBMLoanEngine
 from withdrawal_worker import CBMWithdrawalWorker
+from tunnel_manager import CloudflareTunnelManager
 
 PORT = int(os.environ.get("PORT", 8080))
 VAULT_ACCOUNT = os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
 VAULT_PASSWORD = os.environ.get("CBM_VAULT_PASSWORD", "")
 POLL_INTERVAL = float(os.environ.get("CBM_POLL_INTERVAL", 15.0))
+ENABLE_TUNNEL = os.environ.get("ENABLE_CLOUDFLARE_TUNNEL", "true").lower() in ("true", "1", "yes")
 
 db = CBMDatabase()
 loan_engine = CBMLoanEngine()
 deposit_daemon = CBMDepositDaemon(db=db, vault_account=VAULT_ACCOUNT, poll_interval=POLL_INTERVAL)
 withdrawal_worker = CBMWithdrawalWorker(db=db, vault_account=VAULT_ACCOUNT, vault_password=VAULT_PASSWORD)
+tunnel_mgr = CloudflareTunnelManager(port=PORT) if ENABLE_TUNNEL else None
 
 class CBMHealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -90,10 +93,16 @@ def main():
     daemon_thread = threading.Thread(target=deposit_daemon.run, daemon=True)
     daemon_thread.start()
 
-    # 3. Setup graceful signal handling
+    # 3. Start Cloudflare Tunnel (Zero-Trust Ingress)
+    if tunnel_mgr:
+        tunnel_mgr.start()
+
+    # 4. Setup graceful signal handling
     def handle_signal(sig, frame):
-        print("\n[!] Received shutdown signal. Stopping CBM daemon...")
+        print("\n[!] Received shutdown signal. Stopping CBM daemon and tunnel...")
         deposit_daemon.stop()
+        if tunnel_mgr:
+            tunnel_mgr.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_signal)

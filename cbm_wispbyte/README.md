@@ -17,13 +17,22 @@ This directory contains the self-contained, continuous Python backend runtime fo
      CBM_VAULT_PASSWORD=your_territorial_password
      SUPABASE_URL=https://your-supabase-project.supabase.co
      SUPABASE_KEY=your_supabase_service_role_key
+
+     # Cloudflare Tunnel Configuration
+     ENABLE_CLOUDFLARE_TUNNEL=true
+     # Optional: Leave blank to auto-generate a *.trycloudflare.com HTTPS URL,
+     # or paste your Cloudflare Zero Trust Named Tunnel token:
+     CLOUDFLARE_TUNNEL_TOKEN=
      ```
 3. **Startup Command:**
    ```bash
-   python main.py
+   bash start.sh
+   # or: python main.py
    ```
-4. **Health Check:**
-   * Wispbyte will automatically ping `http://localhost:8080/health` or `http://localhost:8080/status`.
+4. **Automated Cloudflare Build Step:**
+   * `start.sh` automatically detects the container architecture (AMD64 or ARM64), fetches the official `cloudflared` binary into `bin/`, and starts the tunnel alongside the Python runtime.
+   * If `CLOUDFLARE_TUNNEL_TOKEN` is specified, it connects your custom domain to `http://localhost:8080`.
+   * If left blank, it outputs a secure temporary public endpoint: `https://xxxx.trycloudflare.com`.
 
 ---
 

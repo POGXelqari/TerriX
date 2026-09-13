@@ -103,6 +103,18 @@ Queries deep player statistics, leaderboard ranks, clan allocations, and gold ba
 }
 ```
 
+#### Field Scaling & Decimal Normalization
+Territorial.io encodes decimal metrics as fixed-point integers in API responses to avoid floating-point imprecision. The client must normalize these non-decimal integers as follows:
+
+| Metric | Raw API Field(s) | Divisor | Example Raw | Normalized Value |
+| :--- | :--- | :---: | :--- | :--- |
+| **Gold** | `gold_cents` | **$\div$ 100** | `5746` | **`57.46 Gold`** |
+| **Battle Royale Points** | `br_points` | **$\div$ 100** | `1250` | **`12.50 BR Points`** |
+| **Clan Points** | `clan_member_points_a`, `clan_member_points_b`, `clan_member_total_points_a`, `clan_member_total_points_b` | **$\div$ 100** | `165128` | **`1651.28 Clan Points`** |
+| **Clan Leader Points** | `clan_leader_points` | **$\div$ 10** | `319` | **`31.9 Leader Points`** |
+| **Zombie Points** | `zombie_points` | **$\div$ 100** | `450` | **`4.50 Zombie Points`** |
+| **1v1 Points / ELO** | `ovo_elo` | **$\div$ 10** | `850` | **`85.0 ELO`** |
+
 ---
 
 ### 2.3 Get Clan Stats (`POST /api/clan/stats/get`)

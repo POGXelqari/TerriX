@@ -59,7 +59,39 @@ class TerritorialGoldClient:
         except Exception as e:
             return 0, {"status": "client_error", "message": str(e)}
 
-    def get_account_data(self, target_account_name: Optional[str] = None) -> Dict[str, Any]:
+    @staticmethod
+    def normalize_account_metrics(raw: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalizes Territorial.io fixed-point integers into decimal float metrics:
+        - gold: divide gold_cents by 100
+        - br_points: divide by 100
+        - clan points (points_a, points_b, total_a, total_b): divide by 100
+        - clan leader points: divide by 10
+        - zombie points: divide by 100
+        - 1v1 points / ELO (ovo_elo): divide by 10
+        """
+        return {
+            "gold": round(raw.get("gold_cents", 0) / 100.0, 2),
+            "br_points": round(raw.get("br_points", 0) / 100.0, 2),
+            "clan_points_a": round(raw.get("clan_member_points_a", 0) / 100.0, 2),
+            "clan_points_b": round(raw.get("clan_member_points_b", 0) / 100.0, 2),
+            "clan_total_points_a": round(raw.get("clan_member_total_points_a", 0) / 100.0, 2),
+            "clan_total_points_b": round(raw.get("clan_member_total_points_b", 0) / 100.0, 2),
+            "clan_leader_points": round(raw.get("clan_leader_points", 0) / 10.0, 1),
+            "zombie_points": round(raw.get("zombie_points", 0) / 100.0, 2),
+            "ovo_elo": round(raw.get("ovo_elo", 0) / 10.0, 1),
+            "username": raw.get("username", ""),
+            "clan_a": raw.get("clan_member_clan_a", ""),
+            "clan_b": raw.get("clan_member_clan_b", ""),
+            "gold_rank": raw.get("gold_rank", 0),
+            "br_rank": raw.get("br_rank", 0),
+            "zombie_rank": raw.get("zombie_rank", 0),
+            "ovo_rank": raw.get("ovo_rank", 0),
+            "admin_rank": raw.get("admin_rank", 0),
+            "admin_points": raw.get("admin_points", 0),
+        }
+
+    def get_account_data(self, target_account_name: Optional[str] = None, normalize: bool = True) -> Dict[str, Any]:
         """
         Retrieves comprehensive account profile, rankings, and gold balance.
         Note: Incurs an API fee of 10 cents (0.10 Gold) on the authenticated caller.
@@ -71,6 +103,8 @@ class TerritorialGoldClient:
             "target_account_name": target
         }
         status, resp = self._post("/api/account/get", payload)
+        if normalize and resp.get("status") == "ok" and "account_data" in resp:
+            resp["normalized_metrics"] = self.normalize_account_metrics(resp["account_data"])
         return resp
 
     def get_gold_balance(self, target_account_name: Optional[str] = None) -> Tuple[float, int]:

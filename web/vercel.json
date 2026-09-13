@@ -7,6 +7,10 @@
     { "source": "/verify/stage-2", "destination": "/pages/stage-2.html" },
     { "source": "/verify/stage-3", "destination": "/pages/stage-3.html" },
     { "source": "/verify/complete", "destination": "/pages/complete.html" },
+    { "source": "/cbm", "destination": "/pages/cbm.html" },
+    { "source": "/bank", "destination": "/pages/cbm.html" },
+    { "source": "/api/cbm/(.*)", "destination": "/api/cbm.py" },
+    { "source": "/api/cbm", "destination": "/api/cbm.py" },
     { "source": "/api/verify/(.*)", "destination": "/api/verify.py" },
     { "source": "/api/verify", "destination": "/api/verify.py" },
     { "source": "/api/version", "destination": "/api/verify.py" }

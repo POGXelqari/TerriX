@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.exe
 build/
 dist/
 
@@ -20,6 +21,8 @@ turnstile_result.txt
 env/
 venv/
 ENV/
+*.key
+cbm_secret.key
 
 # IDE / Editor artifacts
 .vscode/
@@ -31,3 +34,6 @@ ENV/
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# Local SQLite databases
+*.db

@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In – Clan Bank Manager (CBM)</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-yellow: #ffc439;
+      --success: #00cf92;
+      --danger: #ea3943;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    /* Top Navigation Header */
+    header.site-header {
+      background: rgba(14, 22, 38, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .header-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    .logo-img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .brand-tag {
+      font-size: 0.72rem;
+      color: var(--paypal-yellow);
+      background: rgba(255, 196, 57, 0.12);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .nav-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s ease;
+    }
+    .nav-link:hover {
+      color: #fff;
+    }
+    .btn-nav {
+      background: var(--panel-2);
+      border: 1px solid var(--border-bright);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .btn-nav:hover {
+      background: var(--panel-hover);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Main Container */
+    main.auth-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .auth-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+      padding: 32px 28px;
+    }
+
+    .auth-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .auth-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .auth-header p {
+      font-size: 0.88rem;
+      color: var(--text-dim);
+    }
+
+    /* Method Selector Tabs */
+    .tab-bar {
+      display: flex;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 4px;
+      margin-bottom: 22px;
+      gap: 4px;
+    }
+    .tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 8px 10px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: center;
+    }
+    .tab-btn.active {
+      background: var(--panel-2);
+      color: #fff;
+      border: 1px solid var(--border-bright);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+
+    /* Form Elements */
+    .form-group {
+      margin-bottom: 18px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .input-wrapper {
+      position: relative;
+    }
+    .form-input {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-size: 0.95rem;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .form-input:focus {
+      border-color: var(--paypal-blue);
+      box-shadow: 0 0 0 3px rgba(0, 112, 224, 0.2);
+    }
+    .form-hint {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      line-height: 1.35;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: var(--paypal-blue);
+      color: #fff;
+      border: none;
+      padding: 12px;
+      border-radius: var(--radius-pill);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 20px;
+    }
+    .btn-submit:hover {
+      background: var(--paypal-blue-hover);
+    }
+    .btn-submit:active {
+      transform: scale(0.99);
+    }
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* Alert Message Box */
+    .alert-box {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+      display: none;
+      line-height: 1.4;
+    }
+    .alert-error {
+      background: rgba(234, 57, 67, 0.15);
+      border: 1px solid rgba(234, 57, 67, 0.35);
+      color: #ff858d;
+    }
+    .alert-success {
+      background: rgba(0, 207, 146, 0.15);
+      border: 1px solid rgba(0, 207, 146, 0.35);
+      color: #55efc4;
+    }
+
+    .auth-footer {
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+    .auth-footer a {
+      color: var(--paypal-blue);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .auth-footer a:hover {
+      text-decoration: underline;
+    }
+
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/cbm.html" class="brand-link">
+        <img src="/cbm-logo.png" alt="CBM Logo" class="logo-img" onerror="this.style.display='none'">
+        <div>
+          <span class="brand-title">Clan Bank Manager</span>
+          <span class="brand-tag">SECURE GATEWAY</span>
+        </div>
+      </a>
+      <div class="nav-links">
+        <a href="/cbm.html" class="nav-link">Banking Dashboard</a>
+        <a href="/donations.html" class="nav-link">War Chest</a>
+        <a href="/rulebook.html" class="nav-link">Rulebook</a>
+        <a href="/register.html" class="btn-nav">Create Account</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h1>Welcome Back</h1>
+        <p>Sign in to manage your Gold deposits and reserves</p>
+      </div>
+
+      <div class="tab-bar">
+        <button type="button" class="tab-btn active" onclick="switchTab('tab-pwd', this)">CBM Password</button>
+        <button type="button" class="tab-btn" onclick="switchTab('tab-pin', this)">Quick PIN</button>
+        <button type="button" class="tab-btn" onclick="switchTab('tab-game', this)">Game Fallback</button>
+      </div>
+
+      <div id="alertBox" class="alert-box"></div>
+
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <!-- Common Username Field -->
+        <div class="form-group">
+          <label for="username">CBM Username or In-Game Account</label>
+          <div class="input-wrapper">
+            <input type="text" id="username" class="form-input" placeholder="e.g. CommanderBob or B8bbq" required autocomplete="username">
+          </div>
+        </div>
+
+        <!-- Tab 1: CBM Password -->
+        <div id="tab-pwd" class="tab-content active">
+          <div class="form-group">
+            <label for="password">CBM Password</label>
+            <div class="input-wrapper">
+              <input type="password" id="password" class="form-input" placeholder="••••••••" autocomplete="current-password">
+            </div>
+            <p class="form-hint">Your dedicated Clan Bank Manager website password.</p>
+          </div>
+        </div>
+
+        <!-- Tab 2: Quick PIN -->
+        <div id="tab-pin" class="tab-content">
+          <div class="form-group">
+            <label for="pin">CBM Access PIN</label>
+            <div class="input-wrapper">
+              <input type="password" id="pin" class="form-input" placeholder="4 to 8 numeric digits" inputmode="numeric" maxlength="8" pattern="[0-9]*" autocomplete="off">
+            </div>
+            <p class="form-hint">Enter your numeric PIN for quick 1-click authentication.</p>
+          </div>
+        </div>
+
+        <!-- Tab 3: Territorial.io Game Password Fallback -->
+        <div id="tab-game" class="tab-content">
+          <div class="form-group">
+            <label for="gamePassword">Territorial.io Password</label>
+            <div class="input-wrapper">
+              <input type="password" id="gamePassword" class="form-input" placeholder="In-game account password" autocomplete="off">
+            </div>
+            <p class="form-hint">Used for live game API verification if you have not set up a CBM password or Quick PIN yet.</p>
+          </div>
+        </div>
+
+        <button type="submit" id="submitBtn" class="btn-submit">
+          <span id="btnText">Sign In</span>
+          <span id="btnSpinner" class="spinner" style="display:none;"></span>
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        Don't have a CBM Account? <a href="/register.html">Register now</a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let activeMethod = 'password';
+
+    function switchTab(tabId, btn) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      
+      btn.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+      
+      if (tabId === 'tab-pwd') activeMethod = 'password';
+      else if (tabId === 'tab-pin') activeMethod = 'pin';
+      else if (tabId === 'tab-game') activeMethod = 'game_password';
+      
+      hideAlert();
+    }
+
+    function showAlert(msg, isError = true) {
+      const b = document.getElementById('alertBox');
+      b.className = 'alert-box ' + (isError ? 'alert-error' : 'alert-success');
+      b.textContent = msg;
+      b.style.display = 'block';
+    }
+
+    function hideAlert() {
+      document.getElementById('alertBox').style.display = 'none';
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      hideAlert();
+
+      const username = document.getElementById('username').value.trim();
+      if (!username) {
+        showAlert('Please enter your CBM username or account ID.');
+        return;
+      }
+
+      const payload = { username };
+
+      if (activeMethod === 'password') {
+        const pwd = document.getElementById('password').value.trim();
+        if (!pwd) {
+          showAlert('Please enter your CBM password.');
+          return;
+        }
+        payload.password = pwd;
+      } else if (activeMethod === 'pin') {
+        const pin = document.getElementById('pin').value.trim();
+        if (!pin) {
+          showAlert('Please enter your 4-8 digit Quick PIN.');
+          return;
+        }
+        payload.pin = pin;
+      } else if (activeMethod === 'game_password') {
+        const gp = document.getElementById('gamePassword').value.trim();
+        if (!gp) {
+          showAlert('Please enter your Territorial.io game password.');
+          return;
+        }
+        payload.game_password = gp;
+      }
+
+      const btn = document.getElementById('submitBtn');
+      const txt = document.getElementById('btnText');
+      const spn = document.getElementById('btnSpinner');
+
+      btn.disabled = true;
+      txt.textContent = 'Verifying...';
+      spn.style.display = 'inline-block';
+
+      try {
+        const res = await fetch('/api/cbm/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Login failed. Please check your credentials.');
+        }
+
+        showAlert('Authenticated successfully! Redirecting...', false);
+        
+        // Save session data to localStorage
+        if (data.account) {
+          localStorage.setItem('cbm_user', data.account.account_name || username);
+          localStorage.setItem('cbm_account', JSON.stringify(data.account));
+        } else {
+          localStorage.setItem('cbm_user', username);
+        }
+        localStorage.setItem('cbm_auth_time', Date.now().toString());
+
+        // Redirect to dashboard
+        setTimeout(() => {
+          window.location.href = '/cbm.html';
+        }, 800);
+
+      } catch (err) {
+        showAlert(err.message || 'Network error occurred. Please try again.');
+      } finally {
+        btn.disabled = false;
+        txt.textContent = 'Sign In';
+        spn.style.display = 'none';
+      }
+    }
+
+    // Auto-fill username if already remembered
+    window.addEventListener('DOMContentLoaded', () => {
+      const saved = localStorage.getItem('cbm_user');
+      if (saved) {
+        document.getElementById('username').value = saved;
+      }
+    });
+  </script>
+</body>
+</html>

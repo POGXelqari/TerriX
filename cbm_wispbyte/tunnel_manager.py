@@ -87,29 +87,35 @@ class CloudflareTunnelManager:
             return
 
         self.running = True
+        protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "http2").strip()
 
         if self.token:
-            cmd = [bin_path, "tunnel", "run", "--token", self.token]
-            print(f"[+] Launching Cloudflare Named Tunnel (Token auth)...")
+            cmd = [bin_path, "--loglevel", "info", "tunnel", "run", "--protocol", protocol, "--token", self.token]
+            print(f"[+] Launching Cloudflare Named Tunnel (Token auth, protocol: {protocol})...")
         else:
-            cmd = [bin_path, "tunnel", "--url", f"http://localhost:{self.port}", "--no-autoupdate"]
-            print(f"[*] No CLOUDFLARE_TUNNEL_TOKEN specified. Launching Cloudflare Quick Tunnel on port {self.port}...")
+            cmd = [bin_path, "--loglevel", "info", "tunnel", "--protocol", protocol, "--url", f"http://localhost:{self.port}", "--no-autoupdate"]
+            print(f"[*] No CLOUDFLARE_TUNNEL_TOKEN specified. Launching Cloudflare Quick Tunnel on port {self.port} (protocol: {protocol})...")
 
         def _supervise():
             while self.running:
                 try:
+                    proc_env = os.environ.copy()
+                    proc_env["GOMAXPROCS"] = "1"
                     self.proc = subprocess.Popen(
                         cmd,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
-                        bufsize=1
+                        bufsize=1,
+                        env=proc_env
                     )
 
                     for line in iter(self.proc.stdout.readline, ''):
                         if not self.running:
                             break
                         line_clean = line.strip()
+                        if not line_clean:
+                            continue
                         if "trycloudflare.com" in line_clean:
                             match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_clean)
                             if match:
@@ -118,12 +124,14 @@ class CloudflareTunnelManager:
                                 print(f"  [✓] Cloudflare Tunnel Active Public Endpoint:")
                                 print(f"      {self.public_url}")
                                 print("=" * 65 + "\n")
-                        elif "Connected to" in line_clean or "Registered tunnel connection" in line_clean:
+                        elif any(k in line_clean for k in ["Connected to", "Registered tunnel connection", "Starting tunnel", "Connector ID"]):
                             print(f"[+] Cloudflare Edge: {line_clean}")
-                        elif "error" in line_clean.lower() and "failed" in line_clean.lower():
-                            print(f"[!] Cloudflare Tunnel Warning: {line_clean}")
+                        elif any(k in line_clean.lower() for k in ["error", "err", "fail", "incorrect usage", "invalid"]):
+                            print(f"[!] Cloudflare Tunnel Notice: {line_clean}")
 
-                    self.proc.wait()
+                    rc = self.proc.wait()
+                    if self.running and rc != 0:
+                        print(f"[!] cloudflared process exited with code {rc}")
                 except Exception as e:
                     print(f"[!] Cloudflare tunnel worker error: {e}")
 

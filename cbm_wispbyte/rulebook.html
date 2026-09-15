@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CBM Rulebook & Technical Specification – Clan Bank Manager</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {
+      /* PayPal Dark Mode Design Tokens */
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-yellow: #ffc439;
+      --paypal-yellow-hover: #e0ac2b;
+      --success: #00cf92;
+      --danger: #ea3943;
+      
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --maxw: 1120px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: var(--paypal-blue);
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    a:hover {
+      text-decoration: underline;
+      color: #3395ff;
+    }
+
+    /* PayPal Dark Navigation Bar */
+    header.pp-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(14, 22, 38, 0.98);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-container {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      text-decoration: none;
+      color: inherit;
+    }
+    .brand-group:hover {
+      text-decoration: none;
+    }
+
+    /* Clean CBM Logo without any artificial borders */
+    .cbm-logo-clean {
+      width: 38px;
+      height: 38px;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
+      background: transparent !important;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-badge {
+      background: rgba(0, 112, 224, 0.15);
+      color: var(--paypal-blue);
+      border: 1px solid rgba(0, 112, 224, 0.3);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 6px;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-pill {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 9px 20px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+      border: none;
+      outline: none;
+      transition: all 0.15s ease;
+    }
+
+    .btn-pill-primary {
+      background: var(--paypal-blue);
+      color: #ffffff;
+    }
+    .btn-pill-primary:hover {
+      background: var(--paypal-blue-hover);
+      text-decoration: none;
+    }
+
+    .btn-pill-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #ffffff;
+      border: 1px solid var(--border);
+    }
+    .btn-pill-secondary:hover {
+      background: rgba(255, 255, 255, 0.14);
+      text-decoration: none;
+    }
+
+    /* Main Docs Content */
+    main.docs-main {
+      max-width: var(--maxw);
+      margin: 32px auto 48px;
+      padding: 0 20px;
+      flex: 1;
+      width: 100%;
+    }
+
+    .docs-hero {
+      background: linear-gradient(135deg, var(--panel) 0%, #10192c 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      margin-bottom: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .docs-hero h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .docs-hero p {
+      color: var(--text-dim);
+      font-size: 15px;
+      max-width: 680px;
+      line-height: 1.6;
+    }
+
+    .card-section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .card-section h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      letter-spacing: -0.01em;
+    }
+
+    .rule-item {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+    .rule-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .rule-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--paypal-yellow);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .rule-desc {
+      color: var(--text-dim);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .code-box {
+      background: #060a12;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      color: #d1d5db;
+      overflow-x: auto;
+      line-height: 1.6;
+      margin-top: 14px;
+    }
+
+    .step-card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+
+    .step-header {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .step-badge {
+      background: var(--paypal-blue);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+    }
+
+    .mono-accent {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    footer.docs-footer {
+      max-width: var(--maxw);
+      margin: 20px auto 40px;
+      padding: 0 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+
+    /* Toast Notification */
+    #toastContainer {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast-msg {
+      background: var(--panel-2);
+      border: 1px solid var(--border-bright);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+      pointer-events: auto;
+      transition: all 0.2s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- PayPal Dark Top Navigation -->
+  <header class="pp-nav">
+    <div class="nav-container">
+      <a href="/cbm.html" class="brand-group">
+        <img src="/cbm-logo.png" alt="CBM Crest" class="cbm-logo-clean">
+        <div style="display: flex; align-items: center;">
+          <span class="brand-title">Clan Bank Manager</span>
+          <span class="brand-badge">Rulebook & Spec</span>
+        </div>
+      </a>
+
+      <div class="nav-actions">
+        <button class="btn-pill btn-pill-secondary" onclick="copyCbmSchema()">📋 Copy SQL Schema</button>
+        <a href="/cbm.html" class="btn-pill btn-pill-primary">← Back to CBM Portal</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="docs-main">
+    <!-- Hero Banner -->
+    <div class="docs-hero">
+      <div>
+        <h1>CBM Rulebook & Technical Specification</h1>
+        <p>Complete open standard, accounting invariants, system topology, and idempotent database schema enabling any Territorial.io clan to establish and operate an autonomous Clan Bank Manager.</p>
+      </div>
+      <div>
+        <button class="btn-pill btn-pill-primary" onclick="copyCbmSchema()">Copy Production SQL Blueprint</button>
+      </div>
+    </div>
+
+    <!-- Chapter 1: Core Financial Invariants -->
+    <section class="card-section">
+      <h2>📜 Chapter 1: Core Financial Invariants & Integrity Rules</h2>
+      
+      <div class="rule-item">
+        <div class="rule-title">1. 100% Full-Reserve Invariant (Zero Fractional Lending)</div>
+        <div class="rule-desc">
+          Every Gold unit credited to member balances must exist in actual physical custody on the Territorial.io game server within the clan vault account.
+          <br><br>
+          <code class="code-box" style="display: inline-block; padding: 4px 10px; margin-top: 4px;">Vault Assets >= Total Member Liabilities + Unencumbered Reserves</code>
+          <br><br>
+          Fractional reserve lending is mathematically prohibited. Member deposits cannot be pooled into speculative capital or loan facilities.
+        </div>
+      </div>
+
+      <div class="rule-item">
+        <div class="rule-title">2. Unencumbered Reserve Segregation</div>
+        <div class="rule-desc">
+          Clan operational war chests, liquidity pools, and lending facilities must derive exclusively from <em>unencumbered capital</em> (donations and loan penalty yields) where <span class="mono-accent">Liabilities Created == 0</span>.
+        </div>
+      </div>
+
+      <div class="rule-item">
+        <div class="rule-title">3. Zero Friction Guarantee</div>
+        <div class="rule-desc">
+          Member deposits and withdrawals never incur user fees. The clan bank treasury absorbs 100% of game-imposed network transfer fees (0.01 Gold) on withdrawals and awards an instant <span class="mono-accent">+0.01 Gold rebate</span> on all inbound deposits to offset the game platform fee.
+        </div>
+      </div>
+
+      <div class="rule-item">
+        <div class="rule-title">4. 20.00 Gold Account Buffer Protection</div>
+        <div class="rule-desc">
+          Under delinquent loan recovery or administrative reconciliation, the bank engine must never seize a member's balance below <strong>20.00 Gold</strong>. This safe buffer guarantees that members are never purged by Territorial.io's nightly idle balance deduction mechanism.
+        </div>
+      </div>
+
+      <div class="rule-item">
+        <div class="rule-title">5. Cryptographic Ledger Reconciliation</div>
+        <div class="rule-desc">
+          The banking daemon continuously polls game server transactions (<code class="mono-accent">/wiki/transactions</code>) and maintains an unalterable cryptographic audit feed matching <code class="mono-accent">(timestamp_ms, sender, receiver, amount, fee)</code> with SHA-256 deduplication.
+        </div>
+      </div>
+
+      <div class="rule-item">
+        <div class="rule-title">6. Closed-Loop Anti-Fraud Withdrawal Protection</div>
+        <div class="rule-desc">
+          To prevent unauthorized fund siphoning, outbound disbursements are strictly restricted to the member's verified in-game account on record or a verified linked payment method. Disbursements to arbitrary third-party accounts are rejected at both the API gateway and worker execution layers.
+        </div>
+      </div>
+
+      <div class="rule-item">
+        <div class="rule-title">7. 6-Digit Access PIN & Zero-Trust Verification</div>
+        <div class="rule-desc">
+          While account balance lookups and ledger statements remain public (emulating modern transparent blockchain and game explorers), all balance mutations (withdrawals, donations, loan origination, profile edits) require 6-digit PIN authentication hashed with salted PBKDF2-HMAC-SHA256. Account ownership is proven either via confirmed inbound transfer on the public game ledger or direct credential verification.
+        </div>
+      </div>
+    </section>
+
+    <!-- Chapter 2: System Architecture -->
+    <section class="card-section">
+      <h2>🛠️ Chapter 2: System Architecture & Data Pipeline</h2>
+      <p style="color: var(--text-dim); margin-bottom: 14px;">The CBM architecture comprises four decoupled operational layers designed for fault tolerance and zero double-spend risk:</p>
+      
+      <pre class="code-box">+-------------------------------------------------------------+
+|               TERRITORIAL.IO GAME NETWORK                   |
+|  Public Ledger Stream (/wiki/transactions) & Gold State API |
++-------------------------------------------------------------+
+                               |
+                               v [Continuous Poller & Scraper]
++-------------------------------------------------------------+
+|                      CBM DAEMON RUNNER                      |
+|  1. Deduplicate transfers: sha256(timestamp + sender + rec) |
+|  2. Check receiver == CLAN_VAULT_ACCOUNT                    |
+|  3. Resolve sender to CBM Account (via payment_methods)     |
+|  4. Atomic DB Transaction: Credit Balance + 0.01 Rebate     |
+|  5. Audit live vault balance via game state API             |
++-------------------------------------------------------------+
+                               |
+                               v [PostgreSQL / Supabase Engine]
++-------------------------------------------------------------+
+|                     DATABASE & LEDGER                       |
+|  Tables: cbm_accounts, cbm_transactions, cbm_loans,         |
+|          cbm_payment_methods, cbm_donations, cbm_treasury   |
+|  Guarantees: Solvency Auditing, 20.00 Gold Safe Buffer      |
++-------------------------------------------------------------+
+                               |
+                               v [REST Endpoints / FastAPI]
++-------------------------------------------------------------+
+|                   WEB PORTAL (PAYPAL DARK)                  |
+|  Client Dashboard: /cbm.html, /rulebook.html                |
++-------------------------------------------------------------+</pre>
+    </section>
+
+    <!-- Chapter 3: Deployment Blueprint -->
+    <section class="card-section">
+      <h2>🚀 Chapter 3: Deployment Guide for New Clans</h2>
+      
+      <div class="step-card">
+        <div class="step-header"><span class="step-badge">Step 1</span> Dedicate an In-Game Vault Account</div>
+        <div class="rule-desc">
+          Register a dedicated Territorial.io account to serve exclusively as your Clan Vault (e.g. <code class="mono-accent">MYCLAN</code>). Never play public matches on this account to keep its session token clean and air-gapped.
+        </div>
+      </div>
+
+      <div class="step-card">
+        <div class="step-header"><span class="step-badge">Step 2</span> Provision Database (PostgreSQL / Supabase)</div>
+        <div class="rule-desc">
+          Create a PostgreSQL database or free Supabase project. Open the SQL Editor and execute the CBM Production SQL Schema provided in Chapter 4 below.
+        </div>
+      </div>
+
+      <div class="step-card">
+        <div class="step-header"><span class="step-badge">Step 3</span> Configure Environment Variables</div>
+        <div class="rule-desc">
+          Set up your backend configuration file (<code class="mono-accent">.env</code>):
+          <pre class="code-box" style="margin-top: 8px;">CBM_VAULT_ACCOUNT="MYCLAN"
+CBM_VAULT_PASSWORD="vault_secure_password"
+SUPABASE_URL="https://your-project.supabase.co"
+SUPABASE_SERVICE_KEY="your-service-role-key"</pre>
+        </div>
+      </div>
+
+      <div class="step-card">
+        <div class="step-header"><span class="step-badge">Step 4</span> Launch Daemon & Web Interface</div>
+        <div class="rule-desc">
+          Deploy the poller daemon and web portal. The system will autonomously poll in-game deposits, reconcile balances, and serve instant withdrawals.
+        </div>
+      </div>
+    </section>
+
+    <!-- Chapter 4: SQL Schema -->
+    <section class="card-section">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+        <h2>💾 Chapter 4: Production Database Schema (PostgreSQL / Supabase)</h2>
+        <button class="btn-pill btn-pill-primary" onclick="copyCbmSchema()">📋 Copy Schema SQL</button>
+      </div>
+      <p style="color: var(--text-dim); margin-bottom: 12px;">Idempotent DDL including multi-credential gold pooling, atomic double-entry transactions, loan terms, and safe buffer enforcement:</p>
+
+      <pre id="cbmSqlSchemaCode" class="code-box">-- ==========================================================
+-- CLAN BANK MANAGER (CBM) OFFICIAL PRODUCTION SCHEMA
+-- Idempotent setup for multi-account pooling, liabilities, reserves & loans
+-- ==========================================================
+
+CREATE TABLE IF NOT EXISTS cbm_accounts (
+    id BIGSERIAL PRIMARY KEY,
+    account_name TEXT UNIQUE NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    clan_tag TEXT DEFAULT 'ANTI-OG',
+    role TEXT DEFAULT 'member',
+    deposited_cents BIGINT DEFAULT 0,
+    total_deposited_cents BIGINT DEFAULT 0,
+    total_withdrawn_cents BIGINT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cbm_payment_methods (
+    id BIGSERIAL PRIMARY KEY,
+    cbm_account_name TEXT NOT NULL REFERENCES cbm_accounts(account_name) ON DELETE CASCADE,
+    territorial_account_name TEXT NOT NULL,
+    account_password TEXT,
+    verification_type TEXT NOT NULL DEFAULT 'INPUT_CREDENTIALS',
+    is_primary BOOLEAN DEFAULT FALSE,
+    verified_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(cbm_account_name, territorial_account_name)
+);
+
+CREATE TABLE IF NOT EXISTS cbm_transactions (
+    id BIGSERIAL PRIMARY KEY,
+    tx_hash TEXT UNIQUE,
+    cbm_account_name TEXT REFERENCES cbm_accounts(account_name),
+    territorial_sender TEXT NOT NULL,
+    territorial_receiver TEXT NOT NULL,
+    amount_cents BIGINT NOT NULL,
+    fee_cents BIGINT DEFAULT 0,
+    tx_type TEXT NOT NULL, -- 'DEPOSIT', 'WITHDRAWAL', 'LOAN_DISBURSEMENT', 'DONATION'
+    status TEXT NOT NULL DEFAULT 'CONFIRMED',
+    timestamp_ms BIGINT NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cbm_donations (
+    id BIGSERIAL PRIMARY KEY,
+    donor_account_name TEXT REFERENCES cbm_accounts(account_name),
+    donor_name TEXT NOT NULL,
+    amount_cents BIGINT NOT NULL,
+    message TEXT,
+    is_refundable BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cbm_loans (
+    id BIGSERIAL PRIMARY KEY,
+    loan_id TEXT UNIQUE NOT NULL,
+    cbm_account_name TEXT NOT NULL REFERENCES cbm_accounts(account_name),
+    principal_cents BIGINT NOT NULL,
+    total_due_cents BIGINT NOT NULL,
+    amount_paid_cents BIGINT DEFAULT 0,
+    weekly_interest_bps INT NOT NULL DEFAULT 500,
+    late_penalty_bps INT NOT NULL DEFAULT 1000,
+    status TEXT NOT NULL DEFAULT 'ACTIVE', -- 'ACTIVE', 'REPAID', 'DEFAULTED'
+    due_date TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS cbm_treasury (
+    id INT PRIMARY KEY DEFAULT 1,
+    vault_account_name TEXT NOT NULL,
+    cached_vault_balance_cents BIGINT DEFAULT 0,
+    unencumbered_capital_cents BIGINT DEFAULT 0,
+    minimum_account_buffer_cents BIGINT DEFAULT 2000, -- 20.00 Gold Protection
+    last_audited_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Insert initial treasury record if not exists
+INSERT INTO cbm_treasury (id, vault_account_name, cached_vault_balance_cents, unencumbered_capital_cents)
+VALUES (1, 'DdcBC', 0, 5100)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS idx_cbm_tx_account ON cbm_transactions(cbm_account_name);
+CREATE INDEX IF NOT EXISTS idx_cbm_pm_user ON cbm_payment_methods(cbm_account_name);
+CREATE INDEX IF NOT EXISTS idx_cbm_pm_terri ON cbm_payment_methods(territorial_account_name);
+CREATE INDEX IF NOT EXISTS idx_cbm_loans_user ON cbm_loans(cbm_account_name);
+CREATE INDEX IF NOT EXISTS idx_cbm_donations_user ON cbm_donations(donor_account_name);</pre>
+    </section>
+  </main>
+
+  <footer class="docs-footer">
+    <p>© 2026 CLAN BANK MANAGER (CBM) — OPEN SOURCE TREASURY PROTOCOL FOR TERRITORIAL.IO</p>
+  </footer>
+
+  <div id="toastContainer"></div>
+
+  <script>
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function showToast(message) {
+      const c = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast-msg';
+      toast.innerHTML = `<span>✓</span> <span>${escapeHtml(message)}</span>`;
+      c.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        setTimeout(() => toast.remove(), 250);
+      }, 3500);
+    }
+
+    function copyCbmSchema() {
+      const codeEl = document.getElementById('cbmSqlSchemaCode');
+      if (codeEl) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(codeEl.innerText).then(() => {
+            showToast('CBM SQL Schema Blueprint copied to clipboard!');
+          }).catch(() => {
+            fallbackCopy(codeEl.innerText);
+          });
+        } else {
+          fallbackCopy(codeEl.innerText);
+        }
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+        showToast('CBM SQL Schema Blueprint copied to clipboard!');
+      } catch (err) {
+        showToast('Please copy the SQL schema manually.');
+      }
+      document.body.removeChild(ta);
+    }
+  </script>
+</body>
+</html>

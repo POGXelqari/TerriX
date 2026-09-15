@@ -4,35 +4,37 @@ This directory contains the self-contained, continuous Python backend runtime fo
 
 ---
 
-## 1. Quick Deployment on Wispbyte
+## 1. Wispbyte Server Details & Deployment
 
-1. **Upload / Link Directory:**
-   * Create a new Python application in your Wispbyte panel.
-   * Point the project directory or git repository to `cbm_wispbyte/`.
-2. **Configure Environment Variables:**
-   * In the Wispbyte environment settings, set:
+* **Direct Server URL:** `http://78.154.103.45:10093/`
+* **Assigned Allocation Port:** `10093`
+* **Custom Subdomain:** `http://cbm.wispbyte.org/`
+
+### Setup Instructions:
+1. **Configure Environment Variables:**
+   * In your Wispbyte control panel (or `.env` file), set:
      ```bash
-     PORT=8080
+     PORT=10093
+     SERVER_PORT=10093
+     WISPBYTE_SERVER_URL=http://78.154.103.45:10093/
+     WISPBYTE_SUBDOMAIN=cbm.wispbyte.org
      CBM_VAULT_ACCOUNT=DdcBC
-     CBM_VAULT_PASSWORD=your_territorial_password
+     CBM_VAULT_PASSWORD=your_territorial_vault_password
      SUPABASE_URL=https://your-supabase-project.supabase.co
      SUPABASE_KEY=your_supabase_service_role_key
 
      # Cloudflare Tunnel Configuration
      ENABLE_CLOUDFLARE_TUNNEL=true
-     # Optional: Leave blank to auto-generate a *.trycloudflare.com HTTPS URL,
-     # or paste your Cloudflare Zero Trust Named Tunnel token:
-     CLOUDFLARE_TUNNEL_TOKEN=
+     CLOUDFLARE_TUNNEL_TOKEN=your_token_here
      ```
-3. **Startup Command:**
+2. **Startup Command:**
    ```bash
    bash start.sh
    # or: python main.py
    ```
-4. **Automated Cloudflare Build Step:**
-   * `start.sh` automatically detects the container architecture (AMD64 or ARM64), fetches the official `cloudflared` binary into `bin/`, and starts the tunnel alongside the Python runtime.
-   * If `CLOUDFLARE_TUNNEL_TOKEN` is specified, it connects your custom domain to `http://localhost:8080`.
-   * If left blank, it outputs a secure temporary public endpoint: `https://xxxx.trycloudflare.com`.
+3. **Automated Endpoints:**
+   * **Direct Ingress:** Requests to `http://78.154.103.45:10093/` and `http://cbm.wispbyte.org/` serve the CBM Web Portal directly, with zero cold starts.
+   * **Automated Cloudflare Build Step:** `start.sh` automatically fetches `cloudflared` into `bin/` and binds port `10093` to your Zero Trust Tunnel.
 
 ---
 

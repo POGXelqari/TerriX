@@ -9,14 +9,26 @@
 CREATE TABLE IF NOT EXISTS public.cbm_accounts (
     account_name TEXT PRIMARY KEY,
     display_name TEXT,
+    password_hash TEXT, -- Salted PBKDF2-HMAC-SHA256 website login password
+    password_salt TEXT, -- Cryptographic salt for CBM password
+    primary_territorial_account TEXT, -- Primary Territorial.io account (e.g. B8bbq)
+    avatar_url TEXT DEFAULT 'https://api.dicebear.com/7.x/identicon/svg?seed=cbm-guest', -- Profile picture URL or Base64
     clan_tag TEXT DEFAULT 'ANTI-OG',
     role TEXT DEFAULT 'member', -- 'member', 'officer', 'leader', 'system'
     deposited_cents BIGINT DEFAULT 0, -- Current available balance in cents (1 Gold = 100 cents)
     total_deposited_cents BIGINT DEFAULT 0,
     total_withdrawn_cents BIGINT DEFAULT 0,
+    pin_hash TEXT, -- Salted SHA-256 hash of 4-8 digit CBM Access PIN
+    salt TEXT, -- Cryptographic random salt for PIN hashing
+    is_verified BOOLEAN DEFAULT FALSE, -- Ownership verified via in-game deposit/credentials
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS password_salt TEXT;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS primary_territorial_account TEXT;
+ALTER TABLE public.cbm_accounts ALTER COLUMN avatar_url SET DEFAULT 'https://api.dicebear.com/7.x/identicon/svg?seed=cbm-guest';
 
 -- 2. Double-Entry Accounting Ledger
 CREATE TABLE IF NOT EXISTS public.cbm_ledger (
@@ -41,10 +53,14 @@ CREATE TABLE IF NOT EXISTS public.cbm_treasury (
     CONSTRAINT single_treasury_row CHECK (id = 1)
 );
 
--- Initialize Treasury Singleton row
+-- Initialize Treasury Singleton row (Values audited dynamically against live API)
 INSERT INTO public.cbm_treasury (id, vault_account_name, vault_total_gold_cents, member_liabilities_cents, bank_reserves_cents)
-VALUES (1, 'DdcBC', 5646, 0, 5646)
+VALUES (1, 'DdcBC', 0, 0, 0)
 ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE public.cbm_treasury ADD COLUMN IF NOT EXISTS audit_status TEXT DEFAULT 'VERIFIED_LIVE';
+ALTER TABLE public.cbm_treasury ADD COLUMN IF NOT EXISTS unencumbered_capital_cents BIGINT DEFAULT 0;
+ALTER TABLE public.cbm_treasury ADD COLUMN IF NOT EXISTS loan_penalties_cents BIGINT DEFAULT 0;
 
 -- 4. Reconciled External Transaction Ledger (Replay Protection)
 CREATE TABLE IF NOT EXISTS public.cbm_processed_txs (
@@ -64,7 +80,7 @@ CREATE TABLE IF NOT EXISTS public.cbm_withdrawals (
     account_name TEXT REFERENCES public.cbm_accounts(account_name) ON DELETE CASCADE,
     target_account TEXT NOT NULL,
     amount_gold INT NOT NULL,
-    fee_cents BIGINT DEFAULT 1, -- 1 cent API fee
+    fee_cents BIGINT DEFAULT 0, -- 0 fee charged to member (game fee covered by Bank)
     status TEXT DEFAULT 'PENDING', -- 'PENDING', 'APPROVED', 'EXECUTED', 'REJECTED'
     approved_by TEXT,
     tx_id TEXT,
@@ -78,12 +94,55 @@ CREATE TABLE IF NOT EXISTS public.cbm_loans (
     account_name TEXT REFERENCES public.cbm_accounts(account_name) ON DELETE CASCADE,
     principal_gold INT NOT NULL,
     interest_rate_percent NUMERIC DEFAULT 0.0,
+    penalty_interest_rate NUMERIC DEFAULT 50.0, -- 50% forced interest rate after exceeding 14 days
     term_days INT DEFAULT 14,
     due_at TIMESTAMPTZ,
     repaid_cents BIGINT DEFAULT 0,
-    status TEXT DEFAULT 'PENDING', -- 'PENDING', 'ACTIVE', 'REPAID', 'DEFAULTED'
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    penalty_cents BIGINT DEFAULT 0,
+    status TEXT DEFAULT 'ACTIVE', -- 'ACTIVE', 'OVERDUE', 'REPAID', 'DEFAULTED'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 7. Linked Territorial.io Payment Methods (In-Game Accounts & Credentials)
+CREATE TABLE IF NOT EXISTS public.cbm_payment_methods (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cbm_username TEXT NOT NULL REFERENCES public.cbm_accounts(account_name) ON DELETE CASCADE,
+    territorial_account_name TEXT NOT NULL UNIQUE,
+    territorial_password TEXT, -- For automated 1-click payouts
+    display_name TEXT,
+    verification_type TEXT NOT NULL DEFAULT 'INPUT_CREDENTIALS', -- 'INPUT_CREDENTIALS' or 'TRANSACTION_VERIFIED'
+    status TEXT NOT NULL DEFAULT 'VERIFIED', -- 'VERIFIED', 'PENDING'
+    is_primary BOOLEAN DEFAULT FALSE,
+    total_transacted_gold NUMERIC DEFAULT 0,
+    linked_at TIMESTAMPTZ DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Schema Migration Safety (Ensures existing tables receive new columns without conflict)
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS clan_tag TEXT DEFAULT 'ANTI-OG';
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'member';
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS deposited_cents BIGINT DEFAULT 0;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS total_deposited_cents BIGINT DEFAULT 0;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS total_withdrawn_cents BIGINT DEFAULT 0;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS pin_hash TEXT;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS salt TEXT;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+ALTER TABLE public.cbm_payment_methods ADD COLUMN IF NOT EXISTS territorial_password TEXT;
+ALTER TABLE public.cbm_payment_methods ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE public.cbm_payment_methods ADD COLUMN IF NOT EXISTS verification_type TEXT DEFAULT 'INPUT_CREDENTIALS';
+ALTER TABLE public.cbm_payment_methods ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'VERIFIED';
+ALTER TABLE public.cbm_payment_methods ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.cbm_payment_methods ADD COLUMN IF NOT EXISTS total_transacted_gold NUMERIC DEFAULT 0;
+
+ALTER TABLE public.cbm_loans ADD COLUMN IF NOT EXISTS penalty_interest_rate NUMERIC DEFAULT 50.0;
+ALTER TABLE public.cbm_loans ADD COLUMN IF NOT EXISTS penalty_cents BIGINT DEFAULT 0;
+ALTER TABLE public.cbm_loans ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
 
 -- Enable Row Level Security (RLS)
 ALTER TABLE public.cbm_accounts ENABLE ROW LEVEL SECURITY;
@@ -92,21 +151,116 @@ ALTER TABLE public.cbm_treasury ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cbm_processed_txs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cbm_withdrawals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.cbm_loans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cbm_payment_methods ENABLE ROW LEVEL SECURITY;
 
--- Allow public read of non-sensitive treasury stats & verified transactions
+-- Allow public read of non-sensitive treasury stats, accounts, & verified transactions (Idempotent DROP + CREATE)
+DROP POLICY IF EXISTS "Public read cbm_treasury" ON public.cbm_treasury;
 CREATE POLICY "Public read cbm_treasury" ON public.cbm_treasury FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Public read cbm_processed_txs" ON public.cbm_processed_txs;
 CREATE POLICY "Public read cbm_processed_txs" ON public.cbm_processed_txs FOR SELECT USING (TRUE);
 
--- Service role policies (Backend Wispbyte & Vercel API access)
+DROP POLICY IF EXISTS "Public read cbm_accounts" ON public.cbm_accounts;
+CREATE POLICY "Public read cbm_accounts" ON public.cbm_accounts FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Public read cbm_ledger" ON public.cbm_ledger;
+CREATE POLICY "Public read cbm_ledger" ON public.cbm_ledger FOR SELECT USING (TRUE);
+
+DROP POLICY IF EXISTS "Public read verified payment methods" ON public.cbm_payment_methods;
+CREATE POLICY "Public read verified payment methods" ON public.cbm_payment_methods FOR SELECT USING (status = 'VERIFIED');
+
+-- Service role policies (Backend Wispbyte & Vercel API access - Idempotent DROP + CREATE)
+DROP POLICY IF EXISTS "Service role full cbm_accounts" ON public.cbm_accounts;
 CREATE POLICY "Service role full cbm_accounts" ON public.cbm_accounts FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "Service role full cbm_ledger" ON public.cbm_ledger;
 CREATE POLICY "Service role full cbm_ledger" ON public.cbm_ledger FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "Service role full cbm_treasury" ON public.cbm_treasury;
 CREATE POLICY "Service role full cbm_treasury" ON public.cbm_treasury FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "Service role full cbm_processed_txs" ON public.cbm_processed_txs;
 CREATE POLICY "Service role full cbm_processed_txs" ON public.cbm_processed_txs FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "Service role full cbm_withdrawals" ON public.cbm_withdrawals;
 CREATE POLICY "Service role full cbm_withdrawals" ON public.cbm_withdrawals FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "Service role full cbm_loans" ON public.cbm_loans;
 CREATE POLICY "Service role full cbm_loans" ON public.cbm_loans FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+DROP POLICY IF EXISTS "Service role full cbm_payment_methods" ON public.cbm_payment_methods;
+CREATE POLICY "Service role full cbm_payment_methods" ON public.cbm_payment_methods FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
 
 -- Indexes for lightning fast queries
 CREATE INDEX IF NOT EXISTS idx_cbm_ledger_account ON public.cbm_ledger (account_name);
 CREATE INDEX IF NOT EXISTS idx_cbm_processed_txs_sender ON public.cbm_processed_txs (sender);
 CREATE INDEX IF NOT EXISTS idx_cbm_processed_txs_receiver ON public.cbm_processed_txs (receiver);
 CREATE INDEX IF NOT EXISTS idx_cbm_withdrawals_status ON public.cbm_withdrawals (status);
+CREATE INDEX IF NOT EXISTS idx_cbm_pm_username ON public.cbm_payment_methods (cbm_username);
+CREATE INDEX IF NOT EXISTS idx_cbm_pm_terri_acc ON public.cbm_payment_methods (territorial_account_name);
+
+-- -----------------------------------------------------------------------------
+-- 7. CLAN WAR CHEST & TREASURY DONATIONS
+-- Irrevocable unencumbered capital injections directly expanding Bank Reserves.
+-- Capital Covenant: Donations create ZERO member liabilities and CANNOT be withdrawn or refunded.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.cbm_donations (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    donor_name TEXT NOT NULL,
+    territorial_account TEXT,
+    amount_gold NUMERIC(12, 2) NOT NULL,
+    amount_cents BIGINT NOT NULL,
+    message TEXT,
+    source TEXT DEFAULT 'BALANCE',
+    tx_hash TEXT,
+    is_refundable BOOLEAN DEFAULT FALSE NOT NULL,
+    status TEXT DEFAULT 'IRREVOCABLE' NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT cbm_donations_irrevocable_check CHECK (is_refundable = FALSE AND status = 'IRREVOCABLE')
+);
+
+-- Schema Migration: Ensure covenant columns exist if table was previously created
+ALTER TABLE public.cbm_donations ADD COLUMN IF NOT EXISTS is_refundable BOOLEAN DEFAULT FALSE NOT NULL;
+ALTER TABLE public.cbm_donations ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'IRREVOCABLE' NOT NULL;
+ALTER TABLE public.cbm_donations DROP CONSTRAINT IF EXISTS cbm_donations_irrevocable_check;
+ALTER TABLE public.cbm_donations ADD CONSTRAINT cbm_donations_irrevocable_check CHECK (is_refundable = FALSE AND status = 'IRREVOCABLE');
+
+COMMENT ON TABLE public.cbm_donations IS 'Irrevocable unencumbered war chest capital injections. Zero liabilities created. Cannot be withdrawn or refunded.';
+
+ALTER TABLE public.cbm_donations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public read-only cbm_donations" ON public.cbm_donations;
+CREATE POLICY "Allow public read-only cbm_donations" ON public.cbm_donations FOR SELECT TO anon, authenticated USING (TRUE);
+
+DROP POLICY IF EXISTS "Service role insert cbm_donations" ON public.cbm_donations;
+CREATE POLICY "Service role insert cbm_donations" ON public.cbm_donations FOR INSERT TO service_role WITH CHECK (is_refundable = FALSE AND status = 'IRREVOCABLE');
+
+CREATE INDEX IF NOT EXISTS idx_cbm_donations_donor ON public.cbm_donations (donor_name);
+CREATE INDEX IF NOT EXISTS idx_cbm_donations_created ON public.cbm_donations (created_at DESC);
+
+-- -----------------------------------------------------------------------------
+-- 8. MODEL 3: WEB-DECLARED IN-GAME DONATION SLIPS (15-Minute Expiry)
+-- Matches in-game transfers to Clan War Chest donations with custom messages.
+-- Pure in-game transfers without an active slip default to personal deposits.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.cbm_pending_donations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_name TEXT NOT NULL,
+    amount_cents BIGINT NOT NULL,
+    amount_gold NUMERIC(12, 2) NOT NULL,
+    message TEXT DEFAULT '',
+    status TEXT DEFAULT 'PENDING', -- 'PENDING', 'FULFILLED', 'EXPIRED', 'CANCELLED'
+    tx_hash TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cbm_pending_donations_lookup 
+ON public.cbm_pending_donations (account_name, amount_cents, status);
+
+ALTER TABLE public.cbm_pending_donations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public read-only cbm_pending_donations" ON public.cbm_pending_donations;
+CREATE POLICY "Allow public read-only cbm_pending_donations" ON public.cbm_pending_donations FOR SELECT TO anon, authenticated USING (TRUE);
+DROP POLICY IF EXISTS "Service role manage cbm_pending_donations" ON public.cbm_pending_donations;
+CREATE POLICY "Service role manage cbm_pending_donations" ON public.cbm_pending_donations FOR ALL TO service_role USING (TRUE);
+

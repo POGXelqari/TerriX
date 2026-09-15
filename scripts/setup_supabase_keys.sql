@@ -15,13 +15,15 @@ CREATE TABLE IF NOT EXISTS public.daily_keys (
 -- Enable Row Level Security
 ALTER TABLE public.daily_keys ENABLE ROW LEVEL SECURITY;
 
--- Allow anonymous / public read access for active, non-expired keys
+-- Allow anonymous / public read access for active, non-expired keys (Idempotent DROP + CREATE)
+DROP POLICY IF EXISTS "Allow public read active keys" ON public.daily_keys;
 CREATE POLICY "Allow public read active keys"
 ON public.daily_keys
 FOR SELECT
 USING (is_active = TRUE AND expires_at > NOW());
 
--- Allow service role full write/update access
+-- Allow service role full write/update access (Idempotent DROP + CREATE)
+DROP POLICY IF EXISTS "Allow service role manage keys" ON public.daily_keys;
 CREATE POLICY "Allow service role manage keys"
 ON public.daily_keys
 FOR ALL

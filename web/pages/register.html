@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create CBM Account – Clan Bank Manager</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-yellow: #ffc439;
+      --success: #00cf92;
+      --danger: #ea3943;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    /* Top Navigation Header */
+    header.site-header {
+      background: rgba(14, 22, 38, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .header-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    .logo-img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .brand-tag {
+      font-size: 0.72rem;
+      color: var(--paypal-yellow);
+      background: rgba(255, 196, 57, 0.12);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .nav-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s ease;
+    }
+    .nav-link:hover { color: #fff; }
+    .btn-nav {
+      background: var(--panel-2);
+      border: 1px solid var(--border-bright);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .btn-nav:hover {
+      background: var(--panel-hover);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Main Container */
+    main.auth-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .auth-card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+      padding: 32px 28px;
+    }
+
+    .auth-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .auth-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .auth-header p {
+      font-size: 0.88rem;
+      color: var(--text-dim);
+    }
+
+    /* Avatar Preview Section */
+    .avatar-preview-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 20px;
+      padding: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .avatar-img-box {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 2px solid var(--paypal-blue);
+      box-shadow: 0 4px 14px rgba(0, 112, 224, 0.3);
+      overflow: hidden;
+      margin-bottom: 12px;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .avatar-img-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .avatar-mode-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      width: 100%;
+    }
+    .avatar-mode-btn {
+      flex: 1;
+      padding: 6px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-dim);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .avatar-mode-btn.active {
+      background: var(--paypal-blue);
+      color: #fff;
+      border-color: var(--paypal-blue);
+    }
+    .avatar-input-box {
+      width: 100%;
+    }
+
+    /* Form Elements */
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    @media (max-width: 480px) {
+      .form-row { grid-template-columns: 1fr; }
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      margin-bottom: 5px;
+    }
+    .form-input {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-size: 0.92rem;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .form-input:focus {
+      border-color: var(--paypal-blue);
+      box-shadow: 0 0 0 3px rgba(0, 112, 224, 0.2);
+    }
+    .form-hint {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      line-height: 1.35;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: var(--paypal-blue);
+      color: #fff;
+      border: none;
+      padding: 12px;
+      border-radius: var(--radius-pill);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, transform 0.1s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 22px;
+    }
+    .btn-submit:hover {
+      background: var(--paypal-blue-hover);
+    }
+    .btn-submit:active {
+      transform: scale(0.99);
+    }
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .alert-box {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      margin-bottom: 16px;
+      display: none;
+      line-height: 1.4;
+    }
+    .alert-error {
+      background: rgba(234, 57, 67, 0.15);
+      border: 1px solid rgba(234, 57, 67, 0.35);
+      color: #ff858d;
+    }
+    .alert-success {
+      background: rgba(0, 207, 146, 0.15);
+      border: 1px solid rgba(0, 207, 146, 0.35);
+      color: #55efc4;
+    }
+
+    .auth-footer {
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+    .auth-footer a {
+      color: var(--paypal-blue);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .auth-footer a:hover {
+      text-decoration: underline;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/cbm.html" class="brand-link">
+        <img src="/cbm-logo.png" alt="CBM Logo" class="logo-img" onerror="this.style.display='none'">
+        <div>
+          <span class="brand-title">Clan Bank Manager</span>
+          <span class="brand-tag">SECURE GATEWAY</span>
+        </div>
+      </a>
+      <div class="nav-links">
+        <a href="/cbm.html" class="nav-link">Banking Dashboard</a>
+        <a href="/donations.html" class="nav-link">War Chest</a>
+        <a href="/rulebook.html" class="nav-link">Rulebook</a>
+        <a href="/login.html" class="btn-nav">Sign In</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="auth-container">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h1>Create CBM Account</h1>
+        <p>Register your account with verified in-game credentials</p>
+      </div>
+
+      <div id="alertBox" class="alert-box"></div>
+
+      <!-- Avatar Selection & Preview -->
+      <div class="avatar-preview-section">
+        <div class="avatar-img-box">
+          <img id="avatarPreview" src="https://api.dicebear.com/7.x/identicon/svg?seed=cbm-recruit" alt="Profile Preview">
+        </div>
+        <div class="avatar-mode-bar">
+          <button type="button" class="avatar-mode-btn active" id="btnModeUpload" onclick="setAvatarMode('upload')">Upload File</button>
+          <button type="button" class="avatar-mode-btn" id="btnModeUrl" onclick="setAvatarMode('url')">Image URL</button>
+          <button type="button" class="avatar-mode-btn" onclick="randomizeAvatar()">Generate</button>
+        </div>
+        <div class="avatar-input-box" id="boxUpload">
+          <input type="file" id="avatarFile" accept="image/*" class="form-input" onchange="handleFileUpload(event)">
+          <p class="form-hint">Upload PNG, JPG, or WEBP (Max 2MB)</p>
+        </div>
+        <div class="avatar-input-box" id="boxUrl" style="display:none;">
+          <input type="url" id="avatarUrl" class="form-input" placeholder="https://example.com/avatar.png" oninput="handleUrlInput(event)">
+          <p class="form-hint">Paste direct image URL</p>
+        </div>
+      </div>
+
+      <form id="registerForm" onsubmit="handleRegister(event)">
+        <!-- Username & In-Game Account ID -->
+        <div class="form-row">
+          <div class="form-group">
+            <label for="regUsername">CBM Username</label>
+            <input type="text" id="regUsername" class="form-input" placeholder="e.g. CommanderBob" required autocomplete="username">
+            <p class="form-hint">3–30 characters</p>
+          </div>
+          <div class="form-group">
+            <label for="regTerriAcc">Primary In-Game ID</label>
+            <input type="text" id="regTerriAcc" class="form-input" placeholder="e.g. B8bbq" required autocomplete="off" maxlength="10">
+            <p class="form-hint">Your Territorial.io ID</p>
+          </div>
+        </div>
+
+        <!-- CBM Password & Confirm Password -->
+        <div class="form-row">
+          <div class="form-group">
+            <label for="regPassword">CBM Password</label>
+            <input type="password" id="regPassword" class="form-input" placeholder="••••••••" required autocomplete="new-password">
+            <p class="form-hint">Min 6 characters</p>
+          </div>
+          <div class="form-group">
+            <label for="regConfirm">Confirm Password</label>
+            <input type="password" id="regConfirm" class="form-input" placeholder="••••••••" required autocomplete="new-password">
+            <p class="form-hint">Must match password</p>
+          </div>
+        </div>
+
+        <!-- In-game Password Verification -->
+        <div class="form-group">
+          <label for="regTerriPass">Territorial.io Account Password</label>
+          <input type="password" id="regTerriPass" class="form-input" placeholder="In-game account password" required autocomplete="off">
+          <p class="form-hint">Verified live against game servers to confirm ownership of the primary in-game account.</p>
+        </div>
+
+        <!-- Optional Quick PIN -->
+        <div class="form-group">
+          <label for="regPin">Quick Access PIN (Optional)</label>
+          <input type="password" id="regPin" class="form-input" placeholder="4 to 8 numeric digits" inputmode="numeric" maxlength="8" pattern="[0-9]*" autocomplete="off">
+          <p class="form-hint">Optional 4–8 digit PIN for quick future sign-ins without re-entering your full password.</p>
+        </div>
+
+        <button type="submit" id="submitBtn" class="btn-submit">
+          <span id="btnText">Complete Registration</span>
+          <span id="btnSpinner" class="spinner" style="display:none;"></span>
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        Already have a CBM Account? <a href="/login.html">Sign in here</a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let currentAvatarData = "https://api.dicebear.com/7.x/identicon/svg?seed=cbm-recruit";
+
+    function setAvatarMode(mode) {
+      const btnUp = document.getElementById('btnModeUpload');
+      const btnUrl = document.getElementById('btnModeUrl');
+      const boxUp = document.getElementById('boxUpload');
+      const boxUrl = document.getElementById('boxUrl');
+
+      if (mode === 'upload') {
+        btnUp.classList.add('active');
+        btnUrl.classList.remove('active');
+        boxUp.style.display = 'block';
+        boxUrl.style.display = 'none';
+      } else {
+        btnUrl.classList.add('active');
+        btnUp.classList.remove('active');
+        boxUrl.style.display = 'block';
+        boxUp.style.display = 'none';
+      }
+    }
+
+    function randomizeAvatar() {
+      const seed = 'cbm_' + Math.random().toString(36).substring(2, 9);
+      const url = `https://api.dicebear.com/7.x/identicon/svg?seed=${seed}`;
+      currentAvatarData = url;
+      document.getElementById('avatarPreview').src = url;
+      document.getElementById('avatarUrl').value = url;
+      setAvatarMode('url');
+    }
+
+    function handleFileUpload(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        showAlert('Avatar file size cannot exceed 2MB.');
+        e.target.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        currentAvatarData = evt.target.result;
+        document.getElementById('avatarPreview').src = currentAvatarData;
+        hideAlert();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function handleUrlInput(e) {
+      const url = e.target.value.trim();
+      if (url) {
+        currentAvatarData = url;
+        document.getElementById('avatarPreview').src = url;
+      }
+    }
+
+    function showAlert(msg, isError = true) {
+      const b = document.getElementById('alertBox');
+      b.className = 'alert-box ' + (isError ? 'alert-error' : 'alert-success');
+      b.textContent = msg;
+      b.style.display = 'block';
+    }
+
+    function hideAlert() {
+      document.getElementById('alertBox').style.display = 'none';
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      hideAlert();
+
+      const username = document.getElementById('regUsername').value.trim();
+      const terriAcc = document.getElementById('regTerriAcc').value.trim();
+      const password = document.getElementById('regPassword').value.trim();
+      const confirm = document.getElementById('regConfirm').value.trim();
+      const terriPass = document.getElementById('regTerriPass').value.trim();
+      const pin = document.getElementById('regPin').value.trim();
+
+      if (username.length < 3 || username.length > 30) {
+        showAlert('CBM Username must be between 3 and 30 characters.');
+        return;
+      }
+      if (!terriAcc) {
+        showAlert('Primary Territorial.io Account ID is required.');
+        return;
+      }
+      if (password.length < 6) {
+        showAlert('Password must be at least 6 characters long.');
+        return;
+      }
+      if (password !== confirm) {
+        showAlert('Passwords do not match. Please re-enter.');
+        return;
+      }
+      if (!terriPass) {
+        showAlert('Territorial.io password is required to verify account ownership.');
+        return;
+      }
+      if (pin && (!/^\d+$/.test(pin) || pin.length < 4 || pin.length > 8)) {
+        showAlert('Quick PIN must consist of 4 to 8 numeric digits if provided.');
+        return;
+      }
+      if (!currentAvatarData) {
+        showAlert('A verified profile picture is required for member authenticity.');
+        return;
+      }
+
+      const payload = {
+        username: username,
+        password: password,
+        avatar_url: currentAvatarData,
+        primary_territorial_account: terriAcc,
+        territorial_password: terriPass,
+        pin: pin || null
+      };
+
+      const btn = document.getElementById('submitBtn');
+      const txt = document.getElementById('btnText');
+      const spn = document.getElementById('btnSpinner');
+
+      btn.disabled = true;
+      txt.textContent = 'Verifying Game Credentials...';
+      spn.style.display = 'inline-block';
+
+      try {
+        const res = await fetch('/api/cbm/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Registration failed.');
+        }
+
+        showAlert('Account created & verified successfully! Redirecting to Dashboard...', false);
+        
+        // Save session
+        localStorage.setItem('cbm_user', username);
+        if (data.account) {
+          localStorage.setItem('cbm_account', JSON.stringify(data.account));
+        }
+        localStorage.setItem('cbm_auth_time', Date.now().toString());
+
+        setTimeout(() => {
+          window.location.href = '/cbm.html';
+        }, 1000);
+
+      } catch (err) {
+        showAlert(err.message || 'Network error occurred. Please try again.');
+      } finally {
+        btn.disabled = false;
+        txt.textContent = 'Complete Registration';
+        spn.style.display = 'none';
+      }
+    }
+  </script>
+</body>
+</html>

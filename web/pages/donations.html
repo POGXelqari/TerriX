@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clan War Chest & Donations – Clan Bank Manager</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --border-subtle: rgba(255, 255, 255, 0.05);
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-yellow: #ffc439;
+      --paypal-yellow-dim: rgba(255, 196, 57, 0.15);
+      --success: #00cf92;
+      --success-dim: rgba(0, 207, 146, 0.15);
+      --danger: #ea3943;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --maxw: 1100px;
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.55;
+    }
+
+    header.site-header {
+      background: rgba(14, 22, 38, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .header-inner {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    .logo-img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .brand-tag {
+      font-size: 0.72rem;
+      color: var(--paypal-yellow);
+      background: rgba(255, 196, 57, 0.12);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .nav-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s ease;
+    }
+    .nav-link:hover, .nav-link.active { color: #fff; }
+    .btn-nav {
+      background: var(--panel-2);
+      border: 1px solid var(--border-bright);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .btn-nav:hover {
+      background: var(--panel-hover);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    main.donations-container {
+      flex: 1;
+      max-width: var(--maxw);
+      width: 100%;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+
+    /* Hero Banner */
+    .hero-banner {
+      background: linear-gradient(135deg, #131d31 0%, #1a2a46 100%);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      margin-bottom: 28px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .hero-banner::before {
+      content: "";
+      position: absolute;
+      top: -50%;
+      right: -10%;
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(255, 196, 57, 0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-info h1 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .hero-info p {
+      color: var(--text-dim);
+      font-size: 0.95rem;
+      max-width: 560px;
+    }
+    .hero-stat-card {
+      background: rgba(8, 13, 22, 0.6);
+      border: 1px solid var(--border);
+      padding: 18px 24px;
+      border-radius: var(--radius-md);
+      text-align: right;
+      min-width: 220px;
+    }
+    .hero-stat-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--paypal-yellow);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .hero-stat-value {
+      font-size: 2.1rem;
+      font-weight: 800;
+      color: #fff;
+      font-feature-settings: "tnum";
+    }
+
+    /* Retrospective Conversion Banner */
+    .retro-banner {
+      background: rgba(0, 112, 224, 0.08);
+      border: 1px solid rgba(0, 112, 224, 0.25);
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      margin-bottom: 28px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .retro-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .retro-icon {
+      font-size: 1.4rem;
+    }
+    .retro-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #fff;
+    }
+    .retro-desc {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+    }
+    .retro-action {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .retro-input {
+      width: 110px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-size: 0.88rem;
+      padding: 7px 10px;
+      outline: none;
+    }
+    .btn-retro {
+      background: var(--paypal-blue);
+      color: #fff;
+      border: none;
+      padding: 7px 16px;
+      border-radius: var(--radius-pill);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn-retro:hover { background: var(--paypal-blue-hover); }
+
+    /* Grid Layout */
+    .donations-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+    @media (max-width: 768px) {
+      .donations-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+    }
+    .panel-card h2 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+    .panel-desc {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-bottom: 18px;
+      line-height: 1.4;
+    }
+
+    /* Model 3 Slip Form */
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      margin-bottom: 5px;
+    }
+    .form-input {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: #fff;
+      font-size: 0.92rem;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+    .form-input:focus {
+      border-color: var(--paypal-blue);
+    }
+    .form-hint {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .btn-declare {
+      width: 100%;
+      background: var(--paypal-yellow);
+      color: #080d16;
+      border: none;
+      padding: 12px;
+      border-radius: var(--radius-pill);
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s ease;
+      margin-top: 10px;
+    }
+    .btn-declare:hover {
+      background: var(--paypal-yellow-hover);
+    }
+
+    /* Active Slip Box */
+    .active-slip-box {
+      margin-top: 18px;
+      background: var(--panel);
+      border: 1px solid rgba(255, 196, 57, 0.35);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      display: none;
+    }
+    .slip-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .slip-tag {
+      font-size: 0.72rem;
+      background: rgba(255, 196, 57, 0.15);
+      color: var(--paypal-yellow);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 700;
+    }
+    .slip-countdown {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--paypal-yellow);
+      font-feature-settings: "tnum";
+    }
+    .slip-details {
+      font-size: 0.86rem;
+      color: var(--text-dim);
+      line-height: 1.4;
+      margin-bottom: 12px;
+    }
+    .slip-copy-box {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px dashed var(--border-bright);
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      font-family: monospace;
+      font-size: 0.88rem;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .btn-copy {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+
+    /* Leaderboard */
+    .leaderboard-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .donor-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: background 0.15s ease;
+    }
+    .donor-row:hover {
+      background: var(--panel-hover);
+    }
+    .donor-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .donor-rank {
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: var(--text-muted);
+      width: 22px;
+    }
+    .donor-rank.rank-1 { color: #ffd700; }
+    .donor-rank.rank-2 { color: #c0c0c0; }
+    .donor-rank.rank-3 { color: #cd7f32; }
+    .donor-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--border-bright);
+      object-fit: cover;
+    }
+    .donor-info {
+      display: flex;
+      flex-direction: column;
+    }
+    .donor-name {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #fff;
+    }
+    .donor-msg {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .donor-amount {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--paypal-yellow);
+      font-feature-settings: "tnum";
+    }
+
+    /* Alert Box */
+    .alert-box {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      margin-bottom: 14px;
+      display: none;
+    }
+    .alert-error {
+      background: rgba(234, 57, 67, 0.15);
+      border: 1px solid rgba(234, 57, 67, 0.35);
+      color: #ff858d;
+    }
+    .alert-success {
+      background: rgba(0, 207, 146, 0.15);
+      border: 1px solid rgba(0, 207, 146, 0.35);
+      color: #55efc4;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/cbm.html" class="brand-link">
+        <img src="/cbm-logo.png" alt="CBM Logo" class="logo-img" onerror="this.style.display='none'">
+        <div>
+          <span class="brand-title">Clan Bank Manager</span>
+          <span class="brand-tag">WAR CHEST</span>
+        </div>
+      </a>
+      <div class="nav-links">
+        <a href="/cbm.html" class="nav-link">Banking Dashboard</a>
+        <a href="/donations.html" class="nav-link active">War Chest</a>
+        <a href="/rulebook.html" class="nav-link">Rulebook</a>
+        <span id="authNavSlot">
+          <a href="/login.html" class="btn-nav">Sign In</a>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="donations-container">
+    <!-- Hero Banner -->
+    <section class="hero-banner">
+      <div class="hero-info">
+        <h1>Clan War Chest Hub</h1>
+        <p>Unencumbered capital reserves directly funding clan defense, alliance diplomacy, and emergency liquidity. Contributions create 0 liabilities and expand unencumbered reserves.</p>
+      </div>
+      <div class="hero-stat-card">
+        <div class="hero-stat-label">Total War Chest Gold</div>
+        <div class="hero-stat-value" id="warChestTotal">0.00 G</div>
+      </div>
+    </section>
+
+    <!-- 1-Click Retrospective Conversion Banner -->
+    <div class="retro-banner">
+      <div class="retro-left">
+        <span class="retro-icon">💡</span>
+        <div>
+          <div class="retro-title">Convert Personal Balance to War Chest</div>
+          <div class="retro-desc">Accidentally deposited as personal balance? Convert any portion of your balance directly to War Chest reserves.</div>
+        </div>
+      </div>
+      <div class="retro-action">
+        <input type="number" id="retroAmount" class="retro-input" placeholder="Gold" min="0.1" step="any">
+        <input type="password" id="retroPin" class="retro-input" placeholder="Access PIN" maxlength="8" autocomplete="off" inputmode="numeric" style="width: 125px;">
+        <button type="button" class="btn-retro" onclick="handleRetroConversion()">Convert Now</button>
+      </div>
+    </div>
+
+    <div id="alertBox" class="alert-box"></div>
+
+    <!-- Main Grid -->
+    <div class="donations-grid">
+      <!-- Left Panel: Model 3 In-Game Donation Slip Generator -->
+      <div class="panel-card">
+        <h2>In-Game Transfer Slip</h2>
+        <p class="panel-desc">Declare your in-game transfer on the website first. Once declared, send the exact gold amount in Territorial.io within 15 minutes to book it to the Clan War Chest with your message.</p>
+
+        <form id="slipForm" onsubmit="handleCreateSlip(event)">
+          <div class="form-group">
+            <label for="slipAccount">Your CBM Username or In-Game Account ID</label>
+            <input type="text" id="slipAccount" class="form-input" placeholder="e.g. CommanderBob or B8bbq" required>
+            <p class="form-hint">Must match the sending in-game account.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="slipAmount">Gold Amount</label>
+            <input type="number" id="slipAmount" class="form-input" placeholder="e.g. 10.00" step="any" min="0.1" required>
+            <p class="form-hint">Transfer the exact amount in-game.</p>
+          </div>
+
+          <div class="form-group">
+            <label for="slipMessage">Custom Donor Message (Optional)</label>
+            <input type="text" id="slipMessage" class="form-input" placeholder="e.g. For the clan expansion!" maxlength="100">
+          </div>
+
+          <button type="submit" id="btnDeclare" class="btn-declare">Generate 15-Minute Donation Slip</button>
+        </form>
+
+        <!-- Active Slip Card -->
+        <div id="activeSlipBox" class="active-slip-box">
+          <div class="slip-header">
+            <span class="slip-tag">ACTIVE DONATION SLIP</span>
+            <span class="slip-countdown" id="slipTimer">15:00</span>
+          </div>
+          <p class="slip-details" id="slipDetails">Send exactly 10.00 Gold in-game to vault account <strong>DdcBC</strong>.</p>
+          <div class="slip-copy-box">
+            <span id="copyInstruction">Transfer 10 Gold to DdcBC</span>
+            <button type="button" class="btn-copy" onclick="copySlipInstruction()">Copy</button>
+          </div>
+          <p class="form-hint" style="margin-top:8px;">The daemon continuously monitors the ledger. Once received, your donation will book immediately.</p>
+        </div>
+      </div>
+
+      <!-- Right Panel: Leaderboard -->
+      <div class="panel-card">
+        <h2>Top Clan Donors</h2>
+        <p class="panel-desc">All-time top contributors supporting clan longevity and unencumbered reserves.</p>
+        
+        <div id="leaderboardList" class="leaderboard-list">
+          <div style="color:var(--text-muted); font-size:0.85rem;">Loading top donors...</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let activeSlipTimer = null;
+    let slipTimeRemaining = 0;
+    let pollInterval = null;
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function showAlert(msg, isError = true) {
+      const b = document.getElementById('alertBox');
+      b.className = 'alert-box ' + (isError ? 'alert-error' : 'alert-success');
+      b.textContent = msg;
+      b.style.display = 'block';
+    }
+    function hideAlert() {
+      document.getElementById('alertBox').style.display = 'none';
+    }
+
+    async function loadDonationsData() {
+      try {
+        const res = await fetch('/api/cbm/donors');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        if (data.total_donated_gold !== undefined) {
+          document.getElementById('warChestTotal').textContent = data.total_donated_gold.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' G';
+        }
+
+        const list = document.getElementById('leaderboardList');
+        if (data.top_donors && data.top_donors.length > 0) {
+          list.innerHTML = data.top_donors.map(d => `
+            <div class="donor-row">
+              <div class="donor-left">
+                <span class="donor-rank rank-${escapeHtml(d.rank)}">#${escapeHtml(d.rank)}</span>
+                <img src="${escapeHtml(d.avatar_url || 'https://api.dicebear.com/7.x/identicon/svg?seed=' + encodeURIComponent(d.donor_name))}" class="donor-avatar" alt="${escapeHtml(d.donor_name)}" onerror="this.src='https://api.dicebear.com/7.x/identicon/svg?seed=fallback'">
+                <div class="donor-info">
+                  <span class="donor-name">${escapeHtml(d.donor_name)}</span>
+                  <span class="donor-msg">${escapeHtml(d.last_message || 'Clan War Chest Support')}</span>
+                </div>
+              </div>
+              <div class="donor-amount">+${parseFloat(d.total_gold).toFixed(2)} G</div>
+            </div>
+          `).join('');
+        } else {
+          list.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem;">No donations recorded yet. Be the first to donate!</div>';
+        }
+      } catch (err) {
+        console.error("Error loading donors data:", err);
+      }
+    }
+
+    async function handleCreateSlip(e) {
+      e.preventDefault();
+      hideAlert();
+
+      const accountName = document.getElementById('slipAccount').value.trim();
+      const amountGold = parseFloat(document.getElementById('slipAmount').value);
+      const message = document.getElementById('slipMessage').value.trim();
+
+      if (!accountName || isNaN(amountGold) || amountGold <= 0) {
+        showAlert('Please provide a valid account name and positive gold amount.');
+        return;
+      }
+
+      const btn = document.getElementById('btnDeclare');
+      btn.disabled = true;
+      btn.textContent = 'Generating Slip...';
+
+      try {
+        const res = await fetch('/api/cbm/donations/declare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account_name: accountName,
+            amount_gold: amountGold,
+            message: message,
+            ttl_minutes: 15
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Failed to generate donation slip.');
+        }
+
+        showAlert('Donation slip active! Send gold in-game within 15 minutes.', false);
+        displayActiveSlip(data.slip);
+
+      } catch (err) {
+        showAlert(err.message || 'Error declaring donation slip.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate 15-Minute Donation Slip';
+      }
+    }
+
+    function displayActiveSlip(slip) {
+      const box = document.getElementById('activeSlipBox');
+      box.style.display = 'block';
+
+      document.getElementById('slipDetails').innerHTML = 
+        `Send exactly <strong>${parseFloat(slip.amount_gold).toFixed(2)} Gold</strong> in Territorial.io to vault account <strong>DdcBC</strong> from account <strong>${escapeHtml(slip.account_name)}</strong>.`;
+      
+      document.getElementById('copyInstruction').textContent = `Transfer ${parseFloat(slip.amount_gold).toFixed(2)} Gold to DdcBC`;
+
+      slipTimeRemaining = slip.remaining_seconds || 900;
+      if (activeSlipTimer) clearInterval(activeSlipTimer);
+
+      updateTimerDisplay();
+      activeSlipTimer = setInterval(() => {
+        slipTimeRemaining--;
+        if (slipTimeRemaining <= 0) {
+          clearInterval(activeSlipTimer);
+          document.getElementById('slipTimer').textContent = 'EXPIRED';
+          showAlert('Donation slip has expired. Any transfer will default to personal deposit.');
+        } else {
+          updateTimerDisplay();
+        }
+      }, 1000);
+
+      if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/cbm/donations/pending?account=${encodeURIComponent(slip.account_name)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const slips = data.pending_donations || [];
+            const match = slips.find(s => s.id === slip.id);
+            if (!match) {
+              clearInterval(pollInterval);
+              clearInterval(activeSlipTimer);
+              box.style.display = 'none';
+              showAlert('Donation successfully received and credited to Clan War Chest! Thank you!', false);
+              loadDonationsData();
+            }
+          }
+        } catch (e) {}
+      }, 5000);
+    }
+
+    function updateTimerDisplay() {
+      const mins = Math.floor(slipTimeRemaining / 60);
+      const secs = slipTimeRemaining % 60;
+      document.getElementById('slipTimer').textContent = 
+        `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function copySlipInstruction() {
+      const text = document.getElementById('copyInstruction').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        alert("Copied instruction: " + text);
+      });
+    }
+
+    async function handleRetroConversion() {
+      hideAlert();
+      const user = localStorage.getItem('cbm_user');
+      if (!user) {
+        showAlert('Please sign in first to convert from your personal balance.');
+        return;
+      }
+
+      const amount = parseFloat(document.getElementById('retroAmount').value);
+      if (isNaN(amount) || amount <= 0) {
+        showAlert('Please enter a positive Gold amount to convert.');
+        return;
+      }
+
+      let pin = (document.getElementById('retroPin') ? document.getElementById('retroPin').value.trim() : '') || sessionStorage.getItem('cbm_session_pin');
+      if (!pin) {
+        pin = prompt(`Enter your 4-to-8 digit CBM Access PIN to authorize converting ${amount.toFixed(2)} Gold to Clan War Chest:`);
+        if (!pin) {
+          showAlert('Access PIN is required to authorize personal balance conversion.');
+          return;
+        }
+      }
+
+      if (!confirm(`Are you sure you want to convert ${amount.toFixed(2)} Gold from your personal balance to permanent War Chest reserves? This action is irrevocable.`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/cbm/donate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account_name: user,
+            amount_gold: amount,
+            message: "Retrospective Conversion to War Chest",
+            pin: pin
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          if (res.status === 401) {
+            sessionStorage.removeItem('cbm_session_pin');
+            if (document.getElementById('retroPin')) document.getElementById('retroPin').value = '';
+          }
+          throw new Error(data.message || 'Conversion failed.');
+        }
+
+        sessionStorage.setItem('cbm_session_pin', pin);
+        showAlert(`Successfully converted ${amount.toFixed(2)} Gold to Clan War Chest!`, false);
+        document.getElementById('retroAmount').value = '';
+        loadDonationsData();
+      } catch (err) {
+        showAlert(err.message || 'Error executing conversion.');
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const user = localStorage.getItem('cbm_user');
+      const navSlot = document.getElementById('authNavSlot');
+      if (user) {
+        navSlot.innerHTML = `
+          <span style="color:var(--text-dim); font-size:0.85rem; margin-right:8px;">${escapeHtml(user)}</span>
+          <a href="/cbm.html" class="btn-nav">My Balance</a>
+        `;
+        document.getElementById('slipAccount').value = user;
+      }
+
+      const savedPin = sessionStorage.getItem('cbm_session_pin');
+      if (savedPin && document.getElementById('retroPin')) {
+        document.getElementById('retroPin').value = savedPin;
+      }
+
+      loadDonationsData();
+    });
+  </script>
+</body>
+</html>

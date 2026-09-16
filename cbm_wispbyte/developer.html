@@ -3,45 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CBM Developer Platform | Clan Bank Manager API v1</title>
+  <title>CBM Developer Platform & Discord SDK — Territorial.io</title>
   <link rel="icon" href="/cbm-logo.png" type="image/png">
   <style>
     :root {
-      --bg: #06050a;
-      --bg-surface: #0a0812;
-      --bg-glass: rgba(14, 11, 24, 0.78);
-      --bg-glass-card: rgba(18, 14, 32, 0.85);
-      --panel: #100d1e;
-      --panel-border: rgba(168, 85, 247, 0.18);
-      --panel-border-glow: rgba(168, 85, 247, 0.35);
-      --border-subtle: rgba(255, 255, 255, 0.06);
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #111b2e;
+      --panel-2: #16243d;
+      --panel-hover: #1c2e4e;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --border-subtle: rgba(255, 255, 255, 0.04);
 
       --text: #ffffff;
-      --text-dim: #9ea4b6;
-      --text-muted: #656c82;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
 
-      /* PogX-inspired Electric Violet & Neon Accents */
-      --violet: #a855f7;
-      --violet-light: #c084fc;
-      --violet-dark: #7c3aed;
-      --violet-glow: rgba(168, 85, 247, 0.25);
-      --violet-glow-lg: rgba(147, 51, 234, 0.4);
+      --blue: #0070e0;
+      --blue-hover: #005ea6;
+      --blue-dim: rgba(0, 112, 224, 0.14);
 
-      --gold: #ffc83b;
-      --gold-dim: rgba(255, 200, 59, 0.15);
+      --gold: #f59e0b;
+      --gold-dim: rgba(245, 158, 11, 0.14);
       --emerald: #10b981;
-      --emerald-dim: rgba(16, 185, 129, 0.15);
-      --danger: #ef4444;
-      --danger-dim: rgba(239, 68, 68, 0.15);
-      --blue: #38bdf8;
+      --emerald-dim: rgba(16, 185, 129, 0.14);
+      --danger: #ea3943;
+      --danger-dim: rgba(234, 57, 67, 0.14);
 
-      --radius-sm: 8px;
-      --radius-md: 14px;
-      --radius-lg: 20px;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
       --radius-pill: 9999px;
       --maxw: 1560px;
       --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -49,12 +45,10 @@
     body {
       background-color: var(--bg);
       background-image: 
-        radial-gradient(circle at 50% -10%, rgba(147, 51, 234, 0.28), transparent 55%),
-        radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.12), transparent 45%),
-        radial-gradient(circle at 15% 70%, rgba(124, 58, 237, 0.1), transparent 50%),
+        radial-gradient(circle at 50% -15%, rgba(0, 112, 224, 0.12), transparent 55%),
         linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
         linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-      background-size: 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+      background-size: 100% 100%, 32px 32px, 32px 32px;
       color: var(--text);
       font-family: var(--font-main);
       min-height: 100vh;
@@ -64,7 +58,7 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* Floating Frosted Pill Header */
+    /* Top Navigation Bar */
     header.site-header {
       position: sticky;
       top: 14px;
@@ -72,16 +66,16 @@
       max-width: var(--maxw);
       margin: 0 auto;
       width: calc(100% - 32px);
-      background: var(--bg-glass);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid var(--panel-border);
+      background: rgba(14, 22, 38, 0.94);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
       border-radius: var(--radius-pill);
       padding: 10px 22px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 25px var(--violet-glow);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
     }
 
     .brand-group {
@@ -93,16 +87,15 @@
     }
 
     .brand-logo {
-      width: 32px;
-      height: 32px;
+      width: 30px;
+      height: 30px;
       border-radius: var(--radius-sm);
-      filter: drop-shadow(0 0 8px var(--violet));
     }
 
     .brand-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
-      letter-spacing: -0.02em;
+      letter-spacing: -0.01em;
       display: flex;
       align-items: center;
       gap: 8px;
@@ -113,9 +106,9 @@
       font-weight: 600;
       padding: 2px 8px;
       border-radius: var(--radius-pill);
-      background: var(--violet-glow);
-      color: var(--violet-light);
-      border: 1px solid var(--panel-border);
+      background: var(--blue-dim);
+      color: #60a5fa;
+      border: 1px solid rgba(0, 112, 224, 0.3);
     }
 
     nav.site-nav {
@@ -134,56 +127,54 @@
 
     .nav-link:hover, .nav-link.active {
       color: #ffffff;
-      text-shadow: 0 0 12px rgba(255, 255, 255, 0.5);
     }
 
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
 
     .btn-pill {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 18px;
+      padding: 8px 16px;
       border-radius: var(--radius-pill);
       font-size: 13px;
       font-weight: 600;
       text-decoration: none;
       cursor: pointer;
       border: none;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
     }
 
     .btn-glow {
-      background: #ffffff;
-      color: #06050a;
-      box-shadow: 0 0 20px rgba(255, 255, 255, 0.35);
+      background: var(--blue);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     .btn-glow:hover {
-      background: #f1f1f5;
+      background: var(--blue-hover);
       transform: translateY(-1px);
-      box-shadow: 0 0 25px rgba(255, 255, 255, 0.5);
     }
 
     .btn-ghost {
       background: rgba(255, 255, 255, 0.05);
       color: var(--text);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border);
     }
 
     .btn-ghost:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: var(--panel-border);
+      background: rgba(255, 255, 255, 0.09);
+      border-color: var(--border-bright);
     }
 
     /* Hero Headline Section */
     .hero-section {
-      max-width: 960px;
-      margin: 48px auto 36px;
+      max-width: 900px;
+      margin: 40px auto 30px;
       text-align: center;
       padding: 0 20px;
     }
@@ -192,15 +183,14 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 16px;
+      padding: 5px 14px;
       border-radius: var(--radius-pill);
-      background: rgba(147, 51, 234, 0.12);
-      border: 1px solid var(--panel-border);
+      background: rgba(0, 112, 224, 0.1);
+      border: 1px solid rgba(0, 112, 224, 0.25);
       font-size: 12px;
       font-weight: 600;
-      color: var(--violet-light);
-      margin-bottom: 22px;
-      box-shadow: 0 0 20px rgba(147, 51, 234, 0.15);
+      color: #70b4ff;
+      margin-bottom: 18px;
     }
 
     .status-dot {
@@ -208,29 +198,29 @@
       height: 7px;
       border-radius: 50%;
       background: var(--emerald);
-      box-shadow: 0 0 8px var(--emerald);
     }
 
     .hero-title {
-      font-size: clamp(34px, 4.8vw, 56px);
+      font-size: clamp(30px, 4.2vw, 48px);
       font-weight: 800;
-      letter-spacing: -0.035em;
-      line-height: 1.1;
+      letter-spacing: -0.025em;
+      line-height: 1.15;
       margin-bottom: 12px;
+      color: #ffffff;
     }
 
-    .hero-title span.violet-glow-text {
+    .hero-title span.gold-accent-text {
       display: block;
-      background: linear-gradient(135deg, #ffffff 0%, #c084fc 50%, #9333ea 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      filter: drop-shadow(0 0 25px rgba(168, 85, 247, 0.4));
+      color: var(--gold);
+      font-size: 0.8em;
+      font-weight: 700;
+      margin-top: 4px;
     }
 
     .hero-desc {
-      font-size: 16px;
+      font-size: 15px;
       color: var(--text-dim);
-      max-width: 680px;
+      max-width: 660px;
       margin: 0 auto;
       line-height: 1.6;
     }
@@ -269,24 +259,22 @@
 
     /* Left Sidebar Navigation */
     .left-sidebar {
-      background: var(--bg-glass-card);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      padding: 20px 16px;
+      padding: 18px 14px;
       position: sticky;
       top: 86px;
-      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
     }
 
     .sidebar-section-title {
       font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       color: var(--text-muted);
-      margin: 16px 12px 8px;
+      margin: 14px 10px 6px;
     }
 
     .sidebar-section-title:first-child {
@@ -308,7 +296,7 @@
     }
 
     .sidebar-nav-item:hover, .sidebar-nav-item.active {
-      background: rgba(168, 85, 247, 0.12);
+      background: rgba(0, 112, 224, 0.12);
       color: #ffffff;
     }
 
@@ -320,8 +308,8 @@
       border-radius: 4px;
     }
 
-    .badge-get { background: rgba(56, 189, 248, 0.15); color: var(--blue); }
-    .badge-post { background: rgba(16, 185, 129, 0.15); color: var(--emerald); }
+    .badge-get { background: var(--blue-dim); color: #60a5fa; }
+    .badge-post { background: var(--emerald-dim); color: var(--emerald); }
 
     /* Center Technical Pane */
     .center-pane {
@@ -331,23 +319,13 @@
     }
 
     .glass-card {
-      background: var(--bg-glass-card);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid var(--panel-border);
+      background: var(--panel);
+      border: 1px solid var(--border);
       border-radius: var(--radius-lg);
       padding: 24px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
       position: relative;
       overflow: hidden;
-    }
-
-    .glass-card::before {
-      content: "";
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.5), transparent);
     }
 
     /* API Credits Wallet Widget */
@@ -355,14 +333,14 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .wallet-title {
       font-size: 13px;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.05em;
       color: var(--text-dim);
       display: flex;
       align-items: center;
@@ -373,15 +351,14 @@
       display: flex;
       align-items: baseline;
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .credit-amount {
-      font-size: 38px;
+      font-size: 36px;
       font-weight: 800;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.02em;
       color: #ffffff;
-      text-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
     }
 
     .credit-subtext {
@@ -390,8 +367,8 @@
     }
 
     .conversion-banner {
-      background: rgba(147, 51, 234, 0.1);
-      border: 1px solid rgba(168, 85, 247, 0.25);
+      background: rgba(0, 112, 224, 0.08);
+      border: 1px solid rgba(0, 112, 224, 0.2);
       border-radius: var(--radius-md);
       padding: 12px 16px;
       display: flex;
@@ -403,7 +380,7 @@
 
     .conversion-text {
       font-size: 13px;
-      color: var(--violet-light);
+      color: var(--text-dim);
       font-weight: 500;
     }
 
@@ -416,7 +393,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
 
     .desk-title {
@@ -448,7 +425,7 @@
     }
 
     table.keys-table td {
-      padding: 14px 12px;
+      padding: 12px;
       border-bottom: 1px solid var(--border-subtle);
       color: var(--text-dim);
     }
@@ -462,10 +439,10 @@
       font-family: var(--font-mono);
       font-size: 12px;
       background: rgba(0, 0, 0, 0.4);
-      padding: 4px 8px;
-      border-radius: 6px;
-      border: 1px solid var(--border-subtle);
-      color: var(--violet-light);
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: var(--gold);
     }
 
     .env-tag {
@@ -476,14 +453,14 @@
       text-transform: uppercase;
     }
 
-    .env-live { background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }
-    .env-test { background: rgba(255, 200, 59, 0.15); color: var(--gold); border: 1px solid rgba(255, 200, 59, 0.3); }
+    .env-live { background: var(--emerald-dim); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .env-test { background: var(--gold-dim); color: var(--gold); border: 1px solid rgba(245, 158, 11, 0.3); }
 
     /* Endpoint Documentation Card */
     .endpoint-doc {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
     }
 
     .endpoint-header-row {
@@ -502,13 +479,13 @@
 
     .endpoint-path {
       font-family: var(--font-mono);
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 600;
       color: #ffffff;
     }
 
     .endpoint-desc {
-      font-size: 14px;
+      font-size: 13.5px;
       color: var(--text-dim);
       line-height: 1.6;
     }
@@ -517,7 +494,7 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 13px;
-      margin-top: 8px;
+      margin-top: 6px;
     }
 
     .params-table th {
@@ -530,7 +507,7 @@
     }
 
     .params-table td {
-      padding: 10px;
+      padding: 9px 10px;
       border-bottom: 1px solid var(--border-subtle);
     }
 
@@ -547,16 +524,16 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .tab-pills {
       display: flex;
       gap: 6px;
-      background: rgba(0, 0, 0, 0.4);
-      padding: 4px;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 3px;
       border-radius: var(--radius-pill);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border);
     }
 
     .tab-pill {
@@ -572,35 +549,34 @@
     }
 
     .tab-pill.active {
-      background: var(--violet);
+      background: var(--blue);
       color: #ffffff;
-      box-shadow: 0 0 10px var(--violet-glow);
     }
 
     .input-field {
       width: 100%;
-      background: rgba(0, 0, 0, 0.45);
-      border: 1px solid var(--border-subtle);
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 10px 14px;
+      padding: 9px 12px;
       color: #ffffff;
       font-size: 13.5px;
       font-family: var(--font-mono);
       outline: none;
-      transition: border-color 0.2s ease;
+      transition: border-color 0.15s ease;
       margin-bottom: 12px;
     }
 
     .input-field:focus {
-      border-color: var(--violet);
-      box-shadow: 0 0 12px var(--violet-glow);
+      border-color: var(--blue);
+      box-shadow: 0 0 6px var(--blue-dim);
     }
 
     .code-box {
-      background: #040307;
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #040810;
+      border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      padding: 16px;
+      padding: 14px;
       font-family: var(--font-mono);
       font-size: 12.5px;
       color: #d1d5db;
@@ -628,15 +604,15 @@
       border-radius: 4px;
     }
 
-    .http-200 { background: rgba(16, 185, 129, 0.2); color: var(--emerald); }
-    .http-402 { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+    .http-200 { background: var(--emerald-dim); color: var(--emerald); }
+    .http-402 { background: var(--danger-dim); color: var(--danger); }
 
     /* Key Generation Modal */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(12px);
+      backdrop-filter: blur(8px);
       z-index: 1000;
       display: none;
       align-items: center;
@@ -649,56 +625,56 @@
     }
 
     .modal-card {
-      background: #0d0a18;
-      border: 1px solid var(--panel-border);
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 35px var(--violet-glow);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75);
       border-radius: var(--radius-lg);
-      max-width: 520px;
+      max-width: 500px;
       width: 100%;
-      padding: 28px;
+      padding: 26px;
       position: relative;
     }
 
     .modal-title {
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .modal-subtitle {
-      font-size: 13.5px;
+      font-size: 13px;
       color: var(--text-dim);
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
 
     .form-group {
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
 
     .form-label {
       display: block;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-dim);
-      margin-bottom: 6px;
+      margin-bottom: 5px;
     }
 
     .modal-actions {
       display: flex;
       justify-content: flex-end;
-      gap: 12px;
-      margin-top: 24px;
+      gap: 10px;
+      margin-top: 22px;
     }
 
     /* Secret Reveal Box */
     .secret-box {
-      background: rgba(147, 51, 234, 0.15);
-      border: 1px dashed var(--violet);
+      background: rgba(0, 112, 224, 0.1);
+      border: 1px dashed var(--blue);
       border-radius: var(--radius-sm);
-      padding: 14px;
-      margin: 16px 0;
+      padding: 12px;
+      margin: 14px 0;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -745,15 +721,14 @@
   <section class="hero-section">
     <div class="status-badge-pill">
       <span class="status-dot"></span>
-      <span>Live Production API • 1 Credit = 1.00 Gold • 99.99% Uptime</span>
+      <span>API v1.0 • 1 Credit = 1.00 Gold • Direct In-Game Settlement</span>
     </div>
     <h1 class="hero-title">
-      Where clans coordinate.
-      <span class="violet-glow-text">Where automated treasury rises.</span>
+      Clan Bank Developer Platform
+      <span class="gold-accent-text">Automated Banking & Discord Bot Integration</span>
     </h1>
     <p class="hero-desc">
-      Production-grade financial telemetry and programmatic banking for Territorial.io clans. 
-      Automate Discord bot commands, verify player deposits, and query real-time solvency reserves.
+      Programmatic financial API and Discord Bot SDK for Territorial.io clans. Query real-time solvency, verify member deposits, and build custom bot commands with zero external dependencies.
     </p>
     <div style="display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 22px; flex-wrap: wrap;">
       <a href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" class="btn-pill btn-glow" style="text-decoration: none; font-size: 13.5px; padding: 10px 22px; display: inline-flex; align-items: center; gap: 8px;">
@@ -770,9 +745,9 @@
     <!-- Left Sidebar -->
     <aside class="left-sidebar">
       <div class="sidebar-section-title">Overview</div>
-      <a class="sidebar-nav-item active" href="#overview">⚡ Platform Overview</a>
-      <a class="sidebar-nav-item" href="#credit-billing">💳 API Credits & Solvency</a>
-      <a class="sidebar-nav-item" href="#keys-desk">🔑 API Key Vault</a>
+      <a class="sidebar-nav-item active" href="#overview">Overview</a>
+      <a class="sidebar-nav-item" href="#credit-billing">API Credits & Billing</a>
+      <a class="sidebar-nav-item" href="#keys-desk">API Keys</a>
 
       <div class="sidebar-section-title">API Endpoints (v1)</div>
       <a class="sidebar-nav-item" href="#ep-bank-status">
@@ -799,10 +774,10 @@
 
       <div class="sidebar-section-title">SDKs & Extensions</div>
       <a class="sidebar-nav-item" href="#discord-sdk">🤖 Discord Bot SDK</a>
-      <a class="sidebar-nav-item" href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" style="color: var(--violet-light); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+      <a class="sidebar-nav-item" href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" style="color: #60a5fa; font-weight: 600; display: flex; align-items: center; gap: 6px;">
         📥 Download SDK (.py)
       </a>
-      <a class="sidebar-nav-item" href="#sandbox-mode">🧪 Sandbox Dry-Run</a>
+      <a class="sidebar-nav-item" href="#sandbox-mode">🧪 Sandbox Mode</a>
     </aside>
 
     <!-- Center Technical Documentation & Key Desk -->
@@ -819,21 +794,21 @@
           <div class="credit-subtext" id="disp-gold-sub">(--.-- Gold balance)</div>
         </div>
         <p style="font-size: 13.5px; color: var(--text-dim);">
-          Every successful live API request debits <strong>1.00 Credit</strong> (1.00 Gold) from your member account balance.
+          Successful live API requests debit <strong>1.00 Credit</strong> (1.00 Gold) from your member account balance.
         </p>
         <div class="conversion-banner">
           <div class="conversion-text">
-            ⚡ <strong>Solvency Conversion Engine:</strong> 100% of charged API credits are automatically converted into unencumbered central bank reserves, expanding clan community lending.
+            ℹ️ <strong>Clan Treasury Allocation:</strong> All debited API credits are credited into unencumbered central bank reserves, funding clan operations and lending facilities.
           </div>
           <a href="/cbm.html" class="btn-pill btn-glow" style="padding: 6px 14px; font-size: 12px; white-space: nowrap;">Top Up →</a>
         </div>
       </div>
 
-      <!-- API Key Vault & Management -->
+      <!-- API Key Management -->
       <div class="glass-card" id="keys-desk">
         <div class="desk-header">
           <div>
-            <h2 class="desk-title">API Key Vault</h2>
+            <h2 class="desk-title">API Keys</h2>
             <p style="font-size: 13px; color: var(--text-dim); margin-top: 4px;">Manage credentials for Discord bots and clan automation scripts.</p>
           </div>
           <button class="btn-pill btn-glow" onclick="openKeyModal()">+ Create New Key</button>
@@ -982,9 +957,9 @@
         </div>
 
         <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
-          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(147, 51, 234, 0.15); color: var(--violet-light); border: 1px solid rgba(147, 51, 234, 0.3);">✓ Zero 3rd-Party Dependencies</span>
-          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3);">✓ discord.py & disnake Ready</span>
-          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(255, 255, 255, 0.06); color: var(--text-muted); border: 1px solid var(--border-subtle);">✓ Python 3.8+ Standard Library</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(0, 112, 224, 0.12); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.3);">✓ Zero 3rd-Party Dependencies</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3);">✓ discord.py & disnake Ready</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(255, 255, 255, 0.05); color: var(--text-dim); border: 1px solid var(--border);">✓ Python 3.8+ Standard Library</span>
         </div>
 
         <div class="code-box" id="sdk-code-snippet"># 1. Download cbm_discord_sdk.py into your bot repository
@@ -1023,8 +998,8 @@ async def balance(interaction: discord.Interaction, player_name: str):
     <aside class="right-pane">
       <div class="glass-card">
         <div class="playground-header">
-          <div style="font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--violet-light);">
-            ⚡ Request Playground
+          <div style="font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #60a5fa;">
+            ⚡ API Playground
           </div>
           <div class="tab-pills">
             <button class="tab-pill active" id="btn-env-live" onclick="setPlaygroundEnv('live')">Live</button>
@@ -1098,7 +1073,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
       <div id="modal-secret-area" style="display: none;">
         <div class="secret-box">
           <div>
-            <div style="font-size: 11px; font-weight: 700; color: var(--violet-light); text-transform: uppercase;">Save your secret token:</div>
+            <div style="font-size: 11px; font-weight: 700; color: #60a5fa; text-transform: uppercase;">Save your secret token:</div>
             <div class="secret-token-text" id="modal-secret-val"></div>
           </div>
           <button class="btn-pill btn-glow" style="padding: 6px 12px; font-size: 12px;" onclick="copySecretToken()">Copy</button>

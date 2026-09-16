@@ -83,6 +83,7 @@ def load_static_cache():
         ("rulebook.html", "text/html; charset=utf-8"),
         ("vault.html", "text/html; charset=utf-8"),
         ("developer.html", "text/html; charset=utf-8"),
+        ("cbm_discord_sdk.py", "text/x-python; charset=utf-8"),
         ("cbm-logo.png", "image/png"),
     ]
     for fname, ctype in assets:
@@ -297,11 +298,11 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             "frame-ancestors 'self';"
         )
 
-    def _send_cached_asset(self, asset_key: str):
+    def _send_cached_asset(self, asset_key: str, download_filename: Optional[str] = None):
         asset = _STATIC_CACHE.get(asset_key)
         if not asset:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            return self._send_file(os.path.join(base_dir, asset_key))
+            return self._send_file(os.path.join(base_dir, asset_key), download_filename=download_filename)
 
         inm = self.headers.get("If-None-Match", "")
         if inm and asset["etag"] in inm:
@@ -322,6 +323,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         try:
             self.send_response(200)
             self.send_header("Content-Type", asset["content_type"])
+            if download_filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
             self.send_header("ETag", asset["etag"])
             self.send_header("Cache-Control", "public, max-age=300")
             self.send_header("Access-Control-Allow-Origin", "*")
@@ -382,7 +385,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"[!] Error sending cached JSON bytes: {e}")
 
-    def _send_file(self, file_path: str, content_type: str = "text/html; charset=utf-8"):
+    def _send_file(self, file_path: str, content_type: str = "text/html; charset=utf-8", download_filename: Optional[str] = None):
         if not os.path.exists(file_path):
             self.send_error(404, "Asset not found")
             return
@@ -391,6 +394,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 content = f.read()
             self.send_response(200)
             self.send_header("Content-Type", content_type)
+            if download_filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Access-Control-Allow-Origin", "*")
             self._apply_security_headers()
@@ -566,6 +571,10 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         elif path in ("/developer", "/developer.html", "/dev", "/console", "/api-docs"):
             return self._send_cached_asset("developer.html")
+
+        # Discord Bot SDK Download
+        elif path in ("/api/cbm/dev/sdk/download", "/cbm_discord_sdk.py", "/sdk/discord", "/download/discord-sdk"):
+            return self._send_cached_asset("cbm_discord_sdk.py", download_filename="cbm_discord_sdk.py")
 
         # 2. Web Portal Interface (/ or /cbm or /cbm.html or /bank or /index.html)
         elif path in ("", "/", "/cbm", "/cbm.html", "/bank", "/index.html"):

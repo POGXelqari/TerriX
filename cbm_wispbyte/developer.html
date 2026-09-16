@@ -735,6 +735,7 @@
     </nav>
 
     <div class="header-actions">
+      <a href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" class="btn-pill btn-ghost" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">📥 Download SDK</a>
       <button class="btn-pill btn-ghost" onclick="openKeyModal()">+ Create Key</button>
       <a href="/cbm.html" class="btn-pill btn-glow">Enter Bank →</a>
     </div>
@@ -754,6 +755,13 @@
       Production-grade financial telemetry and programmatic banking for Territorial.io clans. 
       Automate Discord bot commands, verify player deposits, and query real-time solvency reserves.
     </p>
+    <div style="display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 22px; flex-wrap: wrap;">
+      <a href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" class="btn-pill btn-glow" style="text-decoration: none; font-size: 13.5px; padding: 10px 22px; display: inline-flex; align-items: center; gap: 8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span>Download Discord Bot SDK (.py)</span>
+      </a>
+      <a href="#discord-sdk" class="btn-pill btn-ghost" style="text-decoration: none; font-size: 13.5px; padding: 10px 20px;">SDK Quickstart & Snippets ↓</a>
+    </div>
   </section>
 
   <!-- Main 3-Pane Layout -->
@@ -791,6 +799,9 @@
 
       <div class="sidebar-section-title">SDKs & Extensions</div>
       <a class="sidebar-nav-item" href="#discord-sdk">🤖 Discord Bot SDK</a>
+      <a class="sidebar-nav-item" href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" style="color: var(--violet-light); font-weight: 600; display: flex; align-items: center; gap: 6px;">
+        📥 Download SDK (.py)
+      </a>
       <a class="sidebar-nav-item" href="#sandbox-mode">🧪 Sandbox Dry-Run</a>
     </aside>
 
@@ -946,20 +957,63 @@
 
       <!-- Discord Bot SDK Guide -->
       <div class="glass-card" id="discord-sdk">
-        <h2 class="desk-title" style="margin-bottom: 8px;">🤖 Official Discord Bot SDK</h2>
-        <p style="font-size: 14px; color: var(--text-dim); margin-bottom: 16px;">
-          Build Discord bot commands in minutes using our zero-dependency Python client.
-        </p>
-        <div class="code-box"># 1. Install or copy cbm_discord_sdk.py into your bot project
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <span style="font-size: 20px;">🤖</span>
+              <h2 class="desk-title" style="margin-bottom: 0;">Official Discord Bot SDK (Python)</h2>
+            </div>
+            <p style="font-size: 13.5px; color: var(--text-dim); margin-bottom: 0; line-height: 1.5;">
+              Production-ready Python client with pre-built Discord Embed cards for <code>discord.py</code>, <code>disnake</code>, and <code>pycord</code>.
+            </p>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <a href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" class="btn-pill btn-glow" style="text-decoration: none; display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; padding: 9px 18px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Download cbm_discord_sdk.py</span>
+            </a>
+            <button class="btn-pill btn-ghost" onclick="copySdkSnippet()" style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px;">
+              📋 Copy Bot Code
+            </button>
+            <a href="https://github.com/POGXelqari/TerriX/blob/main/cbm_wispbyte/cbm_discord_sdk.py" target="_blank" rel="noopener" class="btn-pill btn-ghost" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-size: 13px;">
+              ↗ GitHub
+            </a>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(147, 51, 234, 0.15); color: var(--violet-light); border: 1px solid rgba(147, 51, 234, 0.3);">✓ Zero 3rd-Party Dependencies</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3);">✓ discord.py & disnake Ready</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--radius-pill); background: rgba(255, 255, 255, 0.06); color: var(--text-muted); border: 1px solid var(--border-subtle);">✓ Python 3.8+ Standard Library</span>
+        </div>
+
+        <div class="code-box" id="sdk-code-snippet"># 1. Download cbm_discord_sdk.py into your bot repository
+# 2. Add CBM slash commands to your bot:
+
+import discord
+from discord.ext import commands
 from cbm_discord_sdk import CBMClient, CBMDiscordEmbeds
 
-client = CBMClient(api_key="cbm_live_YOUR_SECRET_KEY")
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+cbm = CBMClient(api_key="cbm_live_YOUR_SECRET_KEY")
 
-# 2. Add slash command to your discord.py bot
 @bot.tree.command(name="bank", description="View Clan Bank solvency & vault reserves")
-async def bank(interaction):
-    status = client.get_bank_status()
+async def bank(interaction: discord.Interaction):
+    await interaction.response.defer()
+    status = cbm.get_bank_status()
     embed = CBMDiscordEmbeds.bank_status_embed(status)
+    await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="donate", description="Generate a verified Clan Bank donation slip")
+async def donate(interaction: discord.Interaction, amount_gold: float):
+    slip = cbm.declare_donation(interaction.user.name, amount_gold)
+    embed = CBMDiscordEmbeds.donation_slip_embed(slip)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="balance", description="Check player Clan Bank balance")
+async def balance(interaction: discord.Interaction, player_name: str):
+    profile = cbm.get_member(player_name)
+    embed = CBMDiscordEmbeds.member_profile_embed(profile)
     await interaction.response.send_message(embed=embed)</div>
       </div>
 
@@ -1234,6 +1288,17 @@ async def bank(interaction):
         }
       } catch (e) {
         alert('Network error: ' + e);
+      }
+    }
+
+    function copySdkSnippet() {
+      const el = document.getElementById('sdk-code-snippet');
+      if (el) {
+        navigator.clipboard.writeText(el.innerText).then(() => {
+          alert('Copied Discord bot code snippet to clipboard!');
+        }).catch(() => {
+          alert('Select and copy code directly from the box.');
+        });
       }
     }
 

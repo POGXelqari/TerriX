@@ -106,9 +106,75 @@ class CBMDatabase:
             except Exception as e:
                 print(f"[!] Warning on initial Supabase hydration: {e}")
 
+    def _recover_corrupted_sqlite(self, reason: str = ""):
+        """
+        Self-healing quarantine: when a SQLite database file becomes corrupt or malformed,
+        safely quarantines the bad file, unlinks orphaned WAL/SHM companion files,
+        and allows a clean database to be re-initialized from scratch.
+        """
+        print(f"[!] CRITICAL: SQLite database corruption detected ({reason}). Initiating automatic quarantine and recovery...")
+        
+        # Close any lingering connections on this thread
+        if hasattr(self, "_local") and hasattr(self._local, "conn") and self._local.conn:
+            try:
+                self._local.conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+
+        db_path = self.sqlite_path
+        timestamp = int(time.time())
+        bak_path = f"{db_path}.corrupted.{timestamp}.bak"
+
+        # Attempt to quarantine the main database file
+        if os.path.exists(db_path):
+            try:
+                os.rename(db_path, bak_path)
+                print(f"[+] Quarantined corrupted database to: {bak_path}")
+            except Exception as ren_err:
+                print(f"[!] Could not rename corrupted database ({ren_err}), attempting unlink...")
+                try:
+                    os.remove(db_path)
+                    print(f"[+] Unlinked corrupted database: {db_path}")
+                except Exception as rm_err:
+                    print(f"[!] Error removing corrupted database file: {rm_err}")
+
+        # Remove orphaned WAL and SHM files
+        for suffix in ["-wal", "-shm", "-journal"]:
+            sidecar = f"{db_path}{suffix}"
+            if os.path.exists(sidecar):
+                try:
+                    os.remove(sidecar)
+                    print(f"[+] Removed orphaned SQLite sidecar file: {sidecar}")
+                except Exception as sidecar_err:
+                    print(f"[!] Could not remove {sidecar}: {sidecar_err}")
+
     def _init_sqlite(self):
+        """Initializes local SQLite schema with high-concurrency WAL mode, indexes, and corruption self-healing."""
+        try:
+            self._execute_init_sqlite()
+        except sqlite3.DatabaseError as db_err:
+            err_msg = str(db_err).lower()
+            if any(k in err_msg for k in ("malformed", "corrupt", "disk image", "not a database", "file is encrypted")):
+                self._recover_corrupted_sqlite(reason=str(db_err))
+                # Re-execute initialization on clean database
+                self._execute_init_sqlite()
+            else:
+                raise
+
+    def _execute_init_sqlite(self):
         """Initializes local SQLite schema with high-concurrency WAL mode and indexes."""
         conn = sqlite3.connect(self.sqlite_path, timeout=10.0)
+        try:
+            self._do_execute_init_sqlite(conn)
+            conn.commit()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _do_execute_init_sqlite(self, conn: sqlite3.Connection):
         cur = conn.cursor()
         cur.execute("PRAGMA journal_mode = WAL;")
         cur.execute("PRAGMA synchronous = NORMAL;")
@@ -341,13 +407,11 @@ class CBMDatabase:
         except Exception:
             pass
 
-        conn.commit()
-        conn.close()
-
     def _get_sqlite_conn(self, row_factory: bool = True) -> sqlite3.Connection:
         """
         Returns a high-performance thread-local SQLite connection configured for concurrent WAL access.
         Caches and reuses connections per worker thread to eliminate repeated open/close disk overhead.
+        Self-heals if corruption is detected at runtime.
         """
         conn = getattr(self._local, "conn", None)
         if conn is not None:
@@ -355,19 +419,44 @@ class CBMDatabase:
                 conn.execute("SELECT 1;")
                 conn.row_factory = sqlite3.Row if row_factory else None
                 return conn
+            except sqlite3.DatabaseError as db_err:
+                if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image")):
+                    self._recover_corrupted_sqlite(reason=str(db_err))
+                    self._init_sqlite()
+                    if self.use_supabase:
+                        try:
+                            self.sync_all_from_supabase(quiet=True)
+                        except Exception:
+                            pass
+                conn = None
             except Exception:
                 conn = None
 
-        conn = sqlite3.connect(self.sqlite_path, timeout=10.0, check_same_thread=False)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
-        conn.execute("PRAGMA cache_size = -16000;")
-        conn.execute("PRAGMA temp_store = MEMORY;")
-        conn.execute("PRAGMA mmap_size = 67108864;")
-        conn.row_factory = sqlite3.Row if row_factory else None
-        self._local.conn = conn
-        return conn
+        try:
+            conn = sqlite3.connect(self.sqlite_path, timeout=10.0, check_same_thread=False)
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            conn.execute("PRAGMA cache_size = -16000;")
+            conn.execute("PRAGMA temp_store = MEMORY;")
+            conn.execute("PRAGMA mmap_size = 67108864;")
+            conn.row_factory = sqlite3.Row if row_factory else None
+            self._local.conn = conn
+            return conn
+        except sqlite3.DatabaseError as db_err:
+            if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image")):
+                self._recover_corrupted_sqlite(reason=str(db_err))
+                self._init_sqlite()
+                if self.use_supabase:
+                    try:
+                        self.sync_all_from_supabase(quiet=True)
+                    except Exception:
+                        pass
+                conn = sqlite3.connect(self.sqlite_path, timeout=10.0, check_same_thread=False)
+                conn.row_factory = sqlite3.Row if row_factory else None
+                self._local.conn = conn
+                return conn
+            raise
 
     def _sb_request(self, table: str, method: str = "GET", params: str = "", body: Optional[dict] = None, upsert: bool = False) -> Tuple[int, Any]:
         """Executes a PostgREST request to Supabase with persistent HTTP connection reuse."""

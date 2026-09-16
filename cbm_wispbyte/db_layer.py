@@ -366,12 +366,32 @@ class CBMDatabase:
                 created_at REAL NOT NULL
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_id TEXT UNIQUE NOT NULL,
+                key_hash TEXT UNIQUE NOT NULL,
+                key_prefix TEXT NOT NULL,
+                app_name TEXT NOT NULL,
+                owner_account TEXT NOT NULL,
+                environment TEXT DEFAULT 'live',
+                scopes TEXT DEFAULT 'read:bank,read:members',
+                rate_limit_rpm INTEGER DEFAULT 60,
+                total_requests INTEGER DEFAULT 0,
+                credits_consumed_gold REAL DEFAULT 0.0,
+                is_active INTEGER DEFAULT 1,
+                created_at REAL NOT NULL,
+                last_used_at REAL
+            )
+        """)
         # High-concurrency composite indexes to eliminate full-table scans
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ledger_acc_created ON cbm_ledger(account_name, created_at DESC);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_processed_txs_sender ON cbm_processed_txs(sender);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_processed_txs_receiver ON cbm_processed_txs(receiver);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_processed_txs_ts ON cbm_processed_txs(timestamp_ms DESC);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_vault_snapshots_ts ON cbm_vault_snapshots(timestamp_epoch DESC);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_api_keys_hash ON cbm_api_keys(key_hash);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_api_keys_owner ON cbm_api_keys(owner_account);")
         # Automatic zero-pollution purge on startup:
         # Ensures no test user or mock loans ever contaminate live production tables
         try:
@@ -545,7 +565,8 @@ class CBMDatabase:
             "ledger": 0,
             "snapshots": 0,
             "treasury": False,
-            "withdrawals": 0
+            "withdrawals": 0,
+            "api_keys": 0
         }
 
         try:
@@ -840,6 +861,42 @@ class CBMDatabase:
                             ) VALUES (?, ?, ?, 0, ?, ?, ?, ?)
                         """, (acc, tgt, amt, status, tx_id, c_at, e_at))
                         stats["withdrawals"] += 1
+                conn.commit()
+
+            # 10. API Keys
+            st, keys = self._sb_request('cbm_api_keys', 'GET', '?select=*&order=created_at.desc&limit=200')
+            if st == 200 and isinstance(keys, list):
+                for k in keys:
+                    cur.execute("""
+                        INSERT INTO cbm_api_keys (
+                            key_id, key_hash, key_prefix, app_name, owner_account,
+                            environment, scopes, rate_limit_rpm, total_requests,
+                            credits_consumed_gold, is_active, created_at, last_used_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(key_id) DO UPDATE SET
+                            app_name = excluded.app_name,
+                            scopes = excluded.scopes,
+                            rate_limit_rpm = excluded.rate_limit_rpm,
+                            total_requests = excluded.total_requests,
+                            credits_consumed_gold = excluded.credits_consumed_gold,
+                            is_active = excluded.is_active,
+                            last_used_at = excluded.last_used_at
+                    """, (
+                        k.get('key_id'),
+                        k.get('key_hash'),
+                        k.get('key_prefix'),
+                        k.get('app_name', 'Default App'),
+                        k.get('owner_account'),
+                        k.get('environment', 'live'),
+                        k.get('scopes', 'read:bank,read:members'),
+                        int(k.get('rate_limit_rpm') or 60),
+                        int(k.get('total_requests') or 0),
+                        float(k.get('credits_consumed_gold') or 0.0),
+                        1 if k.get('is_active') else 0,
+                        _parse_iso(k.get('created_at')),
+                        _parse_iso(k.get('last_used_at')) if k.get('last_used_at') else None
+                    ))
+                    stats["api_keys"] += 1
                 conn.commit()
 
             conn.close()
@@ -3632,6 +3689,289 @@ class CBMDatabase:
             },
             "timeline": timeline,
             "snapshots": snapshots
+        }
+
+    # =========================================================================
+    # --- Developer Platform: API Keys & Credit Billing Engine ---
+    # =========================================================================
+
+    def create_api_key(
+        self,
+        owner_account: str,
+        app_name: str,
+        environment: str = "live",
+        scopes: str = "read:bank,read:members",
+        rate_limit_rpm: int = 60
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Issues a new scoped API key for developer and Discord bot integrations.
+        Returns the plaintext secret token ONCE at creation.
+        """
+        acc = self.get_account(owner_account)
+        if not acc:
+            return False, "API key owner account does not exist.", {}
+
+        env = environment.lower().strip()
+        if env not in ("live", "test"):
+            env = "live"
+
+        clean_app = app_name.strip() or "CBM App"
+        clean_scopes = ",".join(s.strip() for s in scopes.split(",") if s.strip()) or "read:bank,read:members"
+        rpm = max(10, min(600, int(rate_limit_rpm)))
+
+        key_id = f"key_{secrets.token_hex(6)}"
+        secret_token = f"cbm_test_{secrets.token_hex(20)}" if env == "test" else f"cbm_live_{secrets.token_hex(20)}"
+        key_prefix = f"{secret_token[:13]}...{secret_token[-4:]}"
+        key_hash = hashlib.sha256(secret_token.encode("utf-8")).hexdigest()
+        now = time.time()
+
+        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO cbm_api_keys (
+                key_id, key_hash, key_prefix, app_name, owner_account,
+                environment, scopes, rate_limit_rpm, total_requests,
+                credits_consumed_gold, is_active, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0.0, 1, ?)
+        """, (key_id, key_hash, key_prefix, clean_app, owner_account, env, clean_scopes, rpm, now))
+        conn.commit()
+        conn.close()
+
+        key_record = {
+            "key_id": key_id,
+            "key_prefix": key_prefix,
+            "app_name": clean_app,
+            "owner_account": owner_account,
+            "environment": env,
+            "scopes": clean_scopes,
+            "rate_limit_rpm": rpm,
+            "total_requests": 0,
+            "credits_consumed_gold": 0.0,
+            "is_active": 1,
+            "created_at": now
+        }
+
+        if self.use_supabase:
+            try:
+                self._sb_request("cbm_api_keys", method="POST", body={
+                    "key_id": key_id,
+                    "key_hash": key_hash,
+                    "key_prefix": key_prefix,
+                    "app_name": clean_app,
+                    "owner_account": owner_account,
+                    "environment": env,
+                    "scopes": clean_scopes,
+                    "rate_limit_rpm": rpm,
+                    "total_requests": 0,
+                    "credits_consumed_gold": 0.0,
+                    "is_active": True
+                })
+            except Exception as ex:
+                print(f"[!] Supabase key sync notice: {ex}")
+
+        return True, secret_token, key_record
+
+    def verify_api_key(self, raw_token: str) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Validates an incoming Bearer API key or X-CBM-API-Key token.
+        Returns (is_valid, key_record).
+        """
+        if not raw_token or not isinstance(raw_token, str):
+            return False, {}
+
+        token = raw_token.strip()
+        if not token.startswith("cbm_live_") and not token.startswith("cbm_test_"):
+            return False, {}
+
+        key_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM cbm_api_keys WHERE key_hash = ? AND is_active = 1", (key_hash,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return False, {}
+
+        key_dict = dict(row)
+        # Check owner status
+        acc = self.get_account(key_dict["owner_account"])
+        if not acc:
+            return False, {"error": "API Key owner account not found."}
+
+        role = acc.get("role", "member")
+        if role in ("restricted", "frozen", "delinquent"):
+            return False, {"error": "API Key suspended: Account access is currently restricted."}
+
+        key_dict["owner_balance_cents"] = acc.get("deposited_cents", 0)
+        key_dict["owner_balance_gold"] = round(acc.get("deposited_cents", 0) / 100.0, 2)
+        return True, key_dict
+
+    def list_api_keys(self, owner_account: str) -> List[Dict[str, Any]]:
+        """
+        Returns all active and revoked API keys owned by a specific member.
+        Redacts the key_hash for absolute security.
+        """
+        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, key_id, key_prefix, app_name, owner_account,
+                   environment, scopes, rate_limit_rpm, total_requests,
+                   credits_consumed_gold, is_active, created_at, last_used_at
+            FROM cbm_api_keys
+            WHERE owner_account = ?
+            ORDER BY created_at DESC
+        """, (owner_account,))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        return rows
+
+    def revoke_api_key(self, key_id: str, owner_account: str) -> Tuple[bool, str]:
+        """Deactivates an API key owned by the specified member."""
+        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE cbm_api_keys
+            SET is_active = 0
+            WHERE key_id = ? AND owner_account = ?
+        """, (key_id, owner_account))
+        affected = cur.rowcount
+        conn.commit()
+        conn.close()
+
+        if affected > 0:
+            if self.use_supabase:
+                try:
+                    self._sb_request(
+                        "cbm_api_keys",
+                        method="PATCH",
+                        params=f"?key_id=eq.{key_id}&owner_account=eq.{owner_account}",
+                        body={"is_active": False}
+                    )
+                except Exception as ex:
+                    print(f"[!] Supabase key revoke notice: {ex}")
+            return True, f"API Key '{key_id}' successfully revoked."
+        return False, f"API Key '{key_id}' not found or not owned by '{owner_account}'."
+
+    def charge_api_credit(
+        self,
+        owner_account: str,
+        key_id: str,
+        cost_gold: float = 1.0
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Atomically charges an API key owner 1.00 Credit (1.00 Gold / 100 cents) for a successful API request,
+        and converts the deducted credit into permanent unencumbered central bank reserves.
+        """
+        cost_cents = int(round(cost_gold * 100))
+        acc = self.get_account(owner_account)
+        if not acc:
+            return False, "API Key owner account not found.", {}
+
+        available_cents = acc.get("deposited_cents", 0)
+        if available_cents < cost_cents:
+            return False, (
+                f"Insufficient API Credits: {available_cents / 100.0:.2f} Gold available, "
+                f"{cost_gold:.2f} Gold required per successful request."
+            ), {"credits_remaining": available_cents / 100.0, "credits_cost": cost_gold}
+
+        new_balance = available_cents - cost_cents
+        now = time.time()
+        tx_hash = f"api_{key_id}_{int(now)}_{secrets.token_hex(3)}"
+        ledger_note = f"API Call ({key_id}): {cost_gold:.2f} Credit converted to unencumbered Clan Reserves"
+
+        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE cbm_accounts
+            SET deposited_cents = ?, updated_at = ?
+            WHERE account_name = ?
+        """, (new_balance, now, owner_account))
+
+        cur.execute("""
+            INSERT INTO cbm_ledger (
+                account_name, entry_type, amount_cents, balance_after_cents,
+                tx_hash, notes, created_at
+            ) VALUES (?, 'API_CONSUMPTION', ?, ?, ?, ?, ?)
+        """, (owner_account, -cost_cents, new_balance, tx_hash, ledger_note, now))
+
+        cur.execute("""
+            UPDATE cbm_api_keys
+            SET credits_consumed_gold = credits_consumed_gold + ?,
+                total_requests = total_requests + 1,
+                last_used_at = ?
+            WHERE key_id = ?
+        """, (cost_gold, now, key_id))
+
+        conn.commit()
+        conn.close()
+
+        if self.use_supabase:
+            try:
+                self._sb_request(
+                    "cbm_accounts",
+                    method="PATCH",
+                    params=f"?account_name=eq.{owner_account}",
+                    body={"deposited_cents": new_balance}
+                )
+                self._sb_request(
+                    "cbm_ledger",
+                    method="POST",
+                    body={
+                        "account_name": owner_account,
+                        "entry_type": "API_CONSUMPTION",
+                        "amount_cents": -cost_cents,
+                        "balance_after_cents": new_balance,
+                        "tx_hash": tx_hash,
+                        "notes": ledger_note
+                    }
+                )
+            except Exception as ex:
+                print(f"[!] Supabase credit sync notice: {ex}")
+
+        # Recalculate central bank solvency:
+        # Since member_liabilities_cents decreased by 100 cents, bank_reserves_cents increases by 100 cents!
+        self.recompute_treasury()
+
+        return True, "Credit charged and converted to reserves successfully.", {
+            "credits_cost": cost_gold,
+            "credits_remaining": round(new_balance / 100.0, 2),
+            "tx_hash": tx_hash
+        }
+
+    def get_developer_overview(self, owner_account: str) -> Dict[str, Any]:
+        """Returns API credit balance, key count, and aggregate consumption metrics for Developer Console."""
+        acc = self.get_account(owner_account)
+        if not acc:
+            return {
+                "owner_account": owner_account,
+                "api_credits": 0.0,
+                "credits_display": "0.00 Credits",
+                "gold_balance": 0.0,
+                "active_keys_count": 0,
+                "total_requests": 0,
+                "total_credits_consumed": 0.0
+            }
+
+        keys = self.list_api_keys(owner_account)
+        active_keys = [k for k in keys if k.get("is_active")]
+        total_requests = sum(k.get("total_requests", 0) for k in keys)
+        total_consumed = sum(k.get("credits_consumed_gold", 0.0) for k in keys)
+
+        balance_gold = round(acc.get("deposited_cents", 0) / 100.0, 2)
+        return {
+            "owner_account": owner_account,
+            "api_credits": balance_gold,
+            "credits_display": f"{balance_gold:,.2f} Credits",
+            "gold_balance": balance_gold,
+            "active_keys_count": len(active_keys),
+            "total_keys_count": len(keys),
+            "total_requests": total_requests,
+            "total_credits_consumed": round(total_consumed, 2),
+            "rate_conversion_note": "1 API Request = 1.00 Credit (1.00 Gold) -> Converted to Unencumbered Clan Reserves"
         }
 
 

@@ -23,6 +23,7 @@ import json
 import gzip
 import hashlib
 import socket
+import sqlite3
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -81,6 +82,7 @@ def load_static_cache():
         ("donations.html", "text/html; charset=utf-8"),
         ("rulebook.html", "text/html; charset=utf-8"),
         ("vault.html", "text/html; charset=utf-8"),
+        ("developer.html", "text/html; charset=utf-8"),
         ("cbm-logo.png", "image/png"),
     ]
     for fname, ctype in assets:
@@ -417,7 +419,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 self.send_header("Access-Control-Allow-Origin", "*")
 
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-Simulate-Lending, X-Requested-With")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-Simulate-Lending, X-Requested-With, X-CBM-API-Key, X-CBM-Environment")
 
             if headers:
                 for hk, hv in headers.items():
@@ -429,6 +431,111 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             print(f"[!] Error sending JSON response: {e}")
+
+    def _authenticate_api_v1(self, required_scope: str = "") -> Tuple[bool, Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """
+        Authenticates Bearer or X-CBM-API-Key for /api/v1/* routes.
+        Enforces per-key rate limits and checks credit balance for live keys.
+        Returns (is_authorized, key_record, error_dict)
+        """
+        auth_header = self.headers.get("Authorization", "").strip()
+        api_key = self.headers.get("X-CBM-API-Key", "").strip()
+        token = ""
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif api_key:
+            token = api_key
+
+        if not token:
+            return False, None, {
+                "status": 401,
+                "body": {
+                    "error": "unauthorized",
+                    "message": "Missing API Key. Provide token via 'Authorization: Bearer <cbm_key>' or 'X-CBM-API-Key: <cbm_key>' header."
+                }
+            }
+
+        is_valid, key_record = db.verify_api_key(token)
+        if not is_valid or not key_record:
+            err_msg = key_record.get("error") if isinstance(key_record, dict) else None
+            return False, None, {
+                "status": 401,
+                "body": {
+                    "error": "invalid_key",
+                    "message": err_msg or "Invalid, revoked, or unrecognized CBM API key."
+                }
+            }
+
+        # Validate scope
+        if required_scope:
+            key_scopes = [s.strip() for s in key_record.get("scopes", "").split(",") if s.strip()]
+            if required_scope not in key_scopes and "admin" not in key_scopes and "*" not in key_scopes:
+                return False, None, {
+                    "status": 403,
+                    "body": {
+                        "error": "insufficient_scope",
+                        "message": f"API Key lacks required scope '{required_scope}'. Key scopes: {key_record.get('scopes')}"
+                    }
+                }
+
+        # Rate limiting per key
+        key_id = key_record["key_id"]
+        rpm_limit = int(key_record.get("rate_limit_rpm", 60))
+        allowed, rem_rpm = rate_limiter.check_rate_limit(f"api_key_{key_id}", limit=rpm_limit, period_seconds=60)
+        if not allowed:
+            return False, None, {
+                "status": 429,
+                "headers": {
+                    "Retry-After": "60",
+                    "X-RateLimit-Limit": str(rpm_limit),
+                    "X-RateLimit-Remaining": "0"
+                },
+                "body": {
+                    "error": "rate_limit_exceeded",
+                    "message": f"API Key rate limit of {rpm_limit} requests per minute exceeded. Please slow down."
+                }
+            }
+
+        is_sandbox = (key_record.get("environment") == "test") or token.startswith("cbm_test_") or (self.headers.get("X-CBM-Environment", "").lower() == "sandbox")
+        if not is_sandbox:
+            owner_balance_cents = key_record.get("owner_balance_cents", 0)
+            if owner_balance_cents < 100:  # Less than 1.00 Gold / 1.00 Credit
+                return False, None, {
+                    "status": 402,
+                    "body": {
+                        "error": "insufficient_credits",
+                        "message": f"Payment Required: API Key owner '{key_record['owner_account']}' has {owner_balance_cents / 100.0:.2f} API Credits. A minimum balance of 1.00 Credit (1.00 Gold) is required per live request. Deposit Gold in CBM to replenish credits.",
+                        "credits_available": round(owner_balance_cents / 100.0, 2),
+                        "credit_cost_per_request": 1.00
+                    }
+                }
+
+        key_record["is_sandbox"] = is_sandbox
+        return True, key_record, None
+
+    def _send_api_v1_json(self, status_code: int, data: dict, key_record: Optional[Dict[str, Any]] = None, extra_headers: Optional[Dict[str, str]] = None):
+        headers = {}
+        if extra_headers:
+            headers.update(extra_headers)
+
+        if key_record:
+            is_sandbox = key_record.get("is_sandbox", False)
+            if is_sandbox:
+                headers["X-CBM-Environment"] = "sandbox"
+                headers["X-CBM-Credits-Cost"] = "0.00"
+                headers["X-CBM-Credits-Remaining"] = f"{key_record.get('owner_balance_gold', 0.0):.2f}"
+            elif status_code >= 200 and status_code < 300:
+                # Live mode successful response: Charge 1.00 Credit (1.00 Gold) and convert to clan reserves!
+                charged, msg, billing = db.charge_api_credit(key_record["owner_account"], key_record["key_id"], cost_gold=1.0)
+                if charged:
+                    headers["X-CBM-Environment"] = "live"
+                    headers["X-CBM-Credits-Cost"] = "1.00"
+                    headers["X-CBM-Credits-Remaining"] = f"{billing.get('credits_remaining', 0.0):.2f}"
+                    headers["X-CBM-Billing"] = "converted_to_clan_reserves"
+                    headers["X-CBM-Ledger-Tx"] = billing.get("tx_hash", "")
+                    invalidate_caches()
+
+        return self._send_json(status_code, data, headers=headers)
 
     def do_OPTIONS(self):
         self._send_json(200, {"status": "ok"})
@@ -456,6 +563,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         elif path in ("/vault", "/vault.html", "/analytics", "/analytics.html", "/telemetry"):
             return self._send_cached_asset("vault.html")
+
+        elif path in ("/developer", "/developer.html", "/dev", "/console", "/api-docs"):
+            return self._send_cached_asset("developer.html")
 
         # 2. Web Portal Interface (/ or /cbm or /cbm.html or /bank or /index.html)
         elif path in ("", "/", "/cbm", "/cbm.html", "/bank", "/index.html"):
@@ -633,6 +743,169 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "pending_donations": pending
             })
+
+        # --- Developer Console Management APIs (GET) ---
+        elif path == "/api/cbm/dev/overview":
+            acc_name = params.get("account_name") or params.get("account") or params.get("name") or ""
+            if not acc_name:
+                return self._send_json(400, {"status": "error", "message": "account_name is required."})
+            overview = db.get_developer_overview(acc_name)
+            return self._send_json(200, {"status": "ok", "overview": overview})
+
+        elif path == "/api/cbm/dev/keys":
+            acc_name = params.get("account_name") or params.get("account") or params.get("name") or ""
+            pin = params.get("pin") or ""
+            if not acc_name:
+                return self._send_json(400, {"status": "error", "message": "account_name is required."})
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to view API keys."})
+            keys = db.list_api_keys(acc_name)
+            return self._send_json(200, {"status": "ok", "keys": keys})
+
+        # --- Public Scoped REST API v1 (GET Endpoints) ---
+        elif path.startswith("/api/v1/"):
+            # 1. Live Bank Status Telemetry
+            if path == "/api/v1/bank/status":
+                ok, key_rec, err = self._authenticate_api_v1("read:bank")
+                if not ok:
+                    return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                treasury = db.get_treasury()
+                vault_cents = treasury.get("vault_total_gold_cents", 0)
+                metrics = db._calculate_treasury_metrics(vault_cents)
+                vault_gold = metrics["vault_total_gold"]
+                liab_gold = metrics["member_liabilities_gold"]
+                reserves_gold = metrics["bank_reserves_gold"]
+                unencumbered_gold = metrics.get("unencumbered_capital_gold", 0.0)
+                cushion_gold = metrics.get("vault_cushion_gold", 0.0)
+                solvency_ratio = round((vault_gold / liab_gold * 100.0), 2) if liab_gold > 0 else 1000.0
+                solvency_tier = "PRUDENT_SURPLUS" if solvency_ratio >= 100.0 else "CAPITAL_RESTRUCTURING"
+
+                resp_data = {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "timestamp": time.time(),
+                    "bank": {
+                        "vault_account": VAULT_ACCOUNT,
+                        "vault_total_gold": round(vault_gold, 2),
+                        "member_liabilities_gold": round(liab_gold, 2),
+                        "unencumbered_reserves_gold": round(unencumbered_gold, 2),
+                        "bank_reserves_gold": round(reserves_gold, 2),
+                        "reserve_cushion_gold": round(cushion_gold, 2),
+                        "solvency_ratio_percent": solvency_ratio,
+                        "solvency_tier": solvency_tier,
+                        "status": "HEALTHY" if solvency_ratio >= 100.0 else "DEGRADED"
+                    }
+                }
+                return self._send_api_v1_json(200, resp_data, key_record=key_rec)
+
+            # 2. Central Bank Reserves & Solvency Policy
+            elif path == "/api/v1/bank/reserves":
+                ok, key_rec, err = self._authenticate_api_v1("read:bank")
+                if not ok:
+                    return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                treasury = db.get_treasury()
+                vault_cents = treasury.get("vault_total_gold_cents", 0)
+                metrics = db._calculate_treasury_metrics(vault_cents)
+                facility = loan_engine.evaluate_lending_facility(metrics["bank_reserves_cents"])
+
+                resp_data = {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "reserves": {
+                        "bank_reserves_gold": round(metrics["bank_reserves_gold"], 2),
+                        "unencumbered_reserves_gold": round(metrics.get("unencumbered_capital_gold", 0.0), 2),
+                        "vault_cushion_gold": round(metrics.get("vault_cushion_gold", 0.0), 2),
+                        "activation_floor_gold": 2000000.0,
+                        "reserves_progress_percent": facility.get("reserves_progress_percent", 0.0),
+                        "facility_active": facility.get("is_active", False),
+                        "max_single_loan_gold": facility.get("max_loan_gold", 0),
+                        "status_message": facility.get("status_message", "")
+                    }
+                }
+                return self._send_api_v1_json(200, resp_data, key_record=key_rec)
+
+            # 3. Top Donors Leaderboard (Honor Roll)
+            elif path in ("/api/v1/donors/leaderboard", "/api/v1/donors/top"):
+                ok, key_rec, err = self._authenticate_api_v1("read:bank")
+                if not ok:
+                    return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                try:
+                    limit = int(params.get("limit", 10))
+                    limit = max(1, min(50, limit))
+                except ValueError:
+                    limit = 10
+
+                top_donors = db.get_top_donors(limit=limit)
+                resp_data = {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "count": len(top_donors),
+                    "leaderboard": top_donors
+                }
+                return self._send_api_v1_json(200, resp_data, key_record=key_rec)
+
+            # 4. Member Statement & Financial Profile
+            elif path.startswith("/api/v1/members/"):
+                parts = path.split("/")
+                if len(parts) >= 5:
+                    target_user = parts[4].strip()
+                    is_loans = (len(parts) >= 6 and parts[5] == "loans")
+
+                    if is_loans:
+                        ok, key_rec, err = self._authenticate_api_v1("read:loans")
+                        if not ok:
+                            return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                        acc = db.get_account(target_user)
+                        if not acc:
+                            return self._send_api_v1_json(404, {"error": "not_found", "message": f"Member '{target_user}' not found."}, key_record=key_rec)
+
+                        pms = db.get_payment_methods(target_user)
+                        credit = loan_engine.evaluate_borrower_creditworthiness(acc, pms)
+                        loans = db.get_account_loans(target_user)
+                        clean_loans = []
+                        for l in loans:
+                            cl = dict(l)
+                            cl.pop("territorial_password", None)
+                            clean_loans.append(cl)
+
+                        resp_data = {
+                            "status": "ok",
+                            "api_version": "v1.0",
+                            "member": target_user,
+                            "credit_assessment": credit,
+                            "active_loans": [l for l in clean_loans if l.get("status") in ("ACTIVE", "OVERDUE")],
+                            "loan_history_count": len(clean_loans)
+                        }
+                        return self._send_api_v1_json(200, resp_data, key_record=key_rec)
+                    else:
+                        ok, key_rec, err = self._authenticate_api_v1("read:members")
+                        if not ok:
+                            return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                        acc = db.get_account(target_user)
+                        if not acc:
+                            return self._send_api_v1_json(404, {"error": "not_found", "message": f"Member '{target_user}' not found."}, key_record=key_rec)
+
+                        clean_acc = {
+                            "account_name": acc.get("account_name"),
+                            "display_name": acc.get("display_name") or acc.get("account_name"),
+                            "clan_tag": acc.get("clan_tag", "ANTI-OG"),
+                            "role": acc.get("role", "member"),
+                            "primary_territorial_account": acc.get("primary_territorial_account"),
+                            "deposited_gold": round((acc.get("deposited_cents") or 0) / 100.0, 2),
+                            "total_withdrawn_gold": round((acc.get("total_withdrawn_cents") or 0) / 100.0, 2),
+                            "total_transacted_gold": round((acc.get("total_transacted_cents") or 0) / 100.0, 2),
+                            "is_verified": bool(acc.get("is_verified", False)),
+                            "created_at": acc.get("created_at")
+                        }
+                        return self._send_api_v1_json(200, {"status": "ok", "api_version": "v1.0", "member": clean_acc}, key_record=key_rec)
+
+            return self._send_json(404, {"error": "endpoint_not_found", "message": f"API v1 route '{path}' does not exist."})
 
         # 6. Fallback: Serve existing static file from local directory if present
         clean_path = path.lstrip("/")
@@ -1466,6 +1739,138 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "status": "forbidden",
                 "message": "Covenant violation: Clan War Chest contributions are irrevocable, non-refundable unencumbered reserve capital and cannot be withdrawn or refunded."
             })
+
+        # --- Developer Console Management APIs (POST) ---
+        elif path == "/api/cbm/dev/keys/create":
+            acc_name = body.get("account_name", "").strip()
+            pin = body.get("pin", "")
+            app_name = body.get("app_name", "").strip() or "Discord Bot"
+            env = body.get("environment", "live").strip()
+            scopes = body.get("scopes", "read:bank,read:members").strip()
+
+            if not acc_name:
+                return self._send_json(400, {"status": "error", "message": "account_name is required."})
+
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to create API keys."})
+
+            ok, secret, key_rec = db.create_api_key(acc_name, app_name, environment=env, scopes=scopes)
+            if ok:
+                return self._send_json(200, {
+                    "status": "ok",
+                    "message": f"API Key created successfully for {app_name}. Store this secret safely - it will not be shown again!",
+                    "api_key": secret,
+                    "key_record": key_rec
+                })
+            else:
+                return self._send_json(400, {"status": "error", "message": secret})
+
+        elif path == "/api/cbm/dev/keys/revoke":
+            acc_name = body.get("account_name", "").strip()
+            pin = body.get("pin", "")
+            key_id = body.get("key_id", "").strip()
+
+            if not acc_name or not key_id:
+                return self._send_json(400, {"status": "error", "message": "account_name and key_id are required."})
+
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to revoke API keys."})
+
+            ok, msg = db.revoke_api_key(key_id, acc_name)
+            if ok:
+                return self._send_json(200, {"status": "ok", "message": msg})
+            else:
+                return self._send_json(400, {"status": "error", "message": msg})
+
+        # --- Public Scoped REST API v1 (POST Endpoints) ---
+        elif path.startswith("/api/v1/"):
+            # 1. Declare In-Game Donation Intent Slip (for Discord !donate command)
+            if path == "/api/v1/donations/declare":
+                ok, key_rec, err = self._authenticate_api_v1("write:donations")
+                if not ok:
+                    return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                account_name = body.get("account_name", "").strip()
+                try:
+                    amount_gold = float(body.get("amount_gold", 0))
+                except (ValueError, TypeError):
+                    amount_gold = 0.0
+
+                message = body.get("message", "").strip()
+                ttl = int(body.get("ttl_minutes", 15))
+
+                if not account_name or amount_gold <= 0:
+                    return self._send_api_v1_json(400, {
+                        "error": "bad_request",
+                        "message": "account_name and positive amount_gold are required."
+                    }, key_record=key_rec)
+
+                acc = db.get_account(account_name)
+                canonical_name = acc.get("account_name") if acc else account_name
+
+                slip = db.create_pending_donation(canonical_name, amount_gold, message=message, ttl_minutes=ttl)
+                return self._send_api_v1_json(200, {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "message": f"Donation slip registered. Send exactly {amount_gold:.2f} Gold in-game to {VAULT_ACCOUNT}.",
+                    "donation_instructions": {
+                        "target_vault_account": VAULT_ACCOUNT,
+                        "exact_amount_gold": round(amount_gold, 2),
+                        "donor_name": canonical_name,
+                        "ttl_minutes": ttl,
+                        "expires_at": slip.get("expires_at")
+                    },
+                    "slip": slip
+                }, key_record=key_rec)
+
+            # 2. Verify In-Game Player Identity (for Discord member verification)
+            elif path == "/api/v1/verify/player":
+                ok, key_rec, err = self._authenticate_api_v1("read:members")
+                if not ok:
+                    return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                player_name = (body.get("player_name") or body.get("territorial_account") or body.get("account_name") or "").strip()
+                if not player_name:
+                    return self._send_api_v1_json(400, {"error": "bad_request", "message": "player_name is required."}, key_record=key_rec)
+
+                pms = db.get_payment_methods(player_name)
+                is_verified = False
+                matched_cbm_user = player_name
+                total_transacted = 0.0
+                v_type = "NONE"
+
+                for pm in pms:
+                    if pm.get("status") == "VERIFIED":
+                        is_verified = True
+                        matched_cbm_user = pm.get("cbm_username", player_name)
+                        total_transacted = pm.get("total_transacted_gold", 0.0)
+                        v_type = pm.get("verification_type", "CREDENTIALS")
+                        break
+
+                if not is_verified:
+                    conn = sqlite3.connect(db.sqlite_path)
+                    cur = conn.cursor()
+                    cur.execute("SELECT SUM(amount_gold), COUNT(*) FROM cbm_processed_txs WHERE sender = ? AND receiver = ?", (player_name, VAULT_ACCOUNT))
+                    row = cur.fetchone()
+                    conn.close()
+                    if row and row[1] > 0:
+                        is_verified = True
+                        total_transacted = float(row[0] or 0.0)
+                        v_type = "TRANSACTION_VERIFIED"
+
+                return self._send_api_v1_json(200, {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "player_name": player_name,
+                    "verified": is_verified,
+                    "verification_type": v_type,
+                    "cbm_username": matched_cbm_user,
+                    "total_gold_transacted": round(total_transacted, 2)
+                }, key_record=key_rec)
+
+            return self._send_json(404, {"error": "endpoint_not_found", "message": f"API v1 route '{path}' does not exist."})
 
         else:
             return self._send_json(404, {"status": "error", "message": "Not found"})

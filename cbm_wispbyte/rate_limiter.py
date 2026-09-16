@@ -86,6 +86,10 @@ class CBMRateLimiter:
             ts_list.append(now)
             return True, 0
 
+    def check_rate_limit(self, key: str, limit: int = 60, period_seconds: float = 60.0) -> Tuple[bool, int]:
+        """Generic sliding-window rate limit checker for API keys or identifiers."""
+        return self.check_ip_rate_limit(key, limit=limit, window_seconds=period_seconds)
+
     def is_account_locked(self, account_name: str) -> Tuple[bool, int]:
         """
         Checks if an account is currently locked due to repeated authentication failures.

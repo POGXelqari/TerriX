@@ -37,6 +37,14 @@ class CBMWithdrawalWorker:
                 self._client = TerritorialGoldClient(self.vault_account, self.vault_password)
         return self._client
 
+    def _get_db_conn(self, timeout: float = 30.0) -> sqlite3.Connection:
+        if hasattr(self.db, "get_write_connection"):
+            return self.db.get_write_connection(timeout=timeout)
+        conn = sqlite3.connect(self.db.sqlite_path, timeout=timeout)
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)};")
+        return conn
+
     def request_withdrawal(self, account_name: str, target_account: str, amount_gold: int, pin: Optional[str] = None) -> Tuple[bool, str]:
         """
         Validates internal member balance, closed-loop routing, and PIN authentication,
@@ -88,7 +96,7 @@ class CBMWithdrawalWorker:
             return False, "Withdrawal execution unavailable: Vault credentials not configured on withdrawal worker."
 
         # Record withdrawal queue item in SQLite (fee_cents = 0 charged to user; 1 cent absorbed by bank)
-        conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
+        conn_sq = self._get_db_conn(timeout=30.0)
         cur = conn_sq.cursor()
         now_ts = time.time()
         cur.execute("""
@@ -133,7 +141,7 @@ class CBMWithdrawalWorker:
         if not self.client or not self.vault_password:
             return False, {"error": "Vault credentials not configured on withdrawal worker."}
 
-        conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
+        conn_sq = self._get_db_conn(timeout=30.0)
         conn_sq.row_factory = sqlite3.Row
         cur = conn_sq.cursor()
         cur.execute("SELECT * FROM cbm_withdrawals WHERE id = ? AND status = 'PENDING'", (withdrawal_id,))
@@ -259,7 +267,7 @@ class CBMWithdrawalWorker:
             try:
                 st, sb_rows = self.db._sb_request("cbm_withdrawals", "GET", "?status=eq.PENDING&order=created_at.asc&limit=10")
                 if st == 200 and isinstance(sb_rows, list) and sb_rows:
-                    conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
+                    conn_sq = self._get_db_conn(timeout=30.0)
                     cur = conn_sq.cursor()
                     for r in sb_rows:
                         acc = r.get("account_name")
@@ -276,7 +284,7 @@ class CBMWithdrawalWorker:
             except Exception as e:
                 print(f"[!] Error fetching remote pending withdrawals: {e}")
 
-        conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
+        conn_sq = self._get_db_conn(timeout=30.0)
         conn_sq.row_factory = sqlite3.Row
         cur = conn_sq.cursor()
         now = time.time()

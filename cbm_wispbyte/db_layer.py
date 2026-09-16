@@ -453,10 +453,10 @@ class CBMDatabase:
                 conn = None
 
         try:
-            conn = sqlite3.connect(self.sqlite_path, timeout=10.0, check_same_thread=False)
+            conn = sqlite3.connect(self.sqlite_path, timeout=30.0, check_same_thread=False)
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA synchronous = NORMAL;")
-            conn.execute("PRAGMA busy_timeout = 5000;")
+            conn.execute("PRAGMA busy_timeout = 30000;")
             conn.execute("PRAGMA cache_size = -16000;")
             conn.execute("PRAGMA temp_store = MEMORY;")
             conn.execute("PRAGMA mmap_size = 67108864;")
@@ -472,11 +472,24 @@ class CBMDatabase:
                         self.sync_all_from_supabase(quiet=True)
                     except Exception:
                         pass
-                conn = sqlite3.connect(self.sqlite_path, timeout=10.0, check_same_thread=False)
+                conn = sqlite3.connect(self.sqlite_path, timeout=30.0, check_same_thread=False)
+                conn.execute("PRAGMA journal_mode = WAL;")
+                conn.execute("PRAGMA busy_timeout = 30000;")
                 conn.row_factory = sqlite3.Row if row_factory else None
                 self._local.conn = conn
                 return conn
             raise
+
+    def get_write_connection(self, timeout: float = 30.0) -> sqlite3.Connection:
+        """
+        Returns an isolated SQLite connection configured with generous 30s busy timeout
+        and WAL pragmas to prevent 'database is locked' errors during concurrent writes.
+        """
+        conn = sqlite3.connect(self.sqlite_path, timeout=timeout)
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)};")
+        return conn
 
     def _sb_request(self, table: str, method: str = "GET", params: str = "", body: Optional[dict] = None, upsert: bool = False) -> Tuple[int, Any]:
         """Executes a PostgREST request to Supabase with persistent HTTP connection reuse."""
@@ -2625,7 +2638,7 @@ class CBMDatabase:
             if status != 200:
                 self._sb_request("cbm_treasury", method="PATCH", params="?id=eq.1", body=patch_payload)
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection(timeout=30.0)
         cur = conn.cursor()
         try:
             cur.execute("""

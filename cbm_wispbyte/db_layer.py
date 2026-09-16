@@ -3472,12 +3472,20 @@ class CBMDatabase:
             point_vault = round(max(0.0, point_vault), 2)
             point_reserves = round(max(0.0, point_reserves), 2)
 
+            point_liab = round(max(0.0, point_vault - point_reserves), 2)
+
             reversed_points.append({
-                "timestamp": int(b["center"]),
+                "timestamp": int(b["center"] * 1000),
+                "timestamp_epoch": int(b["center"]),
                 "date_str": time.strftime("%b %d, %H:%M", time.gmtime(b["center"])),
                 "day_str": time.strftime("%a %d", time.gmtime(b["center"])),
+                "vault_total_gold": point_vault,
                 "vault_gold": point_vault,
+                "member_liabilities_gold": point_liab,
+                "bank_reserves_gold": point_reserves,
+                "unencumbered_reserves_gold": point_reserves,
                 "reserves_gold": point_reserves,
+                "war_chest_gold": point_reserves,
                 "inflow_gold": round(b["inflow"], 2),
                 "outflow_gold": round(b["outflow"], 2),
                 "net_flow_gold": round(net, 2),
@@ -3492,7 +3500,7 @@ class CBMDatabase:
         timeline = list(reversed(reversed_points))
 
         # 5. Compute summary metrics & velocity
-        vault_points = [p["vault_gold"] for p in timeline]
+        vault_points = [p["vault_total_gold"] for p in timeline]
         peak_gold = max(vault_points) if vault_points else curr_vault_gold
         trough_gold = min(vault_points) if vault_points else curr_vault_gold
         net_flow_period = total_inflow - total_outflow
@@ -3501,11 +3509,62 @@ class CBMDatabase:
         velocity_24h = 0.0
         if len(timeline) >= 6:
             idx_24h = max(0, len(timeline) - int(86400 // bucket_seconds))
-            bal_24h_ago = timeline[idx_24h]["vault_gold"]
+            bal_24h_ago = timeline[idx_24h]["vault_total_gold"]
             if bal_24h_ago > 0:
                 velocity_24h = round(((curr_vault_gold - bal_24h_ago) / bal_24h_ago) * 100.0, 2)
 
         reserve_ratio = round((curr_reserves_gold / curr_vault_gold * 100.0), 2) if curr_vault_gold > 0 else 0.0
+
+        # 6. Fetch recent snapshots for the Recent Telemetry Checkpoints table
+        cur.execute("""
+            SELECT id, timestamp_epoch, vault_total_gold, unencumbered_reserves_gold,
+                   member_liabilities_gold, inflow_period_gold, outflow_period_gold,
+                   net_flow_gold, tx_count_period, created_at
+            FROM cbm_vault_snapshots
+            ORDER BY timestamp_epoch DESC
+            LIMIT 20
+        """)
+        raw_snaps = cur.fetchall()
+        snapshots = []
+        for s in raw_snaps:
+            ts_epoch = float(s["timestamp_epoch"] or 0.0)
+            v_gold = float(s["vault_total_gold"] or 0.0)
+            r_gold = float(s["unencumbered_reserves_gold"] or 0.0)
+            l_gold = float(s["member_liabilities_gold"] or 0.0)
+            solv = round((r_gold / v_gold * 100.0), 1) if v_gold > 0 else 100.0
+            snapshots.append({
+                "id": s["id"],
+                "timestamp": int(ts_epoch * 1000),
+                "timestamp_epoch": ts_epoch,
+                "created_at": s["created_at"],
+                "date_str": time.strftime("%b %d, %H:%M:%S", time.gmtime(ts_epoch)),
+                "vault_total_gold": round(v_gold, 2),
+                "vault_gold": round(v_gold, 2),
+                "member_liabilities_gold": round(l_gold, 2),
+                "unencumbered_reserves_gold": round(r_gold, 2),
+                "bank_reserves_gold": round(r_gold, 2),
+                "reserves_gold": round(r_gold, 2),
+                "solvency_ratio_percent": solv,
+                "audit_source": "DAEMON_TELEMETRY"
+            })
+
+        if not snapshots:
+            solv = round((curr_reserves_gold / curr_vault_gold * 100.0), 1) if curr_vault_gold > 0 else 100.0
+            snapshots.append({
+                "id": 1,
+                "timestamp": int(now * 1000),
+                "timestamp_epoch": now,
+                "created_at": now,
+                "date_str": time.strftime("%b %d, %H:%M:%S", time.gmtime(now)),
+                "vault_total_gold": round(curr_vault_gold, 2),
+                "vault_gold": round(curr_vault_gold, 2),
+                "member_liabilities_gold": round(curr_liabilities_gold, 2),
+                "unencumbered_reserves_gold": round(curr_reserves_gold, 2),
+                "bank_reserves_gold": round(curr_reserves_gold, 2),
+                "reserves_gold": round(curr_reserves_gold, 2),
+                "solvency_ratio_percent": solv,
+                "audit_source": "LIVE_TELEMETRY"
+            })
 
         return {
             "status": "ok",
@@ -3524,7 +3583,8 @@ class CBMDatabase:
                 "period_tx_count": total_tx_count,
                 "velocity_24h_percent": velocity_24h
             },
-            "timeline": timeline
+            "timeline": timeline,
+            "snapshots": snapshots
         }
 
 

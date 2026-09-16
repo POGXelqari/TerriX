@@ -615,21 +615,36 @@
 
     function formatTime(isoOrTs) {
       if (!isoOrTs) return "--";
-      const d = new Date(isoOrTs);
+      let d;
+      if (typeof isoOrTs === "number") {
+        d = new Date(isoOrTs < 1e11 ? isoOrTs * 1000 : isoOrTs);
+      } else {
+        d = new Date(isoOrTs);
+      }
+      if (isNaN(d.getTime())) return String(isoOrTs);
       return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + " " +
              d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     }
 
-    // Chart.js Default Dark Theme Styling
-    Chart.defaults.color = '#9aa8be';
-    Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(14, 22, 38, 0.95)';
-    Chart.defaults.plugins.tooltip.borderColor = 'rgba(255, 255, 255, 0.15)';
-    Chart.defaults.plugins.tooltip.borderWidth = 1;
-    Chart.defaults.plugins.tooltip.titleColor = '#ffffff';
-    Chart.defaults.plugins.tooltip.bodyColor = '#9aa8be';
-    Chart.defaults.plugins.tooltip.padding = 10;
-    Chart.defaults.plugins.tooltip.cornerRadius = 8;
+    // Chart.js Default Dark Theme Styling (Protected against async/deferred script execution)
+    let chartDefaultsInitialized = false;
+    function initChartDefaults() {
+      if (typeof Chart === "undefined" || chartDefaultsInitialized) return;
+      try {
+        Chart.defaults.color = '#9aa8be';
+        Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(14, 22, 38, 0.95)';
+        Chart.defaults.plugins.tooltip.borderColor = 'rgba(255, 255, 255, 0.15)';
+        Chart.defaults.plugins.tooltip.borderWidth = 1;
+        Chart.defaults.plugins.tooltip.titleColor = '#ffffff';
+        Chart.defaults.plugins.tooltip.bodyColor = '#9aa8be';
+        Chart.defaults.plugins.tooltip.padding = 10;
+        Chart.defaults.plugins.tooltip.cornerRadius = 8;
+        chartDefaultsInitialized = true;
+      } catch (e) {
+        console.warn("Chart.defaults notice:", e);
+      }
+    }
 
     let isFetching = false;
     async function fetchTelemetry(force = false) {
@@ -680,7 +695,7 @@
       // 1. KPI Cards
       document.getElementById("kpiVaultGold").textContent = formatGold(m.current_vault_gold);
       document.getElementById("kpiReservesGold").textContent = formatGold(m.current_reserves_gold ?? m.unencumbered_reserves_gold);
-      document.getElementById("kpiSolvency").textContent = (m.reserve_ratio_percent ?? m.solvency_ratio_percent ?? 100.0) + "%";
+      document.getElementById("kpiSolvency").textContent = (m.reserve_ratio_percent ?? m.solvency_ratio_percent ?? 100.0).toFixed(1) + "%";
 
       const netFlow = Number(m.period_net_flow_gold || 0);
       const netElem = document.getElementById("kpiNetFlow");
@@ -695,28 +710,44 @@
 
       // 2. Main Timeline Chart
       const timeline = data.timeline || [];
-      const labels = timeline.map(pt => formatTime(pt.timestamp));
-      const vaultData = timeline.map(pt => pt.vault_total_gold);
-      const liabData = timeline.map(pt => pt.member_liabilities_gold);
-      const reservesData = timeline.map(pt => pt.bank_reserves_gold);
+      const labels = timeline.map(pt => pt.date_str || formatTime(pt.timestamp));
+      const vaultData = timeline.map(pt => Number(pt.vault_total_gold ?? pt.vault_gold ?? 0));
+      const liabData = timeline.map(pt => Number(pt.member_liabilities_gold ?? Math.max(0, (pt.vault_total_gold || pt.vault_gold || 0) - (pt.bank_reserves_gold || pt.reserves_gold || 0))));
+      const reservesData = timeline.map(pt => Number(pt.bank_reserves_gold ?? pt.unencumbered_reserves_gold ?? pt.reserves_gold ?? 0));
 
+      initChartDefaults();
       renderMainChart(labels, vaultData, liabData, reservesData);
 
       // 3. Flow Dynamics Bar Chart
-      const inflowData = timeline.map(pt => pt.inflow_gold || 0);
-      const outflowData = timeline.map(pt => pt.outflow_gold || 0);
+      const inflowData = timeline.map(pt => Number(pt.inflow_gold || 0));
+      const outflowData = timeline.map(pt => Number(pt.outflow_gold || 0));
       renderFlowChart(labels, inflowData, outflowData);
 
       // 4. War Chest Cumulative Line Chart
-      const warChestData = timeline.map(pt => pt.war_chest_gold || pt.bank_reserves_gold || 0);
+      const warChestData = timeline.map(pt => Number(pt.war_chest_gold ?? pt.bank_reserves_gold ?? pt.reserves_gold ?? 0));
       renderWarChestChart(labels, warChestData);
 
-      // 5. Checkpoints Table
-      renderTable(data.snapshots || timeline.slice(-10).reverse());
+      // 5. Checkpoints Table (Use live daemon snapshots or timeline points fallback)
+      renderTable(data.snapshots || timeline.slice(-15).reverse());
+
+      // Retry rendering charts if Chart.js was still loading asynchronously
+      if (typeof Chart === "undefined") {
+        setTimeout(() => {
+          if (typeof Chart !== "undefined" && !vaultChart) {
+            initChartDefaults();
+            renderMainChart(labels, vaultData, liabData, reservesData);
+            renderFlowChart(labels, inflowData, outflowData);
+            renderWarChestChart(labels, warChestData);
+          }
+        }, 600);
+      }
     }
 
     function renderMainChart(labels, vaultData, liabData, reservesData) {
-      const ctx = document.getElementById('vaultTimelineChart').getContext('2d');
+      if (typeof Chart === "undefined") return;
+      const canvas = document.getElementById('vaultTimelineChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
 
       const goldGradient = ctx.createLinearGradient(0, 0, 0, 300);
       goldGradient.addColorStop(0, 'rgba(255, 215, 0, 0.28)');
@@ -879,12 +910,18 @@
       }
 
       tbody.innerHTML = snapshots.map(s => {
-        const timeStr = formatTime(s.timestamp);
-        const vault = (s.vault_total_gold || (s.vault_total_cents ? s.vault_total_cents / 100 : 0)).toLocaleString(undefined, { minimumFractionDigits: 2 });
-        const liab = (s.member_liabilities_gold || (s.member_liabilities_cents ? s.member_liabilities_cents / 100 : 0)).toLocaleString(undefined, { minimumFractionDigits: 2 });
-        const reserves = (s.bank_reserves_gold || (s.bank_reserves_cents ? s.bank_reserves_cents / 100 : 0)).toLocaleString(undefined, { minimumFractionDigits: 2 });
-        const solvency = (s.solvency_ratio_percent || 100.0).toFixed(1) + "%";
-        const source = s.audit_source || "DAEMON_SYNC";
+        const timeStr = s.date_str || formatTime(s.timestamp || s.timestamp_epoch || s.created_at);
+        const vaultVal = Number(s.vault_total_gold ?? s.vault_gold ?? (s.vault_total_cents ? s.vault_total_cents / 100 : 0));
+        const liabVal = Number(s.member_liabilities_gold ?? (s.member_liabilities_cents ? s.member_liabilities_cents / 100 : 0));
+        const reservesVal = Number(s.unencumbered_reserves_gold ?? s.bank_reserves_gold ?? s.reserves_gold ?? (s.bank_reserves_cents ? s.bank_reserves_cents / 100 : 0));
+        
+        const vault = vaultVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const liab = liabVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const reserves = reservesVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        
+        const solvencyVal = s.solvency_ratio_percent ?? (vaultVal > 0 ? (reservesVal / vaultVal * 100) : 100.0);
+        const solvency = Number(solvencyVal).toFixed(1) + "%";
+        const source = s.audit_source || "DAEMON_TELEMETRY";
 
         return `
           <tr>

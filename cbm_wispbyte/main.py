@@ -803,16 +803,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 except Exception as ex:
                     print(f"[!] Warning: Unable to reach Territorial.io API during registration: {ex}")
             else:
-                try:
-                    vault_client = TerritorialGoldClient(VAULT_ACCOUNT, VAULT_PASSWORD, timeout=5.0)
-                    res = vault_client.get_account_data(target_account_name=terri)
-                    if res.get("status") == "ok" and "account_data" in res:
-                        d, c, r = extract_profile_metadata(res["account_data"])
-                        if d: display_name = d
-                        if c: clan_tag = c
-                        if r: role = r
-                except Exception as ex:
-                    print(f"[!] Warning: Unable to fetch public Territorial.io profile for '{terri}': {ex}")
+                # Protect central vault reserves from fee exhaustion (Territorial.io charges 0.10 Gold per /api/account/get).
+                # Profile metadata is enriched when credentials are authenticated or when inbound deposits are confirmed.
+                display_name = uname
 
             ok, msg, acc = db.register_member_account(
                 username=uname,

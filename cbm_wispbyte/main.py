@@ -54,6 +54,7 @@ WISPBYTE_SERVER_URL = os.environ.get("WISPBYTE_SERVER_URL", f"http://78.154.103.
 WISPBYTE_SUBDOMAIN = os.environ.get("WISPBYTE_SUBDOMAIN", "cbm.wispbyte.org")
 
 db = CBMDatabase()
+loan_engine = CBMLoanEngine()
 withdrawal_worker = CBMWithdrawalWorker(db=db, vault_account=VAULT_ACCOUNT, vault_password=VAULT_PASSWORD)
 deposit_daemon = CBMDepositDaemon(
     db=db,

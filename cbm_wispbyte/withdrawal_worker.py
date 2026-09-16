@@ -2,36 +2,45 @@
 """
 CBM Withdrawal Worker
 =====================
-Processes queued member withdrawal requests via Territorial.io API:
+Processes member withdrawal requests via Territorial.io API:
 - Validates internal balance availability
 - Executes POST /api/gold/send from vault credentials
 - Deducts member liabilities in the double-entry ledger
-- Enforces velocity limits and dual-custody audit trails
+- Enforces closed-loop destination policies & dual-custody audit trails
+- Sweeps and processes pending withdrawal queue automatically
 """
 
 import os
 import sys
 import time
+import datetime
+import sqlite3
 from typing import Dict, Any, Tuple, Optional, List
 from db_layer import CBMDatabase
-
 from gold_api_client import TerritorialGoldClient
 
 class CBMWithdrawalWorker:
     def __init__(self, db: CBMDatabase, vault_account: str = "DdcBC", vault_password: str = ""):
         self.db = db
         self.vault_account = vault_account.strip()
-        self.vault_password = vault_password or os.environ.get("CBM_VAULT_PASSWORD", "")
-        self.client = (
-            TerritorialGoldClient(self.vault_account, self.vault_password)
-            if self.vault_password else None
-        )
+        self.vault_password = vault_password.strip() or os.environ.get("CBM_VAULT_PASSWORD", "").strip()
+        self._client: Optional[TerritorialGoldClient] = None
+        if self.vault_password:
+            self._client = TerritorialGoldClient(self.vault_account, self.vault_password)
+
+    @property
+    def client(self) -> Optional[TerritorialGoldClient]:
+        if not self._client:
+            pwd = self.vault_password or os.environ.get("CBM_VAULT_PASSWORD", "").strip()
+            if pwd:
+                self.vault_password = pwd
+                self._client = TerritorialGoldClient(self.vault_account, self.vault_password)
+        return self._client
 
     def request_withdrawal(self, account_name: str, target_account: str, amount_gold: int, pin: Optional[str] = None) -> Tuple[bool, str]:
         """
-        Creates a new withdrawal request after validating internal member balance,
-        enforcing closed-loop routing (destination must match verified account),
-        and authenticating via CBM Access PIN if configured.
+        Validates internal member balance, closed-loop routing, and PIN authentication,
+        then dispatches real-time disbursement directly to the member's in-game account.
         """
         if amount_gold <= 0:
             return False, "Amount must be greater than 0 Gold."
@@ -55,7 +64,7 @@ class CBMWithdrawalWorker:
             if not pin or not self.db.verify_account_pin(account_name, pin):
                 return False, "Authentication Required: Invalid or missing 6-digit CBM Access PIN."
 
-        # First reconcile overdue loans to garnish debt and update access status
+        # Reconcile overdue loans to garnish debt and update access status
         self.db.reconcile_overdue_loans_and_enforce_garnishment(account_name)
 
         acc = self.db.get_account(account_name)
@@ -72,45 +81,59 @@ class CBMWithdrawalWorker:
 
         # Bank covers the 0.01 Gold game fee! Zero fees charged to member.
         if available_cents < amount_cents:
-            return False, f"Insufficient balance. Available: {available_cents / 100.0} Gold, Requested: {amount_gold} Gold."
+            return False, f"Insufficient balance. Available: {available_cents / 100.0:.2f} Gold, Requested: {amount_gold} Gold."
 
-        # Record withdrawal queue item (fee_cents = 0 charged to user; 1 cent absorbed by bank)
-        conn = self.db.sqlite_path
-        import sqlite3
-        conn_sq = sqlite3.connect(conn)
+        # Verify vault client availability
+        if not self.client or not self.vault_password:
+            return False, "Withdrawal execution unavailable: Vault credentials not configured on withdrawal worker."
+
+        # Record withdrawal queue item in SQLite (fee_cents = 0 charged to user; 1 cent absorbed by bank)
+        conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
         cur = conn_sq.cursor()
+        now_ts = time.time()
         cur.execute("""
             INSERT INTO cbm_withdrawals (account_name, target_account, amount_gold, fee_cents, status, created_at)
             VALUES (?, ?, ?, 0, 'PENDING', ?)
-        """, (account_name, target_account, amount_gold, time.time()))
+        """, (account_name, target_account, amount_gold, now_ts))
         w_id = cur.lastrowid
         conn_sq.commit()
         conn_sq.close()
 
         if self.db.use_supabase:
-            self.db._sb_request(
-                "cbm_withdrawals",
-                method="POST",
-                body={
-                    "account_name": account_name,
-                    "target_account": target_account,
-                    "amount_gold": amount_gold,
-                    "fee_cents": 0,
-                    "status": "PENDING"
-                }
-            )
+            try:
+                self.db._sb_request(
+                    "cbm_withdrawals",
+                    method="POST",
+                    body={
+                        "account_name": account_name,
+                        "target_account": target_account,
+                        "amount_gold": amount_gold,
+                        "fee_cents": 0,
+                        "status": "PENDING"
+                    }
+                )
+            except Exception as sb_err:
+                print(f"[!] Supabase withdrawal queue notice: {sb_err}")
 
-        return True, f"Withdrawal request #{w_id} for {amount_gold} Gold created (0 fees - game fee covered by Bank)."
+        # Execute immediate disbursement via Territorial.io API
+        ok, res = self.execute_withdrawal(w_id)
+        if ok:
+            new_bal = res.get("new_balance_gold", (available_cents - amount_cents) / 100.0)
+            tx = res.get("tx_id", str(w_id))
+            return True, f"Disbursed {amount_gold} Gold directly to '{target_account}' in Territorial.io successfully. Transaction ID: {tx}. Remaining balance: {new_bal:.2f} Gold (0 fees - game fee covered by Clan Bank)."
+        else:
+            err_msg = res.get("error", "Territorial.io transfer rejected.")
+            return False, f"Withdrawal disbursement failed: {err_msg} Your account balance remains intact."
 
     def execute_withdrawal(self, withdrawal_id: int) -> Tuple[bool, Dict[str, Any]]:
         """
-        Executes an approved withdrawal using the vault's Territorial.io credentials.
+        Executes a withdrawal using the vault's Territorial.io credentials,
+        deducts internal balance, records ledger transactions, and synchronizes state.
         """
         if not self.client or not self.vault_password:
             return False, {"error": "Vault credentials not configured on withdrawal worker."}
 
-        import sqlite3
-        conn_sq = sqlite3.connect(self.db.sqlite_path)
+        conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
         conn_sq.row_factory = sqlite3.Row
         cur = conn_sq.cursor()
         cur.execute("SELECT * FROM cbm_withdrawals WHERE id = ? AND status = 'PENDING'", (withdrawal_id,))
@@ -123,57 +146,157 @@ class CBMWithdrawalWorker:
         account_name = req["account_name"]
         target_account = req["target_account"]
         amount_gold = req["amount_gold"]
+        amount_cents = amount_gold * 100
+
+        # Pre-flight member balance check
+        acc = self.db.get_account(account_name)
+        if not acc:
+            cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
+            conn_sq.commit()
+            conn_sq.close()
+            return False, {"error": f"Account '{account_name}' not registered in CBM."}
+
+        available_cents = acc.get("deposited_cents", 0)
+        if available_cents < amount_cents:
+            cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
+            conn_sq.commit()
+            conn_sq.close()
+            return False, {"error": f"Insufficient member balance ({available_cents/100:.2f} Gold available, {amount_gold} Gold required)."}
 
         # Call Territorial.io API
         api_res = self.client.send_gold(target_account, amount_gold)
         if api_res.get("status") != "ok":
+            err_msg = api_res.get("message") or api_res.get("status") or str(api_res)
             cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
             conn_sq.commit()
             conn_sq.close()
-            return False, {"error": f"Territorial.io API rejected transfer: {api_res}"}
+            if self.db.use_supabase:
+                try:
+                    self.db._sb_request(
+                        "cbm_withdrawals",
+                        method="PATCH",
+                        params=f"?account_name=eq.{account_name}&status=eq.PENDING&amount_gold=eq.{amount_gold}",
+                        body={"status": "FAILED"}
+                    )
+                except Exception as sb_err:
+                    print(f"[!] Supabase status update notice: {sb_err}")
+            return False, {"error": f"Territorial.io API rejected transfer: {err_msg}"}
 
         # Deduct member balance (exact amount only - 1 cent game fee absorbed by bank reserves)
-        acc = self.db.get_account(account_name)
-        new_balance = acc["deposited_cents"] - (amount_gold * 100)
+        new_balance = available_cents - amount_cents
+        total_withdrawn = (acc.get("total_withdrawn_cents") or 0) + amount_cents
+        now_ts = time.time()
         cur.execute("""
             UPDATE cbm_accounts
-            SET deposited_cents = ?, total_withdrawn_cents = total_withdrawn_cents + ?, updated_at = ?
+            SET deposited_cents = ?, total_withdrawn_cents = ?, updated_at = ?
             WHERE account_name = ?
-        """, (new_balance, amount_gold * 100, time.time(), account_name))
+        """, (new_balance, total_withdrawn, now_ts, account_name))
 
         # Add ledger record
+        tx_hash = f"W-{withdrawal_id}-{int(now_ts)}"
         cur.execute("""
             INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
             VALUES (?, 'WITHDRAWAL', ?, ?, ?, ?, ?)
-        """, (account_name, -(amount_gold * 100), new_balance, str(withdrawal_id), f"Withdrawal of {amount_gold} Gold to {target_account} (Game fee covered by Bank)", time.time()))
+        """, (account_name, -amount_cents, new_balance, tx_hash, f"Withdrawal of {amount_gold} Gold to {target_account} (Game fee covered by Clan Bank)", now_ts))
 
-        cur.execute("UPDATE cbm_withdrawals SET status = 'EXECUTED', executed_at = ? WHERE id = ?", (time.time(), withdrawal_id))
+        cur.execute("UPDATE cbm_withdrawals SET status = 'EXECUTED', executed_at = ?, tx_id = ? WHERE id = ?", (now_ts, tx_hash, withdrawal_id))
         conn_sq.commit()
         conn_sq.close()
 
+        # Supabase dual-write
         if self.db.use_supabase:
-            self.db._sb_request(
-                "cbm_accounts",
-                method="PATCH",
-                params=f"?account_name=eq.{account_name}",
-                body={"deposited_cents": new_balance, "total_withdrawn_cents": acc.get("total_withdrawn_cents", 0) + amount_gold * 100}
-            )
-            self.db._sb_request(
-                "cbm_ledger",
-                method="POST",
-                body={
-                    "account_name": account_name,
-                    "entry_type": "WITHDRAWAL",
-                    "amount_cents": -(amount_gold * 100),
-                    "balance_after_cents": new_balance,
-                    "tx_hash": str(withdrawal_id),
-                    "notes": f"Withdrawal of {amount_gold} Gold to {target_account} (Game fee covered by Bank)"
-                }
-            )
+            try:
+                self.db._sb_request(
+                    "cbm_accounts",
+                    method="PATCH",
+                    params=f"?account_name=eq.{account_name}",
+                    body={"deposited_cents": new_balance, "total_withdrawn_cents": total_withdrawn}
+                )
+                self.db._sb_request(
+                    "cbm_ledger",
+                    method="POST",
+                    body={
+                        "account_name": account_name,
+                        "entry_type": "WITHDRAWAL",
+                        "amount_cents": -amount_cents,
+                        "balance_after_cents": new_balance,
+                        "tx_hash": tx_hash,
+                        "notes": f"Withdrawal of {amount_gold} Gold to {target_account} (Game fee covered by Clan Bank)"
+                    }
+                )
+                iso_now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                self.db._sb_request(
+                    "cbm_withdrawals",
+                    method="PATCH",
+                    params=f"?account_name=eq.{account_name}&status=eq.PENDING&amount_gold=eq.{amount_gold}",
+                    body={
+                        "status": "EXECUTED",
+                        "executed_at": iso_now,
+                        "tx_id": tx_hash
+                    }
+                )
+            except Exception as sb_err:
+                print(f"[!] Supabase withdrawal sync notice: {sb_err}")
 
-        # Atomically deduct outbound assets from vault total
+        # Atomically deduct outbound assets from vault total in treasury
         treasury = self.db.get_treasury()
-        curr_vault = max(0, treasury.get("vault_total_gold_cents", 0) - (amount_gold * 100))
+        curr_vault = max(0, treasury.get("vault_total_gold_cents", 0) - amount_cents)
         self.db.update_vault_balance(curr_vault)
         self.db.recompute_treasury()
-        return True, {"status": "ok", "api_response": api_res, "new_balance_gold": new_balance / 100.0}
+
+        return True, {"status": "ok", "api_response": api_res, "new_balance_gold": new_balance / 100.0, "tx_id": tx_hash}
+
+    def process_pending_queue(self, max_batch: int = 5) -> int:
+        """
+        Scans for and executes any pending withdrawals in chronological order.
+        Stale requests older than 12 hours are marked EXPIRED to avoid unexpected delayed transfers.
+        """
+        if not self.client or not self.vault_password:
+            return 0
+
+        # Sync any pending requests from Supabase
+        if self.db.use_supabase:
+            try:
+                st, sb_rows = self.db._sb_request("cbm_withdrawals", "GET", "?status=eq.PENDING&order=created_at.asc&limit=10")
+                if st == 200 and isinstance(sb_rows, list) and sb_rows:
+                    conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
+                    cur = conn_sq.cursor()
+                    for r in sb_rows:
+                        acc = r.get("account_name")
+                        tgt = r.get("target_account") or acc
+                        amt = int(r.get("amount_gold") or 0)
+                        cur.execute("SELECT id FROM cbm_withdrawals WHERE account_name = ? AND amount_gold = ? AND status = 'PENDING'", (acc, amt))
+                        if not cur.fetchone():
+                            cur.execute("""
+                                INSERT INTO cbm_withdrawals (account_name, target_account, amount_gold, fee_cents, status, created_at)
+                                VALUES (?, ?, ?, 0, 'PENDING', ?)
+                            """, (acc, tgt, amt, time.time()))
+                    conn_sq.commit()
+                    conn_sq.close()
+            except Exception as e:
+                print(f"[!] Error fetching remote pending withdrawals: {e}")
+
+        conn_sq = sqlite3.connect(self.db.sqlite_path, timeout=15.0)
+        conn_sq.row_factory = sqlite3.Row
+        cur = conn_sq.cursor()
+        now = time.time()
+        # Expire stale requests older than 12 hours (43200s)
+        cur.execute("UPDATE cbm_withdrawals SET status = 'EXPIRED' WHERE status = 'PENDING' AND (? - created_at) > 43200", (now,))
+        conn_sq.commit()
+
+        cur.execute("SELECT id, account_name, amount_gold, created_at FROM cbm_withdrawals WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT ?", (max_batch,))
+        pending = [dict(r) for r in cur.fetchall()]
+        conn_sq.close()
+
+        processed_count = 0
+        for req in pending:
+            w_id = req["id"]
+            ok, res = self.execute_withdrawal(w_id)
+            if ok:
+                processed_count += 1
+                print(f"[+] Processed queued withdrawal #{w_id} ({req['amount_gold']} Gold for '{req['account_name']}').")
+            else:
+                print(f"[!] Failed queued withdrawal #{w_id}: {res.get('error')}")
+
+        return processed_count
+

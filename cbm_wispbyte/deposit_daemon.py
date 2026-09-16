@@ -24,11 +24,13 @@ DEFAULT_USER_AGENT = (
 )
 
 class CBMDepositDaemon:
-    def __init__(self, db: CBMDatabase, vault_account: str = "DdcBC", vault_password: str = "", poll_interval: float = 30.0):
+    def __init__(self, db: CBMDatabase, vault_account: str = "DdcBC", vault_password: str = "", poll_interval: float = 30.0, withdrawal_worker=None, invalidate_caches_cb: Optional[Callable] = None):
         self.db = db
         self.vault_account = vault_account.strip()
         self.vault_password = vault_password.strip() or os.environ.get("CBM_VAULT_PASSWORD", "").strip()
         self.poll_interval = poll_interval
+        self.withdrawal_worker = withdrawal_worker
+        self.invalidate_caches_cb = invalidate_caches_cb
         self.running = False
         self._ssl_ctx = ssl.create_default_context()
         self.on_deposit_callback: Optional[Callable] = None
@@ -169,6 +171,17 @@ class CBMDepositDaemon:
                 count = self.poll_once()
                 if count > 0:
                     print(f"[+] Processed {count} new deposit(s).")
+                
+                # Sweep and process any queued member withdrawals
+                if self.withdrawal_worker:
+                    try:
+                        w_count = self.withdrawal_worker.process_pending_queue()
+                        if w_count > 0:
+                            print(f"[+] Daemon executed {w_count} pending withdrawal(s).")
+                            if self.invalidate_caches_cb:
+                                self.invalidate_caches_cb()
+                    except Exception as w_err:
+                        print(f"[!] Daemon withdrawal processing notice: {w_err}")
                 
                 self._poll_count += 1
                 # Periodically re-verify vault balance against live API (every 30 cycles ~ 7.5 min)

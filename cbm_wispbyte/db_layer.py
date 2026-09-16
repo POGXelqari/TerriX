@@ -544,7 +544,8 @@ class CBMDatabase:
             "processed_txs": 0,
             "ledger": 0,
             "snapshots": 0,
-            "treasury": False
+            "treasury": False,
+            "withdrawals": 0
         }
 
         try:
@@ -814,6 +815,31 @@ class CBMDatabase:
                     _parse_iso(t.get('last_sync_at'))
                 ))
                 stats["treasury"] = True
+                conn.commit()
+
+            # 9. Withdrawals
+            st, wds = self._sb_request('cbm_withdrawals', 'GET', '?select=*&order=created_at.desc&limit=200')
+            if st == 200 and isinstance(wds, list):
+                for w in wds:
+                    acc = w.get('account_name')
+                    tgt = w.get('target_account') or acc
+                    amt = int(w.get('amount_gold') or 0)
+                    status = w.get('status', 'PENDING')
+                    tx_id = w.get('tx_id')
+                    c_at = _parse_iso(w.get('created_at'))
+                    e_at = _parse_iso(w.get('executed_at')) if w.get('executed_at') else None
+                    cur.execute("SELECT id FROM cbm_withdrawals WHERE account_name = ? AND target_account = ? AND amount_gold = ? AND ABS(created_at - ?) < 5", (acc, tgt, amt, c_at))
+                    existing = cur.fetchone()
+                    if existing:
+                        cur.execute("UPDATE cbm_withdrawals SET status = ?, tx_id = ?, executed_at = ? WHERE id = ?", (status, tx_id, e_at, existing[0]))
+                    else:
+                        cur.execute("""
+                            INSERT INTO cbm_withdrawals (
+                                account_name, target_account, amount_gold, fee_cents,
+                                status, tx_id, created_at, executed_at
+                            ) VALUES (?, ?, ?, 0, ?, ?, ?, ?)
+                        """, (acc, tgt, amt, status, tx_id, c_at, e_at))
+                        stats["withdrawals"] += 1
                 conn.commit()
 
             conn.close()

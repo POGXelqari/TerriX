@@ -54,9 +54,15 @@ WISPBYTE_SERVER_URL = os.environ.get("WISPBYTE_SERVER_URL", f"http://78.154.103.
 WISPBYTE_SUBDOMAIN = os.environ.get("WISPBYTE_SUBDOMAIN", "cbm.wispbyte.org")
 
 db = CBMDatabase()
-loan_engine = CBMLoanEngine()
-deposit_daemon = CBMDepositDaemon(db=db, vault_account=VAULT_ACCOUNT, vault_password=VAULT_PASSWORD, poll_interval=POLL_INTERVAL)
 withdrawal_worker = CBMWithdrawalWorker(db=db, vault_account=VAULT_ACCOUNT, vault_password=VAULT_PASSWORD)
+deposit_daemon = CBMDepositDaemon(
+    db=db,
+    vault_account=VAULT_ACCOUNT,
+    vault_password=VAULT_PASSWORD,
+    poll_interval=POLL_INTERVAL,
+    withdrawal_worker=withdrawal_worker,
+    invalidate_caches_cb=lambda: invalidate_caches()
+)
 account_mgr = CBMAccountManager(db=db, vault_account=VAULT_ACCOUNT)
 tunnel_mgr = CloudflareTunnelManager(port=PORT) if ENABLE_TUNNEL else None
 
@@ -1117,6 +1123,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             ok, msg = withdrawal_worker.request_withdrawal(canonical_name, target_account, amount_gold, pin=pin)
 
             if ok:
+                invalidate_caches()
                 return self._send_json(200, {"status": "ok", "message": msg})
             else:
                 return self._send_json(400, {"status": "error", "message": msg})

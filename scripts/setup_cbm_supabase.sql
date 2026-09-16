@@ -264,3 +264,29 @@ CREATE POLICY "Allow public read-only cbm_pending_donations" ON public.cbm_pendi
 DROP POLICY IF EXISTS "Service role manage cbm_pending_donations" ON public.cbm_pending_donations;
 CREATE POLICY "Service role manage cbm_pending_donations" ON public.cbm_pending_donations FOR ALL TO service_role USING (TRUE);
 
+-- -----------------------------------------------------------------------------
+-- 9. VAULT BALANCE & LIQUIDITY SNAPSHOTS (Periodic Historical Telemetry)
+-- Tracks 7-day vault trajectory, liquidity reserves, and net cash flow dynamics.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.cbm_vault_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    timestamp_epoch NUMERIC(16, 4) NOT NULL,
+    vault_total_gold NUMERIC(14, 2) NOT NULL,
+    unencumbered_reserves_gold NUMERIC(14, 2) NOT NULL,
+    member_liabilities_gold NUMERIC(14, 2) NOT NULL,
+    inflow_period_gold NUMERIC(14, 2) DEFAULT 0.0,
+    outflow_period_gold NUMERIC(14, 2) DEFAULT 0.0,
+    net_flow_gold NUMERIC(14, 2) DEFAULT 0.0,
+    tx_count_period INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cbm_vault_snapshots_ts ON public.cbm_vault_snapshots (timestamp_epoch DESC);
+
+ALTER TABLE public.cbm_vault_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public read-only cbm_vault_snapshots" ON public.cbm_vault_snapshots;
+CREATE POLICY "Allow public read-only cbm_vault_snapshots" ON public.cbm_vault_snapshots FOR SELECT TO anon, authenticated USING (TRUE);
+DROP POLICY IF EXISTS "Service role manage cbm_vault_snapshots" ON public.cbm_vault_snapshots;
+CREATE POLICY "Service role manage cbm_vault_snapshots" ON public.cbm_vault_snapshots FOR ALL TO service_role USING (TRUE);
+
+

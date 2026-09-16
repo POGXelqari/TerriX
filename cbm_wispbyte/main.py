@@ -22,6 +22,8 @@ import threading
 import json
 import gzip
 import hashlib
+import socket
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Dict, Tuple, Any, List
@@ -71,6 +73,7 @@ def load_static_cache():
         ("register.html", "text/html; charset=utf-8"),
         ("donations.html", "text/html; charset=utf-8"),
         ("rulebook.html", "text/html; charset=utf-8"),
+        ("vault.html", "text/html; charset=utf-8"),
         ("cbm-logo.png", "image/png"),
     ]
     for fname, ctype in assets:
@@ -109,15 +112,30 @@ _DONORS_CACHE_TIME = 0.0
 _DONORS_CACHE_TTL = 30.0  # 30s cache
 _DONORS_LOCK = threading.Lock()
 
+# Pre-serialized Vault Analytics cache (7-day timeline telemetry)
+_VAULT_ANALYTICS_CACHE = {}  # range_key -> {"bytes": raw_bytes, "gzip": gz_bytes, "etag": etag, "time": float}
+_VAULT_ANALYTICS_TTL = 30.0  # 30s cache
+_VAULT_ANALYTICS_LOCK = threading.Lock()
+
+# Short-TTL Account Statement/Profile cache (5s TTL per account to absorb rapid tab switching)
+_ACCOUNT_CACHE = {}  # username.lower() -> {"data": dict, "time": float}
+_ACCOUNT_CACHE_TTL = 5.0
+_ACCOUNT_LOCK = threading.Lock()
+
 def invalidate_caches():
     global _STATUS_CACHE_TIME, _STATUS_CACHE_BYTES, _STATUS_CACHE_GZIP
     global _DONORS_CACHE_TIME, _DONORS_CACHE_BYTES, _DONORS_CACHE_GZIP
+    global _VAULT_ANALYTICS_CACHE, _ACCOUNT_CACHE
     _STATUS_CACHE_TIME = 0.0
     _STATUS_CACHE_BYTES = None
     _STATUS_CACHE_GZIP = None
     _DONORS_CACHE_TIME = 0.0
     _DONORS_CACHE_BYTES = None
     _DONORS_CACHE_GZIP = None
+    with _VAULT_ANALYTICS_LOCK:
+        _VAULT_ANALYTICS_CACHE.clear()
+    with _ACCOUNT_LOCK:
+        _ACCOUNT_CACHE.clear()
 
 def refresh_status_cache():
     """Thread-safe, stampede-protected refresh of status JSON bytes and gzip buffer."""
@@ -204,7 +222,31 @@ def refresh_donors_cache(limit: int = 10):
         _DONORS_CACHE_TIME = now
         return raw_bytes, gz_bytes, etag
 
+def refresh_vault_analytics_cache(days: int = 7):
+    """Thread-safe, stampede-protected refresh of vault analytics timeline bytes and gzip buffer."""
+    global _VAULT_ANALYTICS_CACHE
+    now = time.time()
+    with _VAULT_ANALYTICS_LOCK:
+        entry = _VAULT_ANALYTICS_CACHE.get(days)
+        if entry and (now - entry["time"]) < _VAULT_ANALYTICS_TTL:
+            return entry["bytes"], entry["gzip"], entry["etag"]
+
+        payload = db.get_vault_timeline(days=days)
+        raw_bytes = json.dumps(payload).encode("utf-8")
+        etag = f'"{hashlib.sha256(raw_bytes).hexdigest()[:16]}"'
+        gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
+        _VAULT_ANALYTICS_CACHE[days] = {
+            "bytes": raw_bytes,
+            "gzip": gz_bytes,
+            "etag": etag,
+            "time": now
+        }
+        return raw_bytes, gz_bytes, etag
+
 class CBMHealthHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    timeout = 30.0
+
     def _apply_security_headers(self):
         """Applies OWASP-recommended HTTP security headers to protect against common attacks."""
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -212,7 +254,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self' 'unsafe-inline' https://api.dicebear.com https://fonts.googleapis.com https://fonts.gstatic.com; img-src 'self' data: https:; frame-ancestors 'self';"
+            "default-src 'self' 'unsafe-inline' https://api.dicebear.com https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+            "connect-src 'self' https://cloudflareinsights.com https://cdn.jsdelivr.net https://*.cloudflareinsights.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "frame-ancestors 'self';"
         )
 
     def _send_cached_asset(self, asset_key: str):
@@ -357,6 +405,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         parsed = self.path.split("?")
         path = parsed[0].rstrip("/")
         query = parsed[1] if len(parsed) > 1 else ""
+        query_dict = urllib.parse.parse_qs(query)
+        params = {k: v[0].strip() if v else "" for k, v in query_dict.items()}
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
         # 1. Standalone Dedicated HTML Pages (Served directly from In-Memory Pre-Gzipped Cache)
@@ -371,6 +421,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         elif path in ("/rulebook", "/rulebook.html", "/docs", "/spec"):
             return self._send_cached_asset("rulebook.html")
+
+        elif path in ("/vault", "/vault.html", "/analytics", "/analytics.html", "/telemetry"):
+            return self._send_cached_asset("vault.html")
 
         # 2. Web Portal Interface (/ or /cbm or /cbm.html or /bank or /index.html)
         elif path in ("", "/", "/cbm", "/cbm.html", "/bank", "/index.html"):
@@ -416,16 +469,23 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         # 4. Member Account API
         elif path == "/api/cbm/account":
             params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
-            acc_name = params.get("name", "").strip()
+            acc_name = (params.get("name") or params.get("account") or params.get("cbm_username") or "").strip()
             if not acc_name:
                 return self._send_json(400, {"status": "error", "message": "Missing 'name' query parameter."})
+
+            now = time.time()
+            acc_key = acc_name.lower()
+            with _ACCOUNT_LOCK:
+                cached_acc = _ACCOUNT_CACHE.get(acc_key)
+                if cached_acc and (now - cached_acc["time"]) < _ACCOUNT_CACHE_TTL:
+                    return self._send_json(cached_acc.get("code", 200), cached_acc["data"])
 
             acc = db.get_account(acc_name)
             if acc:
                 canonical_name = acc.get("account_name", acc_name)
                 ledger = db.get_ledger(canonical_name, limit=20)
                 loans = db.get_account_loans(canonical_name)
-                return self._send_json(200, {
+                resp_data = {
                     "status": "ok",
                     "account": {
                         "account_name": acc.get("account_name"),
@@ -444,14 +504,20 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     },
                     "loans": loans,
                     "statement": ledger
-                })
+                }
+                with _ACCOUNT_LOCK:
+                    _ACCOUNT_CACHE[acc_key] = {"data": resp_data, "time": now, "code": 200}
+                return self._send_json(200, resp_data)
             else:
-                return self._send_json(404, {"status": "not_found", "message": f"Account '{acc_name}' has no active CBM balance."})
+                resp_data = {"status": "not_found", "message": f"Account '{acc_name}' has no active CBM balance."}
+                with _ACCOUNT_LOCK:
+                    _ACCOUNT_CACHE[acc_key] = {"data": resp_data, "time": now, "code": 404}
+                return self._send_json(404, resp_data)
 
         # 4b. Loans lookup API
         elif path == "/api/cbm/loans":
             params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
-            acc_name = params.get("name", "").strip()
+            acc_name = (params.get("name") or params.get("account") or params.get("cbm_username") or "").strip()
             if not acc_name:
                 return self._send_json(400, {"status": "error", "message": "Missing 'name' query parameter."})
 
@@ -474,35 +540,41 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             metrics = db._calculate_treasury_metrics(treasury.get("vault_total_gold_cents", 0))
             facility = loan_engine.evaluate_lending_facility(metrics["bank_reserves_cents"])
             if simulate:
-                facility["is_active"] = True
-                facility["status_message"] = "Lending facility active (Simulation Mode)."
-                if facility["max_loan_gold"] <= 0:
-                    facility["max_loan_gold"] = 5000
-            return self._send_json(200, {
-                "status": "ok",
-                "facility": facility
-            })
+                facility["status"] = "FACILITY_ACTIVE"
+                facility["reasons"] = ["Simulated Facility Active Mode (Dev/Testing override)"]
+                facility["max_individual_loan_gold"] = round(loan_engine.DEFAULT_MAX_SINGLE_LOAN_CENTS / 100.0, 2)
+            return self._send_json(200, facility)
 
-        # 4c. War Chest Donors API (Pre-serialized byte & gzip buffer cache)
-        elif path == "/api/cbm/donors":
-            now = time.time()
-            if _DONORS_CACHE_BYTES and (now - _DONORS_CACHE_TIME) < _DONORS_CACHE_TTL:
-                return self._send_cached_json_bytes(_DONORS_CACHE_BYTES, _DONORS_CACHE_GZIP, _DONORS_CACHE_ETAG)
-
+        # 4c. Top Donors API (Pre-serialized byte & gzip buffer cache)
+        elif path in ("/api/cbm/donors", "/api/cbm/donors/top", "/api/cbm/warchest/donors"):
             params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             try:
                 limit = int(params.get("limit", 10))
+                if limit not in (5, 10, 20, 50):
+                    limit = 10
             except ValueError:
                 limit = 10
             raw_bytes, gz_bytes, etag = refresh_donors_cache(limit=limit)
             return self._send_cached_json_bytes(raw_bytes, gz_bytes, etag)
 
+        # 4d. Vault Analytics Timeline API (Pre-serialized byte & gzip buffer cache)
+        elif path in ("/api/cbm/analytics/vault-history", "/api/cbm/vault-history", "/api/cbm/vault/timeline"):
+            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
+            try:
+                days = int(params.get("days", 7))
+                if days not in (1, 3, 7, 14, 30):
+                    days = 7
+            except ValueError:
+                days = 7
+            raw_bytes, gz_bytes, etag = refresh_vault_analytics_cache(days=days)
+            return self._send_cached_json_bytes(raw_bytes, gz_bytes, etag)
+
         # 5. Payment Methods API
         elif path == "/api/cbm/payment-methods":
             params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
-            acc_name = params.get("name", "").strip()
+            acc_name = (params.get("cbm_username") or params.get("name") or params.get("account") or "").strip()
             if not acc_name:
-                return self._send_json(400, {"status": "error", "message": "Missing 'name' query parameter."})
+                return self._send_json(400, {"status": "error", "message": "Missing 'name' or 'cbm_username' query parameter."})
 
             acc = db.get_account(acc_name)
             canonical_name = acc.get("account_name") if acc else acc_name
@@ -523,7 +595,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         # 5b. Pending Donation Slips API
         elif path in ("/api/cbm/donations/pending", "/api/cbm/pending-donations"):
             params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
-            acc_name = params.get("account", "").strip() or None
+            acc_name = (params.get("account") or params.get("account_name") or params.get("cbm_username") or params.get("name") or "").strip() or None
             pending = db.get_pending_donations(acc_name)
             return self._send_json(200, {
                 "status": "ok",
@@ -721,6 +793,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 display_name=display_name
             )
             if ok:
+                with _ACCOUNT_LOCK:
+                    _ACCOUNT_CACHE.pop(uname.lower(), None)
+                    _ACCOUNT_CACHE.pop(terri.lower(), None)
                 if terri_pwd:
                     try:
                         account_mgr.link_via_input(
@@ -965,32 +1040,46 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(401, {"status": "unauthorized", "message": "Invalid 6-digit CBM Access PIN."})
 
         # 1. Withdrawal submission (Closed-loop & PIN protected)
+        # 1. Withdrawal submission (Closed-loop & PIN protected)
         elif path == "/api/cbm/withdraw":
             account_name = body.get("account_name", "").strip()
-            target_account = body.get("target_account", "").strip() or account_name
+            raw_acc = db._get_account_raw(account_name)
+            if not raw_acc:
+                return self._send_json(404, {"status": "not_found", "message": f"Account '{account_name}' not registered in CBM."})
+
+            canonical_name = raw_acc.get("account_name", account_name)
+            primary_terri = (raw_acc.get("primary_territorial_account") or "").strip()
+            target_account = (body.get("target_account") or primary_terri or canonical_name).strip()
             pin = body.get("pin")
+            pwd = body.get("password")
+
             try:
                 amount_gold = int(body.get("amount_gold", 0))
-            except ValueError:
+            except (ValueError, TypeError):
                 amount_gold = 0
 
-            if not account_name or amount_gold <= 0:
-                return self._send_json(400, {"status": "error", "message": "Invalid account name or amount."})
+            if amount_gold <= 0:
+                return self._send_json(400, {"status": "error", "message": "Withdrawal amount must be at least 1 Gold."})
 
-            raw_acc = db._get_account_raw(account_name)
-            canonical_name = raw_acc.get("account_name", account_name) if raw_acc else account_name
-
-            # Security: Must authenticate PIN if PIN is configured
-            if db.has_account_pin(canonical_name):
+            # Security: Must authenticate PIN if PIN is configured, or verify account password
+            has_pin = db.has_account_pin(canonical_name)
+            if has_pin:
                 if not pin or not db.verify_account_pin(canonical_name, pin):
                     rate_limiter.record_auth_failure(canonical_name)
                     return self._send_json(401, {"status": "unauthorized", "message": "Authentication Required: Invalid or missing 6-digit CBM Access PIN."})
                 rate_limiter.record_auth_success(canonical_name)
+            elif pwd:
+                if not db.verify_account_password(canonical_name, pwd):
+                    rate_limiter.record_auth_failure(canonical_name)
+                    return self._send_json(401, {"status": "unauthorized", "message": "Invalid account password."})
+                rate_limiter.record_auth_success(canonical_name)
             else:
-                return self._send_json(403, {
-                    "status": "forbidden",
-                    "message": f"Security Requirement: Account '{canonical_name}' does not have an Access PIN configured. Please set an Access PIN before withdrawing."
-                })
+                # If neither PIN nor password is provided, allow self-disbursement ONLY if sending to own verified primary account
+                if target_account.upper() not in (primary_terri.upper(), canonical_name.upper()):
+                    return self._send_json(403, {
+                        "status": "forbidden",
+                        "message": f"Security Requirement: Account '{canonical_name}' does not have an Access PIN configured. Please set an Access PIN before withdrawing to secondary destinations."
+                    })
 
             # Check closed-loop target account enforcement
             allowed_targets = db.get_verified_destination_accounts(canonical_name)
@@ -1000,8 +1089,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "message": f"Closed-loop violation: Target account '{target_account}' is not linked or verified to CBM user '{canonical_name}'."
                 })
 
-            worker = WithdrawalWorker(db, VAULT_ACCOUNT, VAULT_PASSWORD)
-            ok, msg = worker.request_withdrawal(canonical_name, target_account, amount_gold)
+            ok, msg = withdrawal_worker.request_withdrawal(canonical_name, target_account, amount_gold, pin=pin)
 
             if ok:
                 return self._send_json(200, {"status": "ok", "message": msg})
@@ -1340,14 +1428,16 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 class CBMThreadPoolServer(HTTPServer):
     """
     High-concurrency, bounded thread pool HTTP server designed for CPU-constrained environments.
-    Limits execution to at most 20 worker threads, eliminating thread explosion
+    Limits execution to at most 60 worker threads, eliminating thread explosion
     and kernel context-switch thrashing while effortlessly servicing 100+ concurrent clients.
     """
-    request_queue_size = 128
+    request_queue_size = 256
     allow_reuse_address = True
 
-    def __init__(self, server_address, RequestHandlerClass, max_workers=20):
+    def __init__(self, server_address, RequestHandlerClass, max_workers=None):
         super().__init__(server_address, RequestHandlerClass)
+        if max_workers is None:
+            max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 128))
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cbm_worker")
 
     def process_request(self, request, client_address):
@@ -1356,7 +1446,7 @@ class CBMThreadPoolServer(HTTPServer):
     def _process_request_thread(self, request, client_address):
         try:
             self.finish_request(request, client_address)
-        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError, socket.timeout):
             pass
         except Exception:
             self.handle_error(request, client_address)
@@ -1365,7 +1455,7 @@ class CBMThreadPoolServer(HTTPServer):
 
     def handle_error(self, request, client_address):
         exc_type, exc_val, _ = sys.exc_info()
-        if exc_type in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        if exc_type in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError, socket.timeout):
             return
         super().handle_error(request, client_address)
 
@@ -1377,9 +1467,10 @@ _SERVER_INSTANCE = None
 
 def run_http_server():
     global _SERVER_INSTANCE
-    server = CBMThreadPoolServer(("0.0.0.0", PORT), CBMHealthHandler, max_workers=20)
+    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 128))
+    server = CBMThreadPoolServer(("0.0.0.0", PORT), CBMHealthHandler, max_workers=max_workers)
     _SERVER_INSTANCE = server
-    print(f"[+] CBM Bounded ThreadPool Server (20 workers, backlog 128) active on 0.0.0.0:{PORT}")
+    print(f"[+] CBM Bounded ThreadPool Server ({max_workers} workers, backlog 256) active on 0.0.0.0:{PORT}")
     print(f"    - Direct URL: {WISPBYTE_SERVER_URL}")
     print(f"    - Subdomain:  http://{WISPBYTE_SUBDOMAIN}/")
     server.serve_forever()

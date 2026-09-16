@@ -174,6 +174,27 @@ class CBMDepositDaemon:
                 # Periodically re-verify vault balance against live API (every 30 cycles ~ 7.5 min)
                 if self._poll_count % 30 == 0:
                     self.sync_live_vault()
+
+                # Periodically synchronize state from Supabase to maintain 100% parity (every 10 cycles ~ 2.5 min)
+                if self._poll_count % 10 == 0 and hasattr(self.db, "sync_all_from_supabase"):
+                    try:
+                        self.db.sync_all_from_supabase(quiet=True)
+                    except Exception as sync_err:
+                        print(f"[!] Daemon Supabase sync error: {sync_err}")
+
+                # Periodically record telemetry snapshot for 7-day vault graphs (every 5 cycles ~ 2.5 min or on deposit)
+                if (count > 0 or self._poll_count % 5 == 0) and hasattr(self.db, "record_vault_snapshot"):
+                    try:
+                        t = self.db.get_treasury()
+                        m = self.db._calculate_treasury_metrics(t.get("vault_total_gold_cents", 0))
+                        self.db.record_vault_snapshot(
+                            vault_total_gold=t.get("vault_total_gold_cents", 0) / 100.0,
+                            unencumbered_reserves_gold=m.get("bank_reserves_gold", 0.0),
+                            member_liabilities_gold=t.get("member_liabilities_cents", 0) / 100.0,
+                            tx_count=count
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[!] Daemon loop exception: {e}")
             time.sleep(self.poll_interval)

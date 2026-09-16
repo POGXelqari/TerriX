@@ -28,7 +28,8 @@ from crypto_util import encrypt_credential, decrypt_credential, is_encrypted
 from db_layer import CBMDatabase
 
 TEST_PORT = 8145
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "cbm_wispbyte", "cbm_data.db")
+DB_PATH = os.path.join(os.path.dirname(__file__), "test_security_sandbox.db")
+os.environ["CBM_ENV"] = "test"
 
 
 class TestCryptoUtil(unittest.TestCase):

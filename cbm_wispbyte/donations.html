@@ -472,6 +472,7 @@
       </a>
       <div class="nav-links">
         <a href="/cbm.html" class="nav-link">Banking Dashboard</a>
+        <a href="/vault.html" class="nav-link" style="color:var(--success);">Vault Analytics</a>
         <a href="/donations.html" class="nav-link active">War Chest</a>
         <a href="/rulebook.html" class="nav-link">Rulebook</a>
         <span id="authNavSlot">
@@ -503,11 +504,11 @@
           <div class="retro-desc">Accidentally deposited as personal balance? Convert any portion of your balance directly to War Chest reserves.</div>
         </div>
       </div>
-      <div class="retro-action">
+      <form class="retro-action" onsubmit="event.preventDefault(); handleRetroConversion();">
         <input type="number" id="retroAmount" class="retro-input" placeholder="Gold" min="0.1" step="any">
-        <input type="password" id="retroPin" class="retro-input" placeholder="Access PIN" maxlength="8" autocomplete="off" inputmode="numeric" style="width: 125px;">
-        <button type="button" class="btn-retro" onclick="handleRetroConversion()">Convert Now</button>
-      </div>
+        <input type="password" id="retroPin" class="retro-input" placeholder="Access PIN" maxlength="8" autocomplete="current-password" inputmode="numeric" style="width: 125px;">
+        <button type="submit" class="btn-retro">Convert Now</button>
+      </form>
     </div>
 
     <div id="alertBox" class="alert-box"></div>
@@ -802,6 +803,22 @@
       }
 
       loadDonationsData();
+
+      // Background tab CPU optimization
+      let donationsTimer = setInterval(loadDonationsData, 30000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+          if (donationsTimer) {
+            clearInterval(donationsTimer);
+            donationsTimer = null;
+          }
+        } else {
+          loadDonationsData();
+          if (!donationsTimer) {
+            donationsTimer = setInterval(loadDonationsData, 30000);
+          }
+        }
+      });
     });
   </script>
 </body>

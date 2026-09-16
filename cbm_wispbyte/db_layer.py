@@ -3346,8 +3346,29 @@ class CBMDatabase:
     def get_vault_timeline(self, days: int = 7, bucket_hours: Optional[int] = None) -> Dict[str, Any]:
         """
         Constructs a high-resolution time-series timeline of vault balance, unencumbered reserves,
-        and cash inflow/outflow dynamics over the requested period (default 7 days).
-        Combines recorded snapshots with ledger transactions for seamless historical depth.
+        and cash inflow/outflow dynamics over the requested period.
+        Protected by runtime SQLite database corruption self-healing.
+        """
+        try:
+            return self._do_get_vault_timeline(days=days, bucket_hours=bucket_hours)
+        except sqlite3.DatabaseError as db_err:
+            if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image", "not a database")):
+                self._recover_corrupted_sqlite(reason=str(db_err))
+                self._init_sqlite()
+                if self.use_supabase:
+                    try:
+                        self.sync_all_from_supabase(quiet=True)
+                    except Exception:
+                        pass
+                try:
+                    return self._do_get_vault_timeline(days=days, bucket_hours=bucket_hours)
+                except Exception as retry_err:
+                    print(f"[!] Error on retrying get_vault_timeline after recovery: {retry_err}")
+            raise
+
+    def _do_get_vault_timeline(self, days: int = 7, bucket_hours: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Internal implementation of get_vault_timeline.
         """
         days = max(1, min(30, int(days)))
         now = time.time()

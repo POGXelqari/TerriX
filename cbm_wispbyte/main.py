@@ -231,7 +231,32 @@ def refresh_vault_analytics_cache(days: int = 7):
         if entry and (now - entry["time"]) < _VAULT_ANALYTICS_TTL:
             return entry["bytes"], entry["gzip"], entry["etag"]
 
-        payload = db.get_vault_timeline(days=days)
+        try:
+            payload = db.get_vault_timeline(days=days)
+        except Exception as err:
+            print(f"[!] Error fetching vault timeline ({days}d): {err}")
+            if entry:
+                return entry["bytes"], entry["gzip"], entry["etag"]
+            payload = {
+                "status": "ok",
+                "range_days": days,
+                "metrics": {
+                    "current_vault_gold": 0.0,
+                    "current_reserves_gold": 0.0,
+                    "current_liabilities_gold": 0.0,
+                    "reserve_ratio_percent": 100.0,
+                    "period_inflow_gold": 0.0,
+                    "period_outflow_gold": 0.0,
+                    "period_net_flow_gold": 0.0,
+                    "peak_vault_gold": 0.0,
+                    "trough_vault_gold": 0.0,
+                    "period_tx_count": 0,
+                    "velocity_24h_percent": 0.0
+                },
+                "timeline": [],
+                "snapshots": []
+            }
+
         raw_bytes = json.dumps(payload).encode("utf-8")
         etag = f'"{hashlib.sha256(raw_bytes).hexdigest()[:16]}"'
         gz_bytes = gzip.compress(raw_bytes, compresslevel=5)

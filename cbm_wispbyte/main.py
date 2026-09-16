@@ -1233,6 +1233,28 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not ok:
                 return self._send_json(400, {"status": "error", "message": msg})
 
+            # If in Preview / Simulation Mode, perform a pure dry-run validation without mutating production DB
+            if simulate_active:
+                sim_due = time.time() + (14 * 86400.0)
+                sim_loan = {
+                    "id": "SIMULATED_PREVIEW",
+                    "account_name": account_name,
+                    "principal_gold": amount_gold,
+                    "interest_rate_percent": 0.0,
+                    "penalty_interest_rate": 50.0,
+                    "term_days": 14,
+                    "due_at": sim_due,
+                    "repaid_cents": 0,
+                    "penalty_cents": 0,
+                    "status": "SIMULATED",
+                    "is_simulated": True
+                }
+                return self._send_json(200, {
+                    "status": "ok",
+                    "message": f"Preview Mode Validated: Successfully simulated {amount_gold} Gold loan facility (Dry-run preview only - zero database mutations).",
+                    "loan": sim_loan
+                })
+
             ok, msg, loan = db.create_loan(
                 account_name=account_name,
                 principal_gold=amount_gold,
@@ -1241,6 +1263,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 territorial_password=terri_pwd
             )
             if ok:
+                invalidate_caches()
                 return self._send_json(200, {"status": "ok", "message": msg, "loan": loan})
             else:
                 return self._send_json(400, {"status": "error", "message": msg})

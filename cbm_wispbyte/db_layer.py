@@ -3546,8 +3546,14 @@ class CBMDatabase:
 
         # Distribute inflows
         for r in inflow_rows:
-            tx_time_s = r["timestamp_ms"] / 1000.0
-            amt = float(r["amount_gold"] or 0.0)
+            try:
+                tx_time_s = float(r["timestamp_ms"] or 0.0) / 1000.0
+            except (ValueError, TypeError):
+                tx_time_s = 0.0
+            try:
+                amt = float(r["amount_gold"] or 0.0)
+            except (ValueError, TypeError):
+                amt = 0.0
             total_inflow += amt
             total_tx_count += 1
             idx = int((tx_time_s - start_ts) // bucket_seconds)
@@ -3557,8 +3563,14 @@ class CBMDatabase:
 
         # Distribute outflows
         for r in outflow_rows:
-            tx_time_s = float(r["created_at"] or 0.0)
-            amt = float(r["amount_gold"] or 0.0)
+            try:
+                tx_time_s = float(r["created_at"] or 0.0)
+            except (ValueError, TypeError):
+                tx_time_s = 0.0
+            try:
+                amt = float(r["amount_gold"] or 0.0)
+            except (ValueError, TypeError):
+                amt = 0.0
             total_outflow += amt
             total_tx_count += 1
             idx = int((tx_time_s - start_ts) // bucket_seconds)
@@ -3568,11 +3580,20 @@ class CBMDatabase:
 
         # Associate any matching snapshots
         for s in snapshot_rows:
-            s_time = float(s["timestamp_epoch"] or 0.0)
+            try:
+                s_time = float(s["timestamp_epoch"] or 0.0)
+            except (ValueError, TypeError):
+                s_time = 0.0
             idx = int((s_time - start_ts) // bucket_seconds)
             if 0 <= idx < len(buckets):
-                buckets[idx]["snapshot_vault"] = float(s["vault_total_gold"] or 0.0)
-                buckets[idx]["snapshot_reserves"] = float(s["unencumbered_reserves_gold"] or 0.0)
+                try:
+                    buckets[idx]["snapshot_vault"] = float(s["vault_total_gold"] or 0.0)
+                except (ValueError, TypeError):
+                    buckets[idx]["snapshot_vault"] = 0.0
+                try:
+                    buckets[idx]["snapshot_reserves"] = float(s["unencumbered_reserves_gold"] or 0.0)
+                except (ValueError, TypeError):
+                    buckets[idx]["snapshot_reserves"] = 0.0
 
         # 4. Step backwards to reconstruct historical balance trajectory accurately
         # Ending balance at bucket[-1] is curr_vault_gold

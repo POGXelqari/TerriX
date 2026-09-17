@@ -354,6 +354,8 @@ def load_allagator_mappings():
                 continue
             if obf in JS_BUILTINS or read in JS_BUILTINS:
                 continue
+            if obf in {"nm"}:
+                continue
                 
             prop_map[obf] = read
 

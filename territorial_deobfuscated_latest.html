@@ -5148,11 +5148,11 @@ a8C.wq[id]=0;if(fZ===1){if(id===0){s1=L(96,[playerData.a0j[player],playerData.a0
 
 s1=L(97,[playerData.a0j[player]]);}else if(id===2){s1=L(98,[playerData.a0j[player]]);}else if(id===3){
 
-s1=L(99,[playerData.a0j[player]]);}a8d(7,0);a8K(a8C.findPlayerShipById[id],s1,7,a8C.a8H[id],colorPalette.pO,colorPalette.pL,-1,true);
+s1=L(99,[playerData.a0j[player]]);}a8d(7,0);a8K(a8C.nm[id],s1,7,a8C.a8H[id],colorPalette.pO,colorPalette.pL,-1,true);
 
 }else{if(id===0){s1=L(100,[fZ]);}else if(id===1){s1=L(101,[fZ]);}else{s1=L(102,[fZ]);}a8d(7,0);
 
-a8K(a8C.findPlayerShipById[id],s1,7,player,colorPalette.pO,colorPalette.pL,-1,false);}};this.getInteriorColorRgb=function(id,i1,lX){var ej=clanPanel.kr();
+a8K(a8C.nm[id],s1,7,player,colorPalette.pO,colorPalette.pL,-1,false);}};this.getInteriorColorRgb=function(id,i1,lX){var ej=clanPanel.kr();
 var fZ=a8C.wq[id]+1;a8C.wq[id]++;a8C.a24[id]=i1;a8C.a8H[id]=lX;if(fZ===1){a8C.ej[id]=ej;}
 
 if(fZ===1&&(localPlayer.a2J<32||localPlayer.a2G===2)){this.a95(id);return;}if(fZ>1&&(a8C.ej[id]<ej-140||localPlayer.a2G===2)){
@@ -5457,7 +5457,7 @@ function aA4(){if(kz===1){if(a9v===0){
 
 aA2();a9v=0.0001;}a9v+=(clanPanel.eZ-nh)*0.002;if(a9v>=1){a9w=0;kz=2;a9v=1;}clanPanel.ds=true;}else if(kz===2){
 
-a9w+=(clanPanel.eZ-nh)/1000;if(a9w>a88[0].findPlayerShipById||(a9w>1&&a88.length>1)){kz=3;}}else if(kz===3){
+a9w+=(clanPanel.eZ-nh)/1000;if(a9w>a88[0].nm||(a9w>1&&a88.length>1)){kz=3;}}else if(kz===3){
 
 a9v-=(clanPanel.eZ-nh)*0.002;if(a9v<=0){a9v=0;a88.shift();kz=a88.length>0?1:0;}clanPanel.ds=true;}nh=clanPanel.eZ;}
 

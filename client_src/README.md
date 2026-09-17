@@ -9,12 +9,7 @@ This directory (`client_src/`) contains source assets, custom extensions, and mo
 ```text
 TerriX/
 ├── client_src/
-│   ├── mods/                       # Custom game extensions and HUD overlays
-│   │   ├── 00_core_runtime.js      # Core hooks, event bus, crash interceptor & settings UI
-│   │   ├── 01_gameplay_telemetry.js# Cycle interest timer, attack calculator & ping HUD
-│   │   ├── 02_tactical_ping.js     # Alt+Click tactical radar beacon & target marker
-│   │   ├── 03_replay_scrubber.js   # Replay timeline scrubber, speed toggles & JSON export
-│   │   └── 04_controls_and_perf.js # Troop hotkeys (1-5, Space), vote, and potato mode
+│   ├── mods/                       # Custom game extensions and HUD overlays (clean baseline)
 │   └── README.md                   # This developer documentation
 ├── scripts/
 │   └── build_client.py             # Client build, mod compiler, & upstream tracking engine

@@ -19,9 +19,7 @@
  * ================================================================
  */
 
-
-
-    "use strict";
+"use strict";
 
     (function () {
 
@@ -15609,5 +15607,3 @@ var yS=minimapRenderer.f0.yP(s1);
 var fZ=yS.length;this.writeBits(30,fZ);for(var aC=0;aC<fZ;aC++){
 
 this.writeBits(6,yS[aC]);}};}setTimeout(initGame,10000);window.onload=function(){initGame();};    })();
-
-  

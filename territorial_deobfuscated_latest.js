@@ -96,7 +96,7 @@ var br;var botAI;var relations;var expansionTargetFinder;var playerBoundaryEngin
 
 function initGame(by){if(settingsPanel&&!by){return;}
 
-function createSystems(){MathUtils();
+function createSystems(){initMathPolyfills();
 
 mathUtils=new MathUtils();floorDiv=new FloorDiv();gameState=new GameState();colorPalette=new ColorPalette();localPlayer=new LocalPlayer();renderer=new Renderer();uiRenderer=new UIRenderer();minimapRenderer=new MinimapRenderer();
 
@@ -191,7 +191,7 @@ return e9[this.eJ(eH)];};this.eL=function(id,eM){return eC[id].replace(new RegEx
 
 function GameConfig(){this.webPropagandaProvider=new AdScheduler();this.eS=new SponsorSystem();
 
-this.turnstile=new MountainAttackTargetFinder();this.applyToGame=function(){uiSurface.platformActions.eV();this.turnstile.applyToGame();};this.eW=function(){
+this.turnstile=new TurnstileController();this.applyToGame=function(){uiSurface.platformActions.eV();this.turnstile.applyToGame();};this.eW=function(){
 
 return connectionMgr.buffer.data[160].value;};}
 
@@ -215,7 +215,7 @@ ec=ej;};this.show=function(){if(!ec){return false;}if(clanPanel.eZ<ed){return fa
 
 (new ek()).show(ec.el,ec.colors,ec.id);ec=null;return true;};}
 
-function MountainAttackTargetFinder(){this.em=0;
+function TurnstileController(){this.em=0;
 var en=null;
 var eo=0;
 var ep=0;
@@ -12499,7 +12499,7 @@ aQL.resize();aQM.resize();};this.getTerriColorArray=function(ej){if(ej===2){aQL.
 
 }
 
-function MathUtils(){if(typeof Math.log2!=="function"){Math.log2=function(fg){return Math.log(fg)/Math.log(2);
+function initMathPolyfills(){if(typeof Math.log2!=="function"){Math.log2=function(fg){return Math.log(fg)/Math.log(2);
 
 };}if(typeof Math.log10!=="function"){Math.log10=function(fg){return Math.log(fg)/Math.log(10);
 
@@ -14510,7 +14510,7 @@ var acO=[];
 
 while(true){var ac8=GlowState(aXW,aXX,acO,player);if(ac8===-1){break;}var id=tileMap.tileDataToIndex(powerState.fP(ac8));
 
-if(bonusSystem.lj.aam(player,id)){if(Renderer(player,ac8,aXW)){boostSystem.gB[7]=ac8;return true;}return false;
+if(bonusSystem.lj.aam(player,id)){if(checkBorderDirection(player,ac8,aXW)){boostSystem.gB[7]=ac8;return true;}return false;
 
 }acO.push(id);}return false;};
 
@@ -14557,7 +14557,7 @@ if(j4===-1){return j3;}if(j3===-1){return j4;}if(powerState.j5(j4,aXW)<powerStat
 
 }
 
-function Renderer(player,ac8,aXW){var iQ=powerState.emptyTileCache(ac8,aXW);for(var aC=0;aC<4;aC++){var fL=powerState.getRandomTileInPlayerArea(ac8,iQ);
+function checkBorderDirection(player,ac8,aXW){var iQ=powerState.emptyTileCache(ac8,aXW);for(var aC=0;aC<4;aC++){var fL=powerState.getRandomTileInPlayerArea(ac8,iQ);
 
 if(tileMap.aJY(powerState.fP(fL),player)){boostSystem.gB[6]=iQ;return true;}iQ=(iQ+1)%4;}return false;}}
 

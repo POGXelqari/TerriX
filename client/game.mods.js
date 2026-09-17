@@ -1,6 +1,6 @@
 /**
  * TerriX Client Extension Bundle
- * Compiled: 2026-09-17 21:10:11 UTC
+ * Compiled: 2026-09-17 21:40:01 UTC
  * Active Mods: 00_core_runtime.js, 01_gameplay_telemetry.js, 02_tactical_ping.js, 03_replay_scrubber.js, 04_controls_and_perf.js
  */
 ;(function(window, document) {
@@ -18,6 +18,7 @@
  * 4. WebSocket Resilience & Network Latency Telemetry
  * 5. Canvas Context Loss & Recovery Guard
  * 6. Territorial.io Native Settings Modal & Persistent Configuration
+ * 7. Saved Clan Credentials Auto-Fill & Persistent DOM Guard
  */
 
 ;(function(window, document) {
@@ -227,7 +228,7 @@
         <div style="font-size:18px; font-weight:700;">TerriX Client Recovery</div>
       </div>
       <div style="font-size:13px; color:#cccccc; margin-bottom:14px; line-height:1.5;">
-        A game or script exception was intercepted. TerriX prevented a browser crash to protect your session.
+        A game exception was intercepted. TerriX prevented a browser crash to protect your session.
       </div>
       <div style="background:#000000; border:1px solid #333333; border-radius:4px; padding:10px; font-family:monospace; font-size:11px; color:#ff6b6b; max-height:140px; overflow-y:auto; word-break:break-all; margin-bottom:18px;">
         ${(errorMsg || 'Unknown Error').replace(/</g, '&lt;')}
@@ -250,63 +251,71 @@
     };
   }
 
-  // Intercept global runtime errors
+  // Intercept ONLY genuine unhandled fatal exceptions (filter benign cross-origin Script error)
   window.addEventListener('error', function(event) {
     if (!config.crash_interceptor) return;
     const msg = event.message || '';
+    // Benign external / cross-origin / ResizeObserver checks matching Territorial.io standards
+    if (!msg || msg === 'Script error.' || msg.includes('ResizeObserver') || !event.error || (event.lineno !== undefined && event.lineno < 2)) {
+      return;
+    }
     const stack = event.error ? event.error.stack : '';
-    console.error('[TerriX Crash Interceptor]', event);
+    console.warn('[TerriX Crash Interceptor]', msg);
     showCrashModal(msg, stack);
   });
 
   window.addEventListener('unhandledrejection', function(event) {
     if (!config.crash_interceptor) return;
-    const msg = event.reason ? (event.reason.message || String(event.reason)) : 'Unhandled Promise Rejection';
+    const msg = event.reason ? (event.reason.message || String(event.reason)) : '';
+    if (!msg || msg.includes('Script error') || msg.includes('ResizeObserver')) return;
     const stack = event.reason && event.reason.stack ? event.reason.stack : '';
-    console.error('[TerriX Unhandled Rejection]', event);
+    console.warn('[TerriX Unhandled Rejection]', msg);
     showCrashModal(msg, stack);
   });
 
-  // 7. Territorial.io Native Styled Settings Modal
+  // 7. Territorial.io Native Styled Settings Modal & Synchronization Engine
+  function syncSettingsInputs() {
+    const modal = document.getElementById('terrix-settings-modal');
+    if (!modal) return;
+
+    // Checkboxes
+    const keys = [
+      'gameplay_telemetry', 'expansion_calculator', 'tactical_pings',
+      'replay_scrubber', 'troop_hotkeys', 'potato_mode', 'crash_interceptor'
+    ];
+    keys.forEach(k => {
+      const el = document.getElementById(`cfg-${k}`);
+      if (el) el.checked = !!config[k];
+    });
+
+    // Saved Clan Credentials inputs
+    const userEl = document.getElementById('cfg-saved-username');
+    const clanEl = document.getElementById('cfg-saved-clan-tag');
+    if (userEl) userEl.value = config.saved_username || '';
+    if (clanEl) clanEl.value = config.saved_clan_tag || '';
+  }
+
+  function autoFillCredentials() {
+    if (!config.saved_username) return;
+    const input0 = document.getElementById('input0');
+    if (input0 && (!input0.value || input0.value.startsWith('Player '))) {
+      input0.value = config.saved_username;
+      input0.dispatchEvent(new Event('input', { bubbles: true }));
+      input0.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log(`[TerriX] Auto-filled saved username: ${config.saved_username}`);
+    }
+  }
+
   function createSettingsUI() {
-    if (document.getElementById('terrix-settings-btn')) return;
+    if (document.getElementById('terrix-settings-modal')) return;
 
-    // A. Discrete Gear Toggle Button (Top-Left)
-    const btn = document.createElement('button');
-    btn.id = 'terrix-settings-btn';
-    btn.title = 'TerriX Client Settings (ESC)';
-    btn.innerHTML = '⚙️ TerriX';
-    btn.style.cssText = `
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      z-index: 1000000;
-      background: rgba(0, 0, 0, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      border-radius: 4px;
-      padding: 6px 12px;
-      color: #ffffff;
-      font-size: 12px;
-      font-weight: 600;
-      font-family: system-ui, -apple-system, sans-serif;
-      cursor: pointer;
-      user-select: none;
-      backdrop-filter: blur(4px);
-      transition: all 0.15s ease;
-    `;
-    btn.onmouseenter = () => { btn.style.background = 'rgba(40, 40, 40, 0.9)'; btn.style.borderColor = '#ffffff'; };
-    btn.onmouseleave = () => { btn.style.background = 'rgba(0, 0, 0, 0.7)'; btn.style.borderColor = 'rgba(255, 255, 255, 0.25)'; };
-    btn.onclick = toggleSettingsModal;
-    document.body.appendChild(btn);
-
-    // B. Settings Modal Container
     const modal = document.createElement('div');
     modal.id = 'terrix-settings-modal';
     modal.style.cssText = `
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
       background: rgba(0, 0, 0, 0.8);
-      z-index: 1000001;
+      z-index: 1000005;
       display: none;
       align-items: center;
       justify-content: center;
@@ -315,10 +324,10 @@
     `;
 
     modal.innerHTML = `
-      <div style="background:#0e0e0e; border:1px solid rgba(255,255,255,0.25); border-radius:6px; padding:22px; width:440px; max-width:92%; color:#fff; box-shadow:0 12px 36px rgba(0,0,0,0.85);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+      <div style="background:#0e0e0e; border:1px solid rgba(255,255,255,0.25); border-radius:6px; padding:22px; width:460px; max-width:92%; color:#fff; box-shadow:0 12px 36px rgba(0,0,0,0.85);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
           <div style="font-size:16px; font-weight:700; display:flex; align-items:center; gap:8px;">
-            <span>⚙️</span> TerriX Client Features & Utilities
+            <span>⚙️</span> TerriX Client Features & Settings
           </div>
           <button id="terrix-settings-close" style="background:none; border:none; color:#aaa; font-size:18px; cursor:pointer; padding:0 4px;">✕</button>
         </div>
@@ -329,7 +338,7 @@
               <div style="font-weight:600;">Tactical Telemetry & Cycle Ring</div>
               <div style="font-size:11px; color:#888;">Live interest timer, network latency, and FPS meter</div>
             </div>
-            <input type="checkbox" id="cfg-gameplay_telemetry" ${config.gameplay_telemetry ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-gameplay_telemetry" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -337,7 +346,7 @@
               <div style="font-weight:600;">Expansion Efficiency Calculator</div>
               <div style="font-size:11px; color:#888;">Troop cost & territory balance projection</div>
             </div>
-            <input type="checkbox" id="cfg-expansion_calculator" ${config.expansion_calculator ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-expansion_calculator" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -345,7 +354,7 @@
               <div style="font-weight:600;">Tactical Map Pings (Alt + Click)</div>
               <div style="font-size:11px; color:#888;">Coordinate signaling for clan and team cooperation</div>
             </div>
-            <input type="checkbox" id="cfg-tactical_pings" ${config.tactical_pings ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-tactical_pings" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -353,7 +362,7 @@
               <div style="font-weight:600;">Enhanced Replay Scrubber</div>
               <div style="font-size:11px; color:#888;">Speed multiplier controls and JSON export</div>
             </div>
-            <input type="checkbox" id="cfg-replay_scrubber" ${config.replay_scrubber ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-replay_scrubber" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -361,7 +370,7 @@
               <div style="font-weight:600;">Custom Troop Hotkeys (1-5, Space)</div>
               <div style="font-size:11px; color:#888;">Instant percentage slider adjustments & attack trigger</div>
             </div>
-            <input type="checkbox" id="cfg-troop_hotkeys" ${config.troop_hotkeys ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-troop_hotkeys" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -369,7 +378,7 @@
               <div style="font-weight:600;">Performance Potato Mode</div>
               <div style="font-size:11px; color:#888;">Reduce particle effects & shadow passes for weak devices</div>
             </div>
-            <input type="checkbox" id="cfg-potato_mode" ${config.potato_mode ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-potato_mode" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -377,8 +386,17 @@
               <div style="font-weight:600;">Native Crash Interceptor</div>
               <div style="font-size:11px; color:#888;">Prevent white/black screen crashes with safe dialogs</div>
             </div>
-            <input type="checkbox" id="cfg-crash_interceptor" ${config.crash_interceptor ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-crash_interceptor" style="cursor:pointer; width:16px; height:16px;">
           </label>
+
+          <!-- Saved Clan Credentials Support -->
+          <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
+            <div style="font-size:12px; font-weight:700; color:#ddd; margin-bottom:8px;">Saved Clan Credentials</div>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="cfg-saved-username" placeholder="Saved Username" style="flex:1; background:#1c1c1c; border:1px solid #444; border-radius:4px; padding:6px 10px; color:#fff; font-size:12px;">
+              <input type="text" id="cfg-saved-clan-tag" placeholder="Clan Tag (e.g. [OG])" style="width:130px; background:#1c1c1c; border:1px solid #444; border-radius:4px; padding:6px 10px; color:#fff; font-size:12px;">
+            </div>
+          </div>
         </div>
 
         <div style="margin-top:16px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
@@ -404,7 +422,11 @@
       config.troop_hotkeys = document.getElementById('cfg-troop_hotkeys').checked;
       config.potato_mode = document.getElementById('cfg-potato_mode').checked;
       config.crash_interceptor = document.getElementById('cfg-crash_interceptor').checked;
+      config.saved_username = (document.getElementById('cfg-saved-username').value || '').trim();
+      config.saved_clan_tag = (document.getElementById('cfg-saved-clan-tag').value || '').trim();
+
       saveConfig();
+      autoFillCredentials();
       emit('config:updated', config);
       toggleSettingsModal();
     };
@@ -412,6 +434,7 @@
     document.getElementById('terrix-settings-reset').onclick = function() {
       Object.assign(config, DEFAULT_CONFIG);
       saveConfig();
+      syncSettingsInputs();
       emit('config:updated', config);
       toggleSettingsModal();
     };
@@ -419,32 +442,48 @@
     // Hotkey listener for ESC to toggle settings
     window.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' && !e.repeat) {
-        // Toggle only if not in an input field
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
         toggleSettingsModal();
       }
     });
   }
 
-  function toggleSettingsModal() {
+  function toggleSettingsModal(forceOpen) {
+    createSettingsUI();
     const modal = document.getElementById('terrix-settings-modal');
     if (!modal) return;
-    const isVisible = modal.style.display === 'flex';
-    modal.style.display = isVisible ? 'none' : 'flex';
+    const isCurrentlyVisible = modal.style.display === 'flex';
+    const shouldShow = typeof forceOpen === 'boolean' ? forceOpen : !isCurrentlyVisible;
+
+    if (shouldShow) {
+      syncSettingsInputs();
+      modal.style.display = 'flex';
+    } else {
+      modal.style.display = 'none';
+    }
   }
 
-  // 8. Bootstrap Runtime
-  function init() {
+  // 8. Bootstrap & Resilient Persistence Loop
+  function mount() {
     initCanvasWatchdog();
     createSettingsUI();
-    console.log('[TerriX] Core Runtime v1.0.0 initialized successfully.');
+    autoFillCredentials();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  // Execute mount immediately and attach to lifecycle hooks
+  if (document.body) {
+    mount();
   }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
+
+  // Persistence Watchdog: Ensures UI elements remain attached across game state transitions
+  setInterval(function() {
+    if (!document.getElementById('terrix-settings-modal')) {
+      createSettingsUI();
+    }
+    autoFillCredentials();
+  }, 2500);
 
   // Expose global TerriX interface
   window.TerriX = {
@@ -458,8 +497,11 @@
     hookBefore: hookBefore,
     hookAfter: hookAfter,
     network: network,
-    showCrashModal: showCrashModal
+    showCrashModal: showCrashModal,
+    toggleSettingsModal: toggleSettingsModal
   };
+
+  console.log('[TerriX] Core Runtime v1.0.0 initialized successfully.');
 
 })(window, document);
 
@@ -471,7 +513,8 @@
  * Provides:
  * 1. Live Troop Interest Cycle Timer (optimizes attack timing around interest ticks)
  * 2. Expansion Efficiency & Troop Attack Projection Calculator
- * 3. Network Latency (Ping), FPS, and Session Duration HUD
+ * 3. Network Latency (Ping), FPS, and Integrated Settings Trigger
+ * 4. Resilient Lifecycle Mounting Guard
  */
 
 ;(function(window, document) {
@@ -480,6 +523,7 @@
   function initTelemetry() {
     if (!window.TerriX) return;
     if (document.getElementById('terrix-telemetry-hud')) return;
+    if (!document.body) return;
 
     // 1. Create Telemetry HUD Container (Top Center)
     const hud = document.createElement('div');
@@ -489,24 +533,31 @@
       top: 8px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 999990;
+      z-index: 1000000;
       display: flex;
       align-items: center;
-      gap: 12px;
-      background: rgba(0, 0, 0, 0.72);
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      gap: 10px;
+      background: rgba(10, 10, 10, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.22);
       border-radius: 4px;
-      padding: 4px 12px;
+      padding: 4px 10px;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 11px;
       font-weight: 600;
       color: #ffffff;
       user-select: none;
-      pointer-events: none;
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(6px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
     `;
 
     hud.innerHTML = `
+      <!-- Integrated Settings Button -->
+      <button id="terrix-hud-settings-btn" title="TerriX Settings (ESC)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.25); color:#ffffff; border-radius:3px; padding:2px 7px; font-size:11px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+        <span>⚙️</span> TerriX
+      </button>
+
+      <div style="width:1px; height:12px; background:rgba(255,255,255,0.2);"></div>
+
       <!-- Interest Cycle Timer Indicator -->
       <div id="terrix-hud-cycle" style="display:flex; align-items:center; gap:6px;">
         <span style="color:#aaaaaa;">CYCLE:</span>
@@ -541,25 +592,34 @@
 
     document.body.appendChild(hud);
 
+    // Settings Button Click Hook
+    const settingsBtn = document.getElementById('terrix-hud-settings-btn');
+    if (settingsBtn) {
+      settingsBtn.onclick = function() {
+        if (window.TerriX && window.TerriX.toggleSettingsModal) {
+          window.TerriX.toggleSettingsModal();
+        }
+      };
+      settingsBtn.onmouseenter = () => { settingsBtn.style.background = 'rgba(255,255,255,0.2)'; };
+      settingsBtn.onmouseleave = () => { settingsBtn.style.background = 'rgba(255,255,255,0.08)'; };
+    }
+
     // 2. Interest Cycle & Tick Engine
-    // In Territorial.io, base compounding interest tick runs on approx 1.0s interval.
     let cycleDurationMs = 1000;
     let cycleStartTime = Date.now();
     const cycleBar = document.getElementById('terrix-cycle-bar');
     const cycleText = document.getElementById('terrix-cycle-text');
 
-    // Reset cycle on server updates
     TerriX.on('network:message', function() {
       const now = Date.now();
       const elapsed = now - cycleStartTime;
       if (elapsed > 400) {
-        // Adjust estimated tick duration dynamically
         cycleDurationMs = Math.max(700, Math.min(1500, elapsed));
         cycleStartTime = now;
       }
     });
 
-    // 3. FPS Meter
+    // 3. FPS & Diagnostics Loop
     let frameCount = 0;
     let lastFpsCheck = performance.now();
     let currentFps = 60;
@@ -603,13 +663,10 @@
     requestAnimationFrame(renderLoop);
 
     // 4. Expansion Efficiency Calculation Hook
-    // Reads current game attack percentage and computes troop conservation efficiency
     window.addEventListener('mousemove', function() {
       if (!TerriX.isFeatureEnabled('expansion_calculator')) return;
-      // High efficiency: attacks under 25% or timely attacks before compounding
       const cycleElapsed = (Date.now() - cycleStartTime) % cycleDurationMs;
       const progress = cycleElapsed / cycleDurationMs;
-      // If within the last 20% of cycle, efficiency drops (wait for interest tick!)
       if (progress > 0.78) {
         ratioText.textContent = 'HOLD (Interest Near)';
         ratioText.style.color = '#fbbf24';
@@ -622,11 +679,22 @@
     console.log('[TerriX] Tactical Telemetry HUD initialized.');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTelemetry);
-  } else {
+  // Resilient mounting lifecycle
+  function mount() {
     initTelemetry();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
+
+  setInterval(function() {
+    if (!document.getElementById('terrix-telemetry-hud')) {
+      initTelemetry();
+    }
+  }, 2500);
 
 })(window, document);
 
@@ -646,8 +714,8 @@
 
   function initTacticalPings() {
     if (!window.TerriX) return;
-
-    // Create an overlay canvas for zero-overhead transient beacon rendering
+    if (document.getElementById('terrix-ping-overlay')) return;
+    if (!document.body) return;
     const pingCanvas = document.createElement('canvas');
     pingCanvas.id = 'terrix-ping-overlay';
     pingCanvas.style.cssText = `
@@ -750,11 +818,15 @@
     console.log('[TerriX] Tactical Ping Utility initialized (Alt + Click to ping).');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTacticalPings);
-  } else {
+  function mount() {
     initTacticalPings();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
 
 })(window, document);
 
@@ -764,10 +836,11 @@
  * TerriX Enhanced Replay Scrubber & Match Analytics
  * ==================================================
  * Provides:
- * 1. Bottom-docked Timeline Scrubber for Match Replays
+ * 1. Bottom-docked Timeline Scrubber with Collapsible Mini-Tab
  * 2. Multi-speed Playback Controls (0.5x, 1x, 2x, 5x, 10x)
  * 3. Pause / Resume / Step Frame Utilities
  * 4. One-Click Replay JSON Export for Clan & Tournament Records
+ * 5. Resilient Auto-Mounting Guard
  */
 
 ;(function(window, document) {
@@ -776,69 +849,85 @@
   function initReplayScrubber() {
     if (!window.TerriX) return;
     if (document.getElementById('terrix-replay-bar')) return;
+    if (!document.body) return;
 
     // 1. Create Replay Controller Bar (Bottom Center)
     const bar = document.createElement('div');
     bar.id = 'terrix-replay-bar';
     bar.style.cssText = `
       position: fixed;
-      bottom: 12px;
+      bottom: 10px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 999990;
       display: flex;
       align-items: center;
-      gap: 10px;
-      background: rgba(12, 12, 12, 0.9);
+      gap: 8px;
+      background: rgba(12, 12, 12, 0.92);
       border: 1px solid rgba(255, 255, 255, 0.25);
       border-radius: 6px;
-      padding: 6px 14px;
+      padding: 5px 12px;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 12px;
+      font-size: 11px;
       color: #ffffff;
       user-select: none;
       backdrop-filter: blur(6px);
-      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
-      transition: opacity 0.2s ease, transform 0.2s ease;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.7);
+      transition: all 0.2s ease;
     `;
 
     bar.innerHTML = `
+      <!-- Minimize/Expand Handle -->
+      <button id="terrix-replay-collapse" title="Collapse Replay Bar" style="background:none; border:none; color:#888; font-size:12px; cursor:pointer; padding:0 2px;">▼</button>
+
       <!-- Play/Pause Toggle -->
-      <button id="terrix-replay-play" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.3); color:#fff; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:700;">⏸ Pause</button>
+      <button id="terrix-replay-play" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.3); color:#fff; border-radius:3px; padding:3px 7px; font-size:11px; cursor:pointer; font-weight:700;">⏸ Pause</button>
 
       <!-- Scrubbing Timeline Slider -->
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span id="terrix-replay-time" style="font-family:monospace; font-size:11px; color:#aaa; min-width:36px;">0:00</span>
-        <input type="range" id="terrix-replay-slider" min="0" max="100" value="0" style="width:180px; accent-color:#ffffff; cursor:pointer; height:4px;">
-        <span id="terrix-replay-total" style="font-family:monospace; font-size:11px; color:#aaa; min-width:36px;">--:--</span>
+      <div id="terrix-replay-timeline-group" style="display:flex; align-items:center; gap:6px;">
+        <span id="terrix-replay-time" style="font-family:monospace; font-size:11px; color:#aaa; min-width:32px;">0:00</span>
+        <input type="range" id="terrix-replay-slider" min="0" max="100" value="0" style="width:140px; accent-color:#ffffff; cursor:pointer; height:4px;">
+        <span id="terrix-replay-total" style="font-family:monospace; font-size:11px; color:#aaa; min-width:32px;">--:--</span>
       </div>
 
-      <div style="width:1px; height:14px; background:rgba(255,255,255,0.2);"></div>
+      <div style="width:1px; height:12px; background:rgba(255,255,255,0.2);"></div>
 
       <!-- Speed Multipliers -->
-      <div id="terrix-replay-speeds" style="display:flex; gap:4px;">
-        <button class="terrix-spd-btn" data-spd="0.5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">0.5x</button>
-        <button class="terrix-spd-btn" data-spd="1" style="background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); color:#fff; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer; font-weight:700;">1x</button>
-        <button class="terrix-spd-btn" data-spd="2" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">2x</button>
-        <button class="terrix-spd-btn" data-spd="5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">5x</button>
-        <button class="terrix-spd-btn" data-spd="10" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">10x</button>
+      <div id="terrix-replay-speeds" style="display:flex; gap:3px;">
+        <button class="terrix-spd-btn" data-spd="0.5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer;">0.5x</button>
+        <button class="terrix-spd-btn" data-spd="1" style="background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); color:#fff; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer; font-weight:700;">1x</button>
+        <button class="terrix-spd-btn" data-spd="2" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer;">2x</button>
+        <button class="terrix-spd-btn" data-spd="5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer;">5x</button>
       </div>
 
-      <div style="width:1px; height:14px; background:rgba(255,255,255,0.2);"></div>
+      <div style="width:1px; height:12px; background:rgba(255,255,255,0.2);"></div>
 
       <!-- Export Replay JSON -->
-      <button id="terrix-replay-export" title="Export Match Replay to JSON" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#ddd; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">💾 Export</button>
+      <button id="terrix-replay-export" title="Export Match Replay" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#ddd; border-radius:3px; padding:3px 7px; font-size:10px; cursor:pointer;">💾 Export</button>
     `;
 
     document.body.appendChild(bar);
 
-    // 2. Play/Pause State & Speed Logic
+    // 2. Collapsible Behavior
+    let isCollapsed = false;
+    const collapseBtn = document.getElementById('terrix-replay-collapse');
+    const timelineGroup = document.getElementById('terrix-replay-timeline-group');
+    const speedsGroup = document.getElementById('terrix-replay-speeds');
+    const exportBtn = document.getElementById('terrix-replay-export');
+
+    collapseBtn.onclick = function() {
+      isCollapsed = !isCollapsed;
+      collapseBtn.textContent = isCollapsed ? '▲ Replay' : '▼';
+      timelineGroup.style.display = isCollapsed ? 'none' : 'flex';
+      speedsGroup.style.display = isCollapsed ? 'none' : 'flex';
+      exportBtn.style.display = isCollapsed ? 'none' : 'block';
+      bar.style.padding = isCollapsed ? '3px 8px' : '5px 12px';
+    };
+
+    // 3. Play/Pause State & Speed Logic
     let isPaused = false;
     let playbackSpeed = 1.0;
     const playBtn = document.getElementById('terrix-replay-play');
-    const slider = document.getElementById('terrix-replay-slider');
-    const timeText = document.getElementById('terrix-replay-time');
-    const totalText = document.getElementById('terrix-replay-total');
     const speedButtons = document.querySelectorAll('.terrix-spd-btn');
 
     playBtn.onclick = function() {
@@ -866,8 +955,8 @@
       };
     });
 
-    // 3. Match Export Functionality
-    document.getElementById('terrix-replay-export').onclick = function() {
+    // 4. Match Export Functionality
+    exportBtn.onclick = function() {
       const matchData = {
         terrix_version: TerriX.version,
         timestamp: new Date().toISOString(),
@@ -889,7 +978,7 @@
       URL.revokeObjectURL(url);
     };
 
-    // 4. Visibility Watcher
+    // 5. Visibility Watcher
     function updateVisibility() {
       bar.style.display = TerriX.isFeatureEnabled('replay_scrubber') ? 'flex' : 'none';
     }
@@ -900,11 +989,22 @@
     console.log('[TerriX] Replay Scrubber initialized.');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initReplayScrubber);
-  } else {
+  // Resilient mounting lifecycle
+  function mount() {
     initReplayScrubber();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
+
+  setInterval(function() {
+    if (!document.getElementById('terrix-replay-bar')) {
+      initReplayScrubber();
+    }
+  }, 2500);
 
 })(window, document);
 
@@ -924,6 +1024,8 @@
 
   function initControlsAndPerf() {
     if (!window.TerriX) return;
+    if (document.getElementById('terrix-hotkey-toast')) return;
+    if (!document.body) return;
 
     // 1. Discrete Feedback Indicator (Bottom Right)
     const toast = document.createElement('div');
@@ -1048,11 +1150,15 @@
     console.log('[TerriX] Controls & Performance Engine initialized.');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initControlsAndPerf);
-  } else {
+  function mount() {
     initControlsAndPerf();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
 
 })(window, document);
 

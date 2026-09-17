@@ -12,6 +12,8 @@
 
   function initControlsAndPerf() {
     if (!window.TerriX) return;
+    if (document.getElementById('terrix-hotkey-toast')) return;
+    if (!document.body) return;
 
     // 1. Discrete Feedback Indicator (Bottom Right)
     const toast = document.createElement('div');
@@ -136,10 +138,14 @@
     console.log('[TerriX] Controls & Performance Engine initialized.');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initControlsAndPerf);
-  } else {
+  function mount() {
     initControlsAndPerf();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
 
 })(window, document);

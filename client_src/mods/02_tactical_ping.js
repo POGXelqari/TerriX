@@ -12,8 +12,8 @@
 
   function initTacticalPings() {
     if (!window.TerriX) return;
-
-    // Create an overlay canvas for zero-overhead transient beacon rendering
+    if (document.getElementById('terrix-ping-overlay')) return;
+    if (!document.body) return;
     const pingCanvas = document.createElement('canvas');
     pingCanvas.id = 'terrix-ping-overlay';
     pingCanvas.style.cssText = `
@@ -116,10 +116,14 @@
     console.log('[TerriX] Tactical Ping Utility initialized (Alt + Click to ping).');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTacticalPings);
-  } else {
+  function mount() {
     initTacticalPings();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
 
 })(window, document);

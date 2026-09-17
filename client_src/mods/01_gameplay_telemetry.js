@@ -4,7 +4,8 @@
  * Provides:
  * 1. Live Troop Interest Cycle Timer (optimizes attack timing around interest ticks)
  * 2. Expansion Efficiency & Troop Attack Projection Calculator
- * 3. Network Latency (Ping), FPS, and Session Duration HUD
+ * 3. Network Latency (Ping), FPS, and Integrated Settings Trigger
+ * 4. Resilient Lifecycle Mounting Guard
  */
 
 ;(function(window, document) {
@@ -13,6 +14,7 @@
   function initTelemetry() {
     if (!window.TerriX) return;
     if (document.getElementById('terrix-telemetry-hud')) return;
+    if (!document.body) return;
 
     // 1. Create Telemetry HUD Container (Top Center)
     const hud = document.createElement('div');
@@ -22,24 +24,31 @@
       top: 8px;
       left: 50%;
       transform: translateX(-50%);
-      z-index: 999990;
+      z-index: 1000000;
       display: flex;
       align-items: center;
-      gap: 12px;
-      background: rgba(0, 0, 0, 0.72);
-      border: 1px solid rgba(255, 255, 255, 0.2);
+      gap: 10px;
+      background: rgba(10, 10, 10, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.22);
       border-radius: 4px;
-      padding: 4px 12px;
+      padding: 4px 10px;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 11px;
       font-weight: 600;
       color: #ffffff;
       user-select: none;
-      pointer-events: none;
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(6px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
     `;
 
     hud.innerHTML = `
+      <!-- Integrated Settings Button -->
+      <button id="terrix-hud-settings-btn" title="TerriX Settings (ESC)" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.25); color:#ffffff; border-radius:3px; padding:2px 7px; font-size:11px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+        <span>⚙️</span> TerriX
+      </button>
+
+      <div style="width:1px; height:12px; background:rgba(255,255,255,0.2);"></div>
+
       <!-- Interest Cycle Timer Indicator -->
       <div id="terrix-hud-cycle" style="display:flex; align-items:center; gap:6px;">
         <span style="color:#aaaaaa;">CYCLE:</span>
@@ -74,25 +83,34 @@
 
     document.body.appendChild(hud);
 
+    // Settings Button Click Hook
+    const settingsBtn = document.getElementById('terrix-hud-settings-btn');
+    if (settingsBtn) {
+      settingsBtn.onclick = function() {
+        if (window.TerriX && window.TerriX.toggleSettingsModal) {
+          window.TerriX.toggleSettingsModal();
+        }
+      };
+      settingsBtn.onmouseenter = () => { settingsBtn.style.background = 'rgba(255,255,255,0.2)'; };
+      settingsBtn.onmouseleave = () => { settingsBtn.style.background = 'rgba(255,255,255,0.08)'; };
+    }
+
     // 2. Interest Cycle & Tick Engine
-    // In Territorial.io, base compounding interest tick runs on approx 1.0s interval.
     let cycleDurationMs = 1000;
     let cycleStartTime = Date.now();
     const cycleBar = document.getElementById('terrix-cycle-bar');
     const cycleText = document.getElementById('terrix-cycle-text');
 
-    // Reset cycle on server updates
     TerriX.on('network:message', function() {
       const now = Date.now();
       const elapsed = now - cycleStartTime;
       if (elapsed > 400) {
-        // Adjust estimated tick duration dynamically
         cycleDurationMs = Math.max(700, Math.min(1500, elapsed));
         cycleStartTime = now;
       }
     });
 
-    // 3. FPS Meter
+    // 3. FPS & Diagnostics Loop
     let frameCount = 0;
     let lastFpsCheck = performance.now();
     let currentFps = 60;
@@ -136,13 +154,10 @@
     requestAnimationFrame(renderLoop);
 
     // 4. Expansion Efficiency Calculation Hook
-    // Reads current game attack percentage and computes troop conservation efficiency
     window.addEventListener('mousemove', function() {
       if (!TerriX.isFeatureEnabled('expansion_calculator')) return;
-      // High efficiency: attacks under 25% or timely attacks before compounding
       const cycleElapsed = (Date.now() - cycleStartTime) % cycleDurationMs;
       const progress = cycleElapsed / cycleDurationMs;
-      // If within the last 20% of cycle, efficiency drops (wait for interest tick!)
       if (progress > 0.78) {
         ratioText.textContent = 'HOLD (Interest Near)';
         ratioText.style.color = '#fbbf24';
@@ -155,10 +170,21 @@
     console.log('[TerriX] Tactical Telemetry HUD initialized.');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initTelemetry);
-  } else {
+  // Resilient mounting lifecycle
+  function mount() {
     initTelemetry();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
+
+  setInterval(function() {
+    if (!document.getElementById('terrix-telemetry-hud')) {
+      initTelemetry();
+    }
+  }, 2500);
 
 })(window, document);

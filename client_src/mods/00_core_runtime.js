@@ -8,6 +8,7 @@
  * 4. WebSocket Resilience & Network Latency Telemetry
  * 5. Canvas Context Loss & Recovery Guard
  * 6. Territorial.io Native Settings Modal & Persistent Configuration
+ * 7. Saved Clan Credentials Auto-Fill & Persistent DOM Guard
  */
 
 ;(function(window, document) {
@@ -217,7 +218,7 @@
         <div style="font-size:18px; font-weight:700;">TerriX Client Recovery</div>
       </div>
       <div style="font-size:13px; color:#cccccc; margin-bottom:14px; line-height:1.5;">
-        A game or script exception was intercepted. TerriX prevented a browser crash to protect your session.
+        A game exception was intercepted. TerriX prevented a browser crash to protect your session.
       </div>
       <div style="background:#000000; border:1px solid #333333; border-radius:4px; padding:10px; font-family:monospace; font-size:11px; color:#ff6b6b; max-height:140px; overflow-y:auto; word-break:break-all; margin-bottom:18px;">
         ${(errorMsg || 'Unknown Error').replace(/</g, '&lt;')}
@@ -240,63 +241,71 @@
     };
   }
 
-  // Intercept global runtime errors
+  // Intercept ONLY genuine unhandled fatal exceptions (filter benign cross-origin Script error)
   window.addEventListener('error', function(event) {
     if (!config.crash_interceptor) return;
     const msg = event.message || '';
+    // Benign external / cross-origin / ResizeObserver checks matching Territorial.io standards
+    if (!msg || msg === 'Script error.' || msg.includes('ResizeObserver') || !event.error || (event.lineno !== undefined && event.lineno < 2)) {
+      return;
+    }
     const stack = event.error ? event.error.stack : '';
-    console.error('[TerriX Crash Interceptor]', event);
+    console.warn('[TerriX Crash Interceptor]', msg);
     showCrashModal(msg, stack);
   });
 
   window.addEventListener('unhandledrejection', function(event) {
     if (!config.crash_interceptor) return;
-    const msg = event.reason ? (event.reason.message || String(event.reason)) : 'Unhandled Promise Rejection';
+    const msg = event.reason ? (event.reason.message || String(event.reason)) : '';
+    if (!msg || msg.includes('Script error') || msg.includes('ResizeObserver')) return;
     const stack = event.reason && event.reason.stack ? event.reason.stack : '';
-    console.error('[TerriX Unhandled Rejection]', event);
+    console.warn('[TerriX Unhandled Rejection]', msg);
     showCrashModal(msg, stack);
   });
 
-  // 7. Territorial.io Native Styled Settings Modal
+  // 7. Territorial.io Native Styled Settings Modal & Synchronization Engine
+  function syncSettingsInputs() {
+    const modal = document.getElementById('terrix-settings-modal');
+    if (!modal) return;
+
+    // Checkboxes
+    const keys = [
+      'gameplay_telemetry', 'expansion_calculator', 'tactical_pings',
+      'replay_scrubber', 'troop_hotkeys', 'potato_mode', 'crash_interceptor'
+    ];
+    keys.forEach(k => {
+      const el = document.getElementById(`cfg-${k}`);
+      if (el) el.checked = !!config[k];
+    });
+
+    // Saved Clan Credentials inputs
+    const userEl = document.getElementById('cfg-saved-username');
+    const clanEl = document.getElementById('cfg-saved-clan-tag');
+    if (userEl) userEl.value = config.saved_username || '';
+    if (clanEl) clanEl.value = config.saved_clan_tag || '';
+  }
+
+  function autoFillCredentials() {
+    if (!config.saved_username) return;
+    const input0 = document.getElementById('input0');
+    if (input0 && (!input0.value || input0.value.startsWith('Player '))) {
+      input0.value = config.saved_username;
+      input0.dispatchEvent(new Event('input', { bubbles: true }));
+      input0.dispatchEvent(new Event('change', { bubbles: true }));
+      console.log(`[TerriX] Auto-filled saved username: ${config.saved_username}`);
+    }
+  }
+
   function createSettingsUI() {
-    if (document.getElementById('terrix-settings-btn')) return;
+    if (document.getElementById('terrix-settings-modal')) return;
 
-    // A. Discrete Gear Toggle Button (Top-Left)
-    const btn = document.createElement('button');
-    btn.id = 'terrix-settings-btn';
-    btn.title = 'TerriX Client Settings (ESC)';
-    btn.innerHTML = '⚙️ TerriX';
-    btn.style.cssText = `
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      z-index: 1000000;
-      background: rgba(0, 0, 0, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      border-radius: 4px;
-      padding: 6px 12px;
-      color: #ffffff;
-      font-size: 12px;
-      font-weight: 600;
-      font-family: system-ui, -apple-system, sans-serif;
-      cursor: pointer;
-      user-select: none;
-      backdrop-filter: blur(4px);
-      transition: all 0.15s ease;
-    `;
-    btn.onmouseenter = () => { btn.style.background = 'rgba(40, 40, 40, 0.9)'; btn.style.borderColor = '#ffffff'; };
-    btn.onmouseleave = () => { btn.style.background = 'rgba(0, 0, 0, 0.7)'; btn.style.borderColor = 'rgba(255, 255, 255, 0.25)'; };
-    btn.onclick = toggleSettingsModal;
-    document.body.appendChild(btn);
-
-    // B. Settings Modal Container
     const modal = document.createElement('div');
     modal.id = 'terrix-settings-modal';
     modal.style.cssText = `
       position: fixed;
       top: 0; left: 0; width: 100vw; height: 100vh;
       background: rgba(0, 0, 0, 0.8);
-      z-index: 1000001;
+      z-index: 1000005;
       display: none;
       align-items: center;
       justify-content: center;
@@ -305,10 +314,10 @@
     `;
 
     modal.innerHTML = `
-      <div style="background:#0e0e0e; border:1px solid rgba(255,255,255,0.25); border-radius:6px; padding:22px; width:440px; max-width:92%; color:#fff; box-shadow:0 12px 36px rgba(0,0,0,0.85);">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+      <div style="background:#0e0e0e; border:1px solid rgba(255,255,255,0.25); border-radius:6px; padding:22px; width:460px; max-width:92%; color:#fff; box-shadow:0 12px 36px rgba(0,0,0,0.85);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
           <div style="font-size:16px; font-weight:700; display:flex; align-items:center; gap:8px;">
-            <span>⚙️</span> TerriX Client Features & Utilities
+            <span>⚙️</span> TerriX Client Features & Settings
           </div>
           <button id="terrix-settings-close" style="background:none; border:none; color:#aaa; font-size:18px; cursor:pointer; padding:0 4px;">✕</button>
         </div>
@@ -319,7 +328,7 @@
               <div style="font-weight:600;">Tactical Telemetry & Cycle Ring</div>
               <div style="font-size:11px; color:#888;">Live interest timer, network latency, and FPS meter</div>
             </div>
-            <input type="checkbox" id="cfg-gameplay_telemetry" ${config.gameplay_telemetry ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-gameplay_telemetry" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -327,7 +336,7 @@
               <div style="font-weight:600;">Expansion Efficiency Calculator</div>
               <div style="font-size:11px; color:#888;">Troop cost & territory balance projection</div>
             </div>
-            <input type="checkbox" id="cfg-expansion_calculator" ${config.expansion_calculator ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-expansion_calculator" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -335,7 +344,7 @@
               <div style="font-weight:600;">Tactical Map Pings (Alt + Click)</div>
               <div style="font-size:11px; color:#888;">Coordinate signaling for clan and team cooperation</div>
             </div>
-            <input type="checkbox" id="cfg-tactical_pings" ${config.tactical_pings ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-tactical_pings" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -343,7 +352,7 @@
               <div style="font-weight:600;">Enhanced Replay Scrubber</div>
               <div style="font-size:11px; color:#888;">Speed multiplier controls and JSON export</div>
             </div>
-            <input type="checkbox" id="cfg-replay_scrubber" ${config.replay_scrubber ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-replay_scrubber" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -351,7 +360,7 @@
               <div style="font-weight:600;">Custom Troop Hotkeys (1-5, Space)</div>
               <div style="font-size:11px; color:#888;">Instant percentage slider adjustments & attack trigger</div>
             </div>
-            <input type="checkbox" id="cfg-troop_hotkeys" ${config.troop_hotkeys ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-troop_hotkeys" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -359,7 +368,7 @@
               <div style="font-weight:600;">Performance Potato Mode</div>
               <div style="font-size:11px; color:#888;">Reduce particle effects & shadow passes for weak devices</div>
             </div>
-            <input type="checkbox" id="cfg-potato_mode" ${config.potato_mode ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-potato_mode" style="cursor:pointer; width:16px; height:16px;">
           </label>
 
           <label style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; font-size:13px;">
@@ -367,8 +376,17 @@
               <div style="font-weight:600;">Native Crash Interceptor</div>
               <div style="font-size:11px; color:#888;">Prevent white/black screen crashes with safe dialogs</div>
             </div>
-            <input type="checkbox" id="cfg-crash_interceptor" ${config.crash_interceptor ? 'checked' : ''} style="cursor:pointer; width:16px; height:16px;">
+            <input type="checkbox" id="cfg-crash_interceptor" style="cursor:pointer; width:16px; height:16px;">
           </label>
+
+          <!-- Saved Clan Credentials Support -->
+          <div style="margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.1);">
+            <div style="font-size:12px; font-weight:700; color:#ddd; margin-bottom:8px;">Saved Clan Credentials</div>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="cfg-saved-username" placeholder="Saved Username" style="flex:1; background:#1c1c1c; border:1px solid #444; border-radius:4px; padding:6px 10px; color:#fff; font-size:12px;">
+              <input type="text" id="cfg-saved-clan-tag" placeholder="Clan Tag (e.g. [OG])" style="width:130px; background:#1c1c1c; border:1px solid #444; border-radius:4px; padding:6px 10px; color:#fff; font-size:12px;">
+            </div>
+          </div>
         </div>
 
         <div style="margin-top:16px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center;">
@@ -394,7 +412,11 @@
       config.troop_hotkeys = document.getElementById('cfg-troop_hotkeys').checked;
       config.potato_mode = document.getElementById('cfg-potato_mode').checked;
       config.crash_interceptor = document.getElementById('cfg-crash_interceptor').checked;
+      config.saved_username = (document.getElementById('cfg-saved-username').value || '').trim();
+      config.saved_clan_tag = (document.getElementById('cfg-saved-clan-tag').value || '').trim();
+
       saveConfig();
+      autoFillCredentials();
       emit('config:updated', config);
       toggleSettingsModal();
     };
@@ -402,6 +424,7 @@
     document.getElementById('terrix-settings-reset').onclick = function() {
       Object.assign(config, DEFAULT_CONFIG);
       saveConfig();
+      syncSettingsInputs();
       emit('config:updated', config);
       toggleSettingsModal();
     };
@@ -409,32 +432,48 @@
     // Hotkey listener for ESC to toggle settings
     window.addEventListener('keydown', function(e) {
       if (e.key === 'Escape' && !e.repeat) {
-        // Toggle only if not in an input field
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
         toggleSettingsModal();
       }
     });
   }
 
-  function toggleSettingsModal() {
+  function toggleSettingsModal(forceOpen) {
+    createSettingsUI();
     const modal = document.getElementById('terrix-settings-modal');
     if (!modal) return;
-    const isVisible = modal.style.display === 'flex';
-    modal.style.display = isVisible ? 'none' : 'flex';
+    const isCurrentlyVisible = modal.style.display === 'flex';
+    const shouldShow = typeof forceOpen === 'boolean' ? forceOpen : !isCurrentlyVisible;
+
+    if (shouldShow) {
+      syncSettingsInputs();
+      modal.style.display = 'flex';
+    } else {
+      modal.style.display = 'none';
+    }
   }
 
-  // 8. Bootstrap Runtime
-  function init() {
+  // 8. Bootstrap & Resilient Persistence Loop
+  function mount() {
     initCanvasWatchdog();
     createSettingsUI();
-    console.log('[TerriX] Core Runtime v1.0.0 initialized successfully.');
+    autoFillCredentials();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
+  // Execute mount immediately and attach to lifecycle hooks
+  if (document.body) {
+    mount();
   }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
+
+  // Persistence Watchdog: Ensures UI elements remain attached across game state transitions
+  setInterval(function() {
+    if (!document.getElementById('terrix-settings-modal')) {
+      createSettingsUI();
+    }
+    autoFillCredentials();
+  }, 2500);
 
   // Expose global TerriX interface
   window.TerriX = {
@@ -448,7 +487,10 @@
     hookBefore: hookBefore,
     hookAfter: hookAfter,
     network: network,
-    showCrashModal: showCrashModal
+    showCrashModal: showCrashModal,
+    toggleSettingsModal: toggleSettingsModal
   };
+
+  console.log('[TerriX] Core Runtime v1.0.0 initialized successfully.');
 
 })(window, document);

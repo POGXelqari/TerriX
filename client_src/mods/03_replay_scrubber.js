@@ -2,10 +2,11 @@
  * TerriX Enhanced Replay Scrubber & Match Analytics
  * ==================================================
  * Provides:
- * 1. Bottom-docked Timeline Scrubber for Match Replays
+ * 1. Bottom-docked Timeline Scrubber with Collapsible Mini-Tab
  * 2. Multi-speed Playback Controls (0.5x, 1x, 2x, 5x, 10x)
  * 3. Pause / Resume / Step Frame Utilities
  * 4. One-Click Replay JSON Export for Clan & Tournament Records
+ * 5. Resilient Auto-Mounting Guard
  */
 
 ;(function(window, document) {
@@ -14,69 +15,85 @@
   function initReplayScrubber() {
     if (!window.TerriX) return;
     if (document.getElementById('terrix-replay-bar')) return;
+    if (!document.body) return;
 
     // 1. Create Replay Controller Bar (Bottom Center)
     const bar = document.createElement('div');
     bar.id = 'terrix-replay-bar';
     bar.style.cssText = `
       position: fixed;
-      bottom: 12px;
+      bottom: 10px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 999990;
       display: flex;
       align-items: center;
-      gap: 10px;
-      background: rgba(12, 12, 12, 0.9);
+      gap: 8px;
+      background: rgba(12, 12, 12, 0.92);
       border: 1px solid rgba(255, 255, 255, 0.25);
       border-radius: 6px;
-      padding: 6px 14px;
+      padding: 5px 12px;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 12px;
+      font-size: 11px;
       color: #ffffff;
       user-select: none;
       backdrop-filter: blur(6px);
-      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.6);
-      transition: opacity 0.2s ease, transform 0.2s ease;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.7);
+      transition: all 0.2s ease;
     `;
 
     bar.innerHTML = `
+      <!-- Minimize/Expand Handle -->
+      <button id="terrix-replay-collapse" title="Collapse Replay Bar" style="background:none; border:none; color:#888; font-size:12px; cursor:pointer; padding:0 2px;">▼</button>
+
       <!-- Play/Pause Toggle -->
-      <button id="terrix-replay-play" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.3); color:#fff; border-radius:4px; padding:4px 8px; font-size:12px; cursor:pointer; font-weight:700;">⏸ Pause</button>
+      <button id="terrix-replay-play" style="background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.3); color:#fff; border-radius:3px; padding:3px 7px; font-size:11px; cursor:pointer; font-weight:700;">⏸ Pause</button>
 
       <!-- Scrubbing Timeline Slider -->
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span id="terrix-replay-time" style="font-family:monospace; font-size:11px; color:#aaa; min-width:36px;">0:00</span>
-        <input type="range" id="terrix-replay-slider" min="0" max="100" value="0" style="width:180px; accent-color:#ffffff; cursor:pointer; height:4px;">
-        <span id="terrix-replay-total" style="font-family:monospace; font-size:11px; color:#aaa; min-width:36px;">--:--</span>
+      <div id="terrix-replay-timeline-group" style="display:flex; align-items:center; gap:6px;">
+        <span id="terrix-replay-time" style="font-family:monospace; font-size:11px; color:#aaa; min-width:32px;">0:00</span>
+        <input type="range" id="terrix-replay-slider" min="0" max="100" value="0" style="width:140px; accent-color:#ffffff; cursor:pointer; height:4px;">
+        <span id="terrix-replay-total" style="font-family:monospace; font-size:11px; color:#aaa; min-width:32px;">--:--</span>
       </div>
 
-      <div style="width:1px; height:14px; background:rgba(255,255,255,0.2);"></div>
+      <div style="width:1px; height:12px; background:rgba(255,255,255,0.2);"></div>
 
       <!-- Speed Multipliers -->
-      <div id="terrix-replay-speeds" style="display:flex; gap:4px;">
-        <button class="terrix-spd-btn" data-spd="0.5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">0.5x</button>
-        <button class="terrix-spd-btn" data-spd="1" style="background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); color:#fff; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer; font-weight:700;">1x</button>
-        <button class="terrix-spd-btn" data-spd="2" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">2x</button>
-        <button class="terrix-spd-btn" data-spd="5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">5x</button>
-        <button class="terrix-spd-btn" data-spd="10" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 6px; font-size:11px; cursor:pointer;">10x</button>
+      <div id="terrix-replay-speeds" style="display:flex; gap:3px;">
+        <button class="terrix-spd-btn" data-spd="0.5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer;">0.5x</button>
+        <button class="terrix-spd-btn" data-spd="1" style="background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); color:#fff; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer; font-weight:700;">1x</button>
+        <button class="terrix-spd-btn" data-spd="2" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer;">2x</button>
+        <button class="terrix-spd-btn" data-spd="5" style="background:none; border:1px solid transparent; color:#aaa; border-radius:3px; padding:2px 5px; font-size:10px; cursor:pointer;">5x</button>
       </div>
 
-      <div style="width:1px; height:14px; background:rgba(255,255,255,0.2);"></div>
+      <div style="width:1px; height:12px; background:rgba(255,255,255,0.2);"></div>
 
       <!-- Export Replay JSON -->
-      <button id="terrix-replay-export" title="Export Match Replay to JSON" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#ddd; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">💾 Export</button>
+      <button id="terrix-replay-export" title="Export Match Replay" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); color:#ddd; border-radius:3px; padding:3px 7px; font-size:10px; cursor:pointer;">💾 Export</button>
     `;
 
     document.body.appendChild(bar);
 
-    // 2. Play/Pause State & Speed Logic
+    // 2. Collapsible Behavior
+    let isCollapsed = false;
+    const collapseBtn = document.getElementById('terrix-replay-collapse');
+    const timelineGroup = document.getElementById('terrix-replay-timeline-group');
+    const speedsGroup = document.getElementById('terrix-replay-speeds');
+    const exportBtn = document.getElementById('terrix-replay-export');
+
+    collapseBtn.onclick = function() {
+      isCollapsed = !isCollapsed;
+      collapseBtn.textContent = isCollapsed ? '▲ Replay' : '▼';
+      timelineGroup.style.display = isCollapsed ? 'none' : 'flex';
+      speedsGroup.style.display = isCollapsed ? 'none' : 'flex';
+      exportBtn.style.display = isCollapsed ? 'none' : 'block';
+      bar.style.padding = isCollapsed ? '3px 8px' : '5px 12px';
+    };
+
+    // 3. Play/Pause State & Speed Logic
     let isPaused = false;
     let playbackSpeed = 1.0;
     const playBtn = document.getElementById('terrix-replay-play');
-    const slider = document.getElementById('terrix-replay-slider');
-    const timeText = document.getElementById('terrix-replay-time');
-    const totalText = document.getElementById('terrix-replay-total');
     const speedButtons = document.querySelectorAll('.terrix-spd-btn');
 
     playBtn.onclick = function() {
@@ -104,8 +121,8 @@
       };
     });
 
-    // 3. Match Export Functionality
-    document.getElementById('terrix-replay-export').onclick = function() {
+    // 4. Match Export Functionality
+    exportBtn.onclick = function() {
       const matchData = {
         terrix_version: TerriX.version,
         timestamp: new Date().toISOString(),
@@ -127,7 +144,7 @@
       URL.revokeObjectURL(url);
     };
 
-    // 4. Visibility Watcher
+    // 5. Visibility Watcher
     function updateVisibility() {
       bar.style.display = TerriX.isFeatureEnabled('replay_scrubber') ? 'flex' : 'none';
     }
@@ -138,10 +155,21 @@
     console.log('[TerriX] Replay Scrubber initialized.');
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initReplayScrubber);
-  } else {
+  // Resilient mounting lifecycle
+  function mount() {
     initReplayScrubber();
   }
+
+  if (document.body) {
+    mount();
+  }
+  document.addEventListener('DOMContentLoaded', mount);
+  window.addEventListener('load', mount);
+
+  setInterval(function() {
+    if (!document.getElementById('terrix-replay-bar')) {
+      initReplayScrubber();
+    }
+  }, 2500);
 
 })(window, document);

@@ -966,9 +966,9 @@
         </div>
       </div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button class="btn-game btn-game-primary" onclick="switchTab('banking')">⚡ Deposit / Withdraw</button>
-        <button class="btn-game btn-game-gold" onclick="switchTab('donations')">🎁 Donate to Treasury</button>
-        <a href="/rulebook.html" target="_blank" class="btn-game btn-game-secondary">📘 Rulebook & Spec ↗</a>
+        <button class="btn-game btn-game-primary" onclick="switchTab('banking')">⚡ Bank In & Out</button>
+        <button class="btn-game btn-game-gold" onclick="switchTab('donations')">🎁 War Chest</button>
+        <a href="/rulebook.html" target="_blank" class="btn-game btn-game-secondary">📘 Guide ↗</a>
       </div>
     </div>
 
@@ -1041,16 +1041,15 @@
 
     <!-- In-Game Segmented Navigation Bar -->
     <div class="game-nav-bar">
-      <button class="game-tab-btn active" onclick="switchTab('treasury')">🏛️ Treasury</button>
-      <button class="game-tab-btn" onclick="switchTab('account')">👤 Account</button>
-      <button class="game-tab-btn" onclick="switchTab('banking')">⚡ Deposit & Withdraw</button>
-      <button class="game-tab-btn" onclick="switchTab('payment-methods')">💳 Linked Credentials</button>
-      <button class="game-tab-btn" onclick="switchTab('loans')">📜 Loan Facility</button>
-      <a href="/donations.html" class="game-tab-btn" style="color: var(--paypal-yellow); text-decoration: none;">🎁 War
-        Chest Hub ↗</a>
-      <button class="game-tab-btn" onclick="switchTab('audit')">🔍 Public Ledger</button>
+      <button class="game-tab-btn active" onclick="switchTab('treasury')">🏛️ Vault</button>
+      <button class="game-tab-btn" onclick="switchTab('account')">👤 My Account</button>
+      <button class="game-tab-btn" onclick="switchTab('banking')">⚡ Bank In & Out</button>
+      <button class="game-tab-btn" onclick="switchTab('payment-methods')">🔗 Link Alts</button>
+      <button class="game-tab-btn" onclick="switchTab('loans')">📜 Quick Loans</button>
+      <a href="/donations.html" class="game-tab-btn" style="color: var(--paypal-yellow); text-decoration: none;">🎁 War Chest ↗</a>
+      <button class="game-tab-btn" onclick="switchTab('audit')">🔍 Activity</button>
       <a href="/rulebook.html" target="_blank" class="game-tab-btn"
-        style="color: var(--paypal-blue); text-decoration: none;">📘 Rulebook & Spec ↗</a>
+        style="color: var(--paypal-blue); text-decoration: none;">📘 Guide ↗</a>
     </div>
 
     <!-- Tab 1: Treasury Overview -->
@@ -1058,7 +1057,7 @@
       <div class="game-panel">
         <div class="panel-headline">
           <div>
-            <h3>Treasury Reserves & Capital Structure</h3>
+            <h3>Vault Health & Reserves</h3>
             <p>Mathematical segregation guarantees that member balances are never lent out, commingled, or compromised.
             </p>
           </div>
@@ -1068,7 +1067,7 @@
         <div class="dual-grid" style="margin-top: 14px;">
           <div class="game-subpanel">
             <h4 style="font-size: 14px; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-              <span>🛡️</span> Institutional Reserves
+              <span>🛡️</span> Vault Reserves
             </h4>
             <p style="font-family: system-ui, sans-serif; font-size: 13px; color: var(--text-dim); line-height: 1.55;">
               The bank maintains a dedicated central reserve in the official vault account <strong class="mono"
@@ -1084,7 +1083,7 @@
 
           <div class="game-subpanel">
             <h4 style="font-size: 14px; color: #fff; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
-              <span>✨</span> Zero-Fee Clan Policy
+              <span>✨</span> Zero-Fee Perk
             </h4>
             <p style="font-family: system-ui, sans-serif; font-size: 13px; color: var(--text-dim); line-height: 1.55;">
               Members never incur transaction friction. The clan treasury absorbs 100% of game-imposed network fees
@@ -1337,7 +1336,7 @@
         <div class="game-panel">
           <div class="panel-headline">
             <div>
-              <h3>Inbound Deposit Hub</h3>
+              <h3>Deposit Gold</h3>
               <p>Gold sent in Territorial.io to our official vault account is automatically credited to your CBM balance
                 in seconds.</p>
             </div>
@@ -1368,7 +1367,7 @@
           </div>
 
           <div style="font-size: 11px; color: var(--text-muted); font-family: system-ui, sans-serif;">
-            ℹ️ To deposit without entering passwords, link your account under <em>Payment Methods</em>.
+            ℹ️ To deposit without entering passwords, link your account under <em>Link Alts</em>.
           </div>
         </div>
 
@@ -1376,7 +1375,7 @@
         <div class="game-panel">
           <div class="panel-headline">
             <div>
-              <h3>Request Gold Withdrawal</h3>
+              <h3>Cash Out</h3>
               <p>Instant disbursements from the CBM Vault directly to your in-game territorial account. Zero fee
                 deduction.</p>
             </div>
@@ -1696,7 +1695,7 @@
         <div class="game-panel">
           <div class="panel-headline">
             <div>
-              <h3>Link Territorial.io Account</h3>
+              <h3>Link Game Alts</h3>
               <p>Connect your player credentials directly or link without passwords via confirmed public deposit
                 history.</p>
             </div>
@@ -1770,7 +1769,7 @@
         <div class="panel-headline">
           <div>
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
-              <h3>Clan Member Lending Facility</h3>
+              <h3>Quick Loans</h3>
               <span id="tabLoanStatusBadge" class="game-pill red">🔒 Locked (Threshold Pending)</span>
             </div>
             <p id="tabLoanStatusDesc">
@@ -1815,7 +1814,7 @@
         <div class="game-panel">
           <div class="panel-headline">
             <div>
-              <h3>Originate Loan Facility</h3>
+              <h3>Request Quick Loan</h3>
               <p>Borrow against clan reserves with a 14-day 0% interest window. In-game credentials required as debt recovery authorization.</p>
             </div>
             <span class="game-pill gold">0% Initial Rate</span>
@@ -2069,7 +2068,7 @@
       <div class="game-panel">
         <div class="panel-headline">
           <div>
-            <h3>Cryptographic Transaction Ledger</h3>
+            <h3>Recent Activity</h3>
             <p>Real-time audit stream of verified inbound deposits and outbound disbursements reconciled by the CBM
               Daemon.</p>
           </div>

@@ -156,25 +156,33 @@ class CBMWithdrawalWorker:
         amount_gold = req["amount_gold"]
         amount_cents = amount_gold * 100
 
-        # Pre-flight member balance check
-        acc = self.db.get_account(account_name)
-        if not acc:
+        # 1. Atomic Balance Reservation: Decrement member balance immediately in SQLite
+        # If available balance < amount_cents, rowcount is 0, rejecting race conditions and double-spends.
+        now_ts = time.time()
+        cur.execute("""
+            UPDATE cbm_accounts
+            SET deposited_cents = deposited_cents - ?, updated_at = ?
+            WHERE account_name = ? AND deposited_cents >= ?
+        """, (amount_cents, now_ts, account_name, amount_cents))
+        if cur.rowcount == 0:
             cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
             conn_sq.commit()
             conn_sq.close()
-            return False, {"error": f"Account '{account_name}' not registered in CBM."}
+            return False, {"error": "Insufficient member balance or concurrent transaction in progress."}
 
-        available_cents = acc.get("deposited_cents", 0)
-        if available_cents < amount_cents:
-            cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
-            conn_sq.commit()
-            conn_sq.close()
-            return False, {"error": f"Insufficient member balance ({available_cents/100:.2f} Gold available, {amount_gold} Gold required)."}
+        conn_sq.commit()
 
-        # Call Territorial.io API
+        # 2. Call Territorial.io API
         api_res = self.client.send_gold(target_account, amount_gold)
         if api_res.get("status") != "ok":
             err_msg = api_res.get("message") or api_res.get("status") or str(api_res)
+            # Payout rejected or failed: Rollback the atomic reservation!
+            rollback_ts = time.time()
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = deposited_cents + ?, updated_at = ?
+                WHERE account_name = ?
+            """, (amount_cents, rollback_ts, account_name))
             cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
             conn_sq.commit()
             conn_sq.close()
@@ -190,15 +198,16 @@ class CBMWithdrawalWorker:
                     print(f"[!] Supabase status update notice: {sb_err}")
             return False, {"error": f"Territorial.io API rejected transfer: {err_msg}"}
 
-        # Deduct member balance (exact amount only - 1 cent game fee absorbed by bank reserves)
-        new_balance = available_cents - amount_cents
-        total_withdrawn = (acc.get("total_withdrawn_cents") or 0) + amount_cents
-        now_ts = time.time()
+        # 3. Payout Succeeded: Finalize total_withdrawn_cents, ledger, and withdrawal status
+        cur.execute("SELECT deposited_cents, total_withdrawn_cents FROM cbm_accounts WHERE account_name = ?", (account_name,))
+        acc_row = cur.fetchone()
+        new_balance = acc_row["deposited_cents"] if acc_row else 0
+        total_withdrawn = ((acc_row["total_withdrawn_cents"] or 0) + amount_cents) if acc_row else amount_cents
         cur.execute("""
             UPDATE cbm_accounts
-            SET deposited_cents = ?, total_withdrawn_cents = ?, updated_at = ?
+            SET total_withdrawn_cents = ?, updated_at = ?
             WHERE account_name = ?
-        """, (new_balance, total_withdrawn, now_ts, account_name))
+        """, (total_withdrawn, now_ts, account_name))
 
         # Add ledger record
         tx_hash = f"W-{withdrawal_id}-{int(now_ts)}"

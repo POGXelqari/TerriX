@@ -35,5 +35,15 @@ cbm_secret.key
 .DS_Store
 Thumbs.db
 
-# Local SQLite databases
+# Local SQLite databases & journals
 *.db
+*.db-shm
+*.db-wal
+*test*.db
+
+# Scratch scripts & temporary development files
+scratch/
+
+# Large single-session HTML dumps
+conversation_viewer_*.html
+

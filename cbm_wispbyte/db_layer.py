@@ -15,10 +15,13 @@ import sqlite3
 import hashlib
 import secrets
 import hmac
+import unicodedata
+import re
+import urllib.parse
 import urllib.request
 import urllib.error
 import threading
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Set
 
 try:
     import urllib3
@@ -30,6 +33,14 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
+try:
+    from rate_limiter import rate_limiter
+except ImportError:
+    try:
+        from cbm_wispbyte.rate_limiter import rate_limiter
+    except ImportError:
+        rate_limiter = None
 
 try:
     from loan_engine import CBMLoanEngine
@@ -98,8 +109,12 @@ class CBMDatabase:
         self._last_snapshot_at = 0.0
         self._missing_accounts_cache: Dict[str, float] = {}
         self._missing_accounts_lock = threading.Lock()
+        self._alias_cache: Dict[str, str] = {}
+        self._alias_lock = threading.RLock()
+        self._alias_cache_primed = False
 
         self._init_sqlite()
+        self._ensure_alias_cache_loaded()
         if self.use_supabase and not (is_test_env and not allow_live_prod):
             try:
                 self.sync_all_from_supabase(quiet=True)
@@ -179,8 +194,10 @@ class CBMDatabase:
         cur.execute("PRAGMA journal_mode = WAL;")
         cur.execute("PRAGMA synchronous = NORMAL;")
         cur.execute("PRAGMA busy_timeout = 5000;")
-        cur.execute("PRAGMA cache_size = -8000;")
+        cur.execute("PRAGMA cache_size = -4000;")
         cur.execute("PRAGMA temp_store = MEMORY;")
+        cur.execute("PRAGMA wal_autocheckpoint = 250;")
+        cur.execute("PRAGMA mmap_size = 16777216;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_accounts (
                 account_name TEXT PRIMARY KEY,
@@ -477,9 +494,10 @@ class CBMDatabase:
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA synchronous = NORMAL;")
             conn.execute("PRAGMA busy_timeout = 30000;")
-            conn.execute("PRAGMA cache_size = -16000;")
+            conn.execute("PRAGMA cache_size = -4000;")
             conn.execute("PRAGMA temp_store = MEMORY;")
-            conn.execute("PRAGMA mmap_size = 67108864;")
+            conn.execute("PRAGMA wal_autocheckpoint = 250;")
+            conn.execute("PRAGMA mmap_size = 16777216;")
             conn.row_factory = sqlite3.Row if row_factory else None
             self._local.conn = conn
             return conn
@@ -494,7 +512,12 @@ class CBMDatabase:
                         pass
                 conn = sqlite3.connect(self.sqlite_path, timeout=30.0, check_same_thread=False)
                 conn.execute("PRAGMA journal_mode = WAL;")
+                conn.execute("PRAGMA synchronous = NORMAL;")
                 conn.execute("PRAGMA busy_timeout = 30000;")
+                conn.execute("PRAGMA cache_size = -4000;")
+                conn.execute("PRAGMA temp_store = MEMORY;")
+                conn.execute("PRAGMA wal_autocheckpoint = 250;")
+                conn.execute("PRAGMA mmap_size = 16777216;")
                 conn.row_factory = sqlite3.Row if row_factory else None
                 self._local.conn = conn
                 return conn
@@ -509,6 +532,10 @@ class CBMDatabase:
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)};")
+        conn.execute("PRAGMA cache_size = -4000;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA wal_autocheckpoint = 250;")
+        conn.execute("PRAGMA mmap_size = 16777216;")
         return conn
 
     def _sb_request(self, table: str, method: str = "GET", params: str = "", body: Optional[dict] = None, upsert: bool = False) -> Tuple[int, Any]:
@@ -662,6 +689,7 @@ class CBMDatabase:
                         a.get('password_hash'),
                         a.get('password_salt')
                     ))
+                    self._do_index_account_aliases(a.get('account_name'), a.get('display_name'), a.get('primary_territorial_account'))
                     stats["accounts"] += 1
                 conn.commit()
 
@@ -696,6 +724,7 @@ class CBMDatabase:
                         _parse_iso(p.get('linked_at')),
                         _parse_iso(p.get('last_used_at'))
                     ))
+                    self._do_index_account_aliases(p.get('cbm_username'), p.get('display_name'), p.get('territorial_account_name'))
                     stats["payment_methods"] += 1
                 conn.commit()
 
@@ -1082,6 +1111,7 @@ class CBMDatabase:
                 1 if acc.get("is_delinquent") else 0
             ))
             conn.commit()
+            self._do_index_account_aliases(acc.get("account_name"), acc.get("display_name"), acc.get("primary_territorial_account"))
             self._clear_missing_account_cache(acc.get("account_name"), acc.get("primary_territorial_account"), acc.get("display_name"))
         except Exception as e:
             pass
@@ -1091,87 +1121,249 @@ class CBMDatabase:
         with self._missing_accounts_lock:
             for n in names:
                 if n:
-                    self._missing_accounts_cache.pop(str(n).strip().lower(), None)
+                    raw = str(n).strip()
+                    self._missing_accounts_cache.pop(raw.lower(), None)
+                    norm = unicodedata.normalize("NFKC", raw).strip().lower()
+                    self._missing_accounts_cache.pop(norm, None)
+
+    @staticmethod
+    def _generate_name_candidates(raw_input: str) -> List[str]:
+        """
+        Generates canonical and compatibility candidate keys for player account resolution.
+        Handles:
+        1. URL-encoded strings (e.g. %5BPRIME%5D%F0%9D%90%87%F0%9D%90%94%F0%9D%90%8C%F0%9D%90%80%F0%9D%90%8D%F0%9F%95%8A)
+        2. Unicode mathematical alphanumeric glyphs (e.g. 𝐇𝐔𝐌𝐀𝐍 -> HUMAN)
+        3. Clan tags (e.g. [PRIME], [ANTI-OG], (TAG))
+        4. Trailing decorative emojis and symbols (e.g. 🕊, ⚔️, 🔥)
+        5. Spacing variations
+        """
+        if not raw_input:
+            return []
+
+        unquoted = str(raw_input).strip()
+        if "%" in unquoted:
+            try:
+                unquoted = urllib.parse.unquote_plus(unquoted).strip()
+            except Exception:
+                pass
+        if "%" in unquoted:
+            try:
+                unquoted = urllib.parse.unquote_plus(unquoted).strip()
+            except Exception:
+                pass
+
+        if not unquoted:
+            return []
+
+        seen: Set[str] = set()
+        candidates: List[str] = []
+
+        def _add(cand: str):
+            c = str(cand).strip()
+            if c and c not in seen:
+                seen.add(c)
+                candidates.append(c)
+
+        # 1. Raw unquoted input
+        _add(unquoted)
+
+        # 2. NFKC normalized (canonical decomposition for math bold, script, fraktur, fullwidth, etc.)
+        nfkc = unicodedata.normalize("NFKC", unquoted).strip()
+        _add(nfkc)
+
+        # 3. Clan tag stripped variants (e.g. [PRIME] or [ANTI-OG] or (TAG))
+        tagless_raw = re.sub(r'^[\[\(].*?[\]\)]\s*', '', unquoted).strip()
+        _add(tagless_raw)
+
+        tagless_nfkc = re.sub(r'^[\[\(].*?[\]\)]\s*', '', nfkc).strip()
+        _add(tagless_nfkc)
+
+        # 4. Emojis and decorative symbols stripped
+        symbolless_raw = re.sub(r'[^\w\s\-]', '', tagless_raw).strip()
+        _add(symbolless_raw)
+
+        symbolless_nfkc = re.sub(r'[^\w\s\-]', '', tagless_nfkc).strip()
+        _add(symbolless_nfkc)
+
+        # 5. Core alphanumeric only
+        alphanumeric = re.sub(r'[^a-zA-Z0-9_\-]', '', tagless_nfkc).strip()
+        _add(alphanumeric)
+
+        # 6. Spacing variations with clan tag
+        clan_match = re.match(r'^([\[\(].*?[\]\)])\s*(.*)$', unquoted)
+        if clan_match:
+            tag, rest = clan_match.group(1), clan_match.group(2)
+            norm_rest = unicodedata.normalize("NFKC", rest).strip()
+            _add(f"{tag}{rest}")
+            _add(f"{tag} {rest}")
+            _add(f"{tag}{norm_rest}")
+            _add(f"{tag} {norm_rest}")
+
+        return candidates
+
+    def _do_index_account_aliases(self, acc_name: Optional[str], disp_name: Optional[str] = None, prim_acc: Optional[str] = None):
+        """Indexes all candidate representations of an account into the in-memory alias fast cache."""
+        if not acc_name:
+            return
+        canonical = str(acc_name).strip()
+        with self._alias_lock:
+            for src in (acc_name, disp_name, prim_acc):
+                if not src:
+                    continue
+                cands = self._generate_name_candidates(str(src))
+                for c in cands:
+                    self._alias_cache[c.lower()] = canonical
+                    c_nfkc = unicodedata.normalize("NFKC", c).lower()
+                    self._alias_cache[c_nfkc] = canonical
+                    clean = re.sub(r'[^a-zA-Z0-9_\-]', '', c_nfkc)
+                    if clean:
+                        self._alias_cache[clean] = canonical
+
+    def _ensure_alias_cache_loaded(self):
+        """Pre-populates the in-memory alias index from SQLite on initial startup."""
+        with self._alias_lock:
+            if getattr(self, "_alias_cache_primed", False):
+                return
+            self._alias_cache_primed = True
+        try:
+            conn = self._get_sqlite_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT account_name, display_name, primary_territorial_account FROM cbm_accounts")
+            acc_rows = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT cbm_username, display_name, territorial_account_name FROM cbm_payment_methods")
+            pm_rows = [dict(r) for r in cur.fetchall()]
+            for r in acc_rows:
+                self._do_index_account_aliases(r.get("account_name"), r.get("display_name"), r.get("primary_territorial_account"))
+            for r in pm_rows:
+                self._do_index_account_aliases(r.get("cbm_username"), r.get("display_name"), r.get("territorial_account_name"))
+        except Exception:
+            pass
 
     # --- Account & Ledger Management ---
     def _get_account_raw(self, account_name: str) -> Optional[Dict[str, Any]]:
         """
         Internal helper returning raw database record including credentials.
-        Performs 4-way universal canonical resolution:
-        1. account_name (Direct CBM username)
+        Performs 4-way universal canonical resolution with NFKC font normalization,
+        URL decoding, and tag/symbol-stripped multi-variant alias resolution:
+        1. account_name (Direct CBM username / font variant)
         2. primary_territorial_account (In-game account ID, e.g. 87778 -> TeothePogie)
         3. cbm_payment_methods (Linked secondary in-game account IDs)
-        4. display_name (In-game player handle, e.g. [NOVA] TeothePogie)
+        4. display_name (In-game player handle, e.g. [PRO] Player)
         """
         if not account_name:
             return None
-        acc_key = str(account_name).strip()
-        if not acc_key:
+
+        candidates = self._generate_name_candidates(str(account_name))
+        if not candidates:
             return None
 
-        acc_lower = acc_key.lower()
         now = time.time()
 
-        # 0. Negative lookup cache check (instant 0.001ms return for non-existent queries)
-        with self._missing_accounts_lock:
-            missing_ts = self._missing_accounts_cache.get(acc_lower)
-            if missing_ts and (now - missing_ts) < 30.0:
-                return None
+        # Ensure alias cache is primed from SQLite
+        self._ensure_alias_cache_loaded()
 
-        # 1. High-speed local SQLite resolution (0.05ms)
+        # Check negative lookup cache ONLY if none of the candidates are known aliases
+        with self._alias_lock:
+            known_alias = any(
+                c.lower() in self._alias_cache or unicodedata.normalize("NFKC", c).lower() in self._alias_cache
+                for c in candidates
+            )
+
+        if not known_alias:
+            with self._missing_accounts_lock:
+                for c in candidates:
+                    missing_ts = self._missing_accounts_cache.get(c.lower())
+                    if missing_ts and (now - missing_ts) < 30.0:
+                        return None
+
+        # Fast-path: Check in-memory alias cache (< 0.0001ms)
+        resolved_primary = None
+        with self._alias_lock:
+            for c in candidates:
+                c_low = c.lower()
+                if c_low in self._alias_cache:
+                    resolved_primary = self._alias_cache[c_low]
+                    break
+                c_nfkc_low = unicodedata.normalize("NFKC", c).lower()
+                if c_nfkc_low in self._alias_cache:
+                    resolved_primary = self._alias_cache[c_nfkc_low]
+                    break
+                c_clean = re.sub(r'[^a-zA-Z0-9_\-]', '', c_nfkc_low)
+                if c_clean and c_clean in self._alias_cache:
+                    resolved_primary = self._alias_cache[c_clean]
+                    break
+
         conn = self._get_sqlite_conn()
         cur = conn.cursor()
-        cur.execute("""
+
+        if resolved_primary:
+            cur.execute("SELECT * FROM cbm_accounts WHERE account_name = ? COLLATE NOCASE LIMIT 1", (resolved_primary,))
+            row = cur.fetchone()
+            if row:
+                return dict(row)
+
+        # 1. High-speed local SQLite resolution (0.05ms) across all generated candidates
+        placeholders = ",".join("?" for _ in candidates)
+        cur.execute(f"""
             SELECT * FROM cbm_accounts 
-            WHERE account_name = ? COLLATE NOCASE 
-               OR primary_territorial_account = ? COLLATE NOCASE 
-               OR display_name = ? COLLATE NOCASE
+            WHERE account_name IN ({placeholders}) COLLATE NOCASE 
+               OR primary_territorial_account IN ({placeholders}) COLLATE NOCASE 
+               OR display_name IN ({placeholders}) COLLATE NOCASE
             LIMIT 1
-        """, (acc_key, acc_key, acc_key))
+        """, (*candidates, *candidates, *candidates))
         row = cur.fetchone()
         if row:
-            return dict(row)
+            d = dict(row)
+            self._do_index_account_aliases(d.get("account_name"), d.get("display_name"), d.get("primary_territorial_account"))
+            return d
 
-        cur.execute("""
+        cur.execute(f"""
             SELECT a.* FROM cbm_accounts a
             JOIN cbm_payment_methods pm ON a.account_name = pm.cbm_username
-            WHERE pm.territorial_account_name = ? COLLATE NOCASE
+            WHERE pm.territorial_account_name IN ({placeholders}) COLLATE NOCASE
             LIMIT 1
-        """, (acc_key,))
+        """, (*candidates,))
         row2 = cur.fetchone()
         if row2:
-            return dict(row2)
+            d = dict(row2)
+            self._do_index_account_aliases(d.get("account_name"), d.get("display_name"), d.get("primary_territorial_account"))
+            return d
 
         # 2. Remote Supabase fallback (only if not found locally)
         if self.use_supabase:
             import urllib.parse
-            quoted = urllib.parse.quote(acc_key)
+            # Try candidates against Supabase cbm_accounts
+            for c in candidates:
+                quoted = urllib.parse.quote(c)
+                status, res = self._sb_request(
+                    "cbm_accounts",
+                    method="GET",
+                    params=f"?or=(account_name.ilike.{quoted},primary_territorial_account.ilike.{quoted},display_name.ilike.{quoted})&select=*&limit=1"
+                )
+                if status == 200 and isinstance(res, list) and res:
+                    found = dict(res[0])
+                    self._save_account_to_local_sqlite(found)
+                    self._do_index_account_aliases(found.get("account_name"), found.get("display_name"), found.get("primary_territorial_account"))
+                    return found
 
-            # Unified 3-way check in a single HTTPS roundtrip instead of 3 sequential roundtrips
-            status, res = self._sb_request(
-                "cbm_accounts",
-                method="GET",
-                params=f"?or=(account_name.ilike.{quoted},primary_territorial_account.ilike.{quoted},display_name.ilike.{quoted})&select=*&limit=1"
-            )
-            if status == 200 and isinstance(res, list) and res:
-                found = dict(res[0])
-                self._save_account_to_local_sqlite(found)
-                return found
-
-            # Check cbm_payment_methods only if not matched
-            status, res = self._sb_request("cbm_payment_methods", method="GET", params=f"?territorial_account_name=ilike.{quoted}&select=cbm_username&limit=1")
-            if status == 200 and isinstance(res, list) and res:
-                cbm_user = res[0].get("cbm_username")
-                if cbm_user:
-                    status2, res2 = self._sb_request("cbm_accounts", method="GET", params=f"?account_name=ilike.{urllib.parse.quote(cbm_user)}&select=*&limit=1")
-                    if status2 == 200 and isinstance(res2, list) and res2:
-                        found = dict(res2[0])
-                        self._save_account_to_local_sqlite(found)
-                        return found
+            # Try candidates against Supabase cbm_payment_methods
+            for c in candidates:
+                quoted = urllib.parse.quote(c)
+                status, res = self._sb_request("cbm_payment_methods", method="GET", params=f"?territorial_account_name=ilike.{quoted}&select=cbm_username&limit=1")
+                if status == 200 and isinstance(res, list) and res:
+                    cbm_user = res[0].get("cbm_username")
+                    if cbm_user:
+                        status2, res2 = self._sb_request("cbm_accounts", method="GET", params=f"?account_name=ilike.{urllib.parse.quote(cbm_user)}&select=*&limit=1")
+                        if status2 == 200 and isinstance(res2, list) and res2:
+                            found = dict(res2[0])
+                            self._save_account_to_local_sqlite(found)
+                            self._do_index_account_aliases(found.get("account_name"), found.get("display_name"), found.get("primary_territorial_account"))
+                            return found
 
             # Record non-existence in memory negative cache
             with self._missing_accounts_lock:
-                self._missing_accounts_cache[acc_lower] = now
+                for c in candidates:
+                    self._missing_accounts_cache[c.lower()] = now
 
         return None
 
@@ -1204,9 +1396,14 @@ class CBMDatabase:
         return bool(raw and raw.get("password_hash"))
 
     def verify_account_password(self, account_name: str, password: str) -> bool:
-        if not password:
+        if not password or not account_name:
             return False
-        raw = self._get_account_raw(account_name)
+        acc_norm = unicodedata.normalize("NFKC", str(account_name)).strip()
+        if rate_limiter:
+            is_locked, _ = rate_limiter.is_account_locked(acc_norm)
+            if is_locked:
+                return False
+        raw = self._get_account_raw(acc_norm)
         if not raw:
             return False
         pwd_hash = raw.get("password_hash")
@@ -1214,7 +1411,13 @@ class CBMDatabase:
         if not pwd_hash or not salt:
             return False
         test_h, _ = self._hash_password(password, salt)
-        return hmac.compare_digest(pwd_hash, test_h)
+        valid = hmac.compare_digest(pwd_hash, test_h)
+        if rate_limiter:
+            if valid:
+                rate_limiter.record_auth_success(acc_norm)
+            else:
+                rate_limiter.record_auth_failure(acc_norm)
+        return valid
 
     # --- CBM Access PIN & Ownership Authentication ---
     @staticmethod
@@ -1229,9 +1432,14 @@ class CBMDatabase:
         return bool(raw and raw.get("pin_hash"))
 
     def verify_account_pin(self, account_name: str, pin: str) -> bool:
-        if not pin:
+        if not pin or not account_name:
             return False
-        raw = self._get_account_raw(account_name)
+        acc_norm = unicodedata.normalize("NFKC", str(account_name)).strip()
+        if rate_limiter:
+            is_locked, _ = rate_limiter.is_account_locked(acc_norm)
+            if is_locked:
+                return False
+        raw = self._get_account_raw(acc_norm)
         if not raw:
             return False
         pin_hash = raw.get("pin_hash")
@@ -1239,7 +1447,13 @@ class CBMDatabase:
         if not pin_hash or not salt:
             return False
         test_h, _ = self._hash_pin(pin, salt)
-        return hmac.compare_digest(pin_hash, test_h)
+        valid = hmac.compare_digest(pin_hash, test_h)
+        if rate_limiter:
+            if valid:
+                rate_limiter.record_auth_success(acc_norm)
+            else:
+                rate_limiter.record_auth_failure(acc_norm)
+        return valid
 
     def _save_pin_hash(self, account_name: str, h: str, salt: str, mark_verified: bool = True):
         now = time.time()
@@ -2849,6 +3063,8 @@ class CBMDatabase:
         """, (cbm_user, terri_acc, enc_pwd, disp_name, verification_type, 1 if is_primary else 0, now, now))
         conn.commit()
         conn.close()
+        self._do_index_account_aliases(cbm_user, disp_name, terri_acc)
+        self._clear_missing_account_cache(cbm_user, terri_acc, disp_name)
 
         # 2. Dual-Write: Mirror to Supabase if active
         if self.use_supabase:

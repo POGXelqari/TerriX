@@ -551,7 +551,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         path = parsed[0].rstrip("/")
         query = parsed[1] if len(parsed) > 1 else ""
         query_dict = urllib.parse.parse_qs(query)
-        params = {k: v[0].strip() if v else "" for k, v in query_dict.items()}
+        params = {k: urllib.parse.unquote_plus(v[0]).strip() if v else "" for k, v in query_dict.items()}
         base_dir = os.path.dirname(os.path.abspath(__file__))
 
         # 1. Standalone Dedicated HTML Pages (Served directly from In-Memory Pre-Gzipped Cache)
@@ -623,8 +623,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 4. Member Account API
         elif path == "/api/cbm/account":
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             acc_name = (params.get("name") or params.get("account") or params.get("cbm_username") or "").strip()
+            if "%" in acc_name:
+                try:
+                    acc_name = urllib.parse.unquote_plus(acc_name).strip()
+                except Exception:
+                    pass
             if not acc_name:
                 return self._send_json(400, {"status": "error", "message": "Missing 'name' query parameter."})
 
@@ -638,6 +642,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             acc = db.get_account(acc_name)
             if acc:
                 canonical_name = acc.get("account_name", acc_name)
+                disp_name = acc.get("display_name", "")
                 ledger = db.get_ledger(canonical_name, limit=20)
                 loans = db.get_account_loans(canonical_name)
                 resp_data = {
@@ -662,6 +667,10 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 }
                 with _ACCOUNT_LOCK:
                     _ACCOUNT_CACHE[acc_key] = {"data": resp_data, "time": now, "code": 200}
+                    if canonical_name:
+                        _ACCOUNT_CACHE[canonical_name.lower()] = {"data": resp_data, "time": now, "code": 200}
+                    if disp_name:
+                        _ACCOUNT_CACHE[disp_name.lower()] = {"data": resp_data, "time": now, "code": 200}
                 return self._send_json(200, resp_data)
             else:
                 resp_data = {"status": "not_found", "message": f"Account '{acc_name}' has no active CBM balance."}
@@ -671,8 +680,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 4b. Loans lookup API
         elif path == "/api/cbm/loans":
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             acc_name = (params.get("name") or params.get("account") or params.get("cbm_username") or "").strip()
+            if "%" in acc_name:
+                try:
+                    acc_name = urllib.parse.unquote_plus(acc_name).strip()
+                except Exception:
+                    pass
             if not acc_name:
                 return self._send_json(400, {"status": "error", "message": "Missing 'name' query parameter."})
 
@@ -689,7 +702,6 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 4b-2. Lending Facility Status & Parameters API
         elif path == "/api/cbm/loan/facility":
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             simulate = params.get("simulate_active", "").lower() in ("true", "1", "yes") or (self.headers.get("X-CBM-Simulate-Lending", "").lower() in ("true", "1"))
             treasury = db.get_treasury()
             metrics = db._calculate_treasury_metrics(treasury.get("vault_total_gold_cents", 0))
@@ -702,7 +714,6 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 4c. Top Donors API (Pre-serialized byte & gzip buffer cache)
         elif path in ("/api/cbm/donors", "/api/cbm/donors/top", "/api/cbm/warchest/donors"):
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             try:
                 limit = int(params.get("limit", 10))
                 if limit not in (5, 10, 20, 50):
@@ -714,7 +725,6 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 4d. Vault Analytics Timeline API (Pre-serialized byte & gzip buffer cache)
         elif path in ("/api/cbm/analytics/vault-history", "/api/cbm/vault-history", "/api/cbm/vault/timeline"):
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             try:
                 days = int(params.get("days", 7))
                 if days not in (1, 3, 7, 14, 30):
@@ -738,8 +748,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 4f. Member Admin Election Votes History
         elif path in ("/api/cbm/election/my-votes", "/api/cbm/election/votes"):
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             acc_name = (params.get("name") or params.get("account") or params.get("cbm_username") or "").strip()
+            if "%" in acc_name:
+                try:
+                    acc_name = urllib.parse.unquote_plus(acc_name).strip()
+                except Exception:
+                    pass
             if not acc_name:
                 return self._send_json(400, {"status": "error", "message": "Missing 'name' query parameter."})
             votes = db.list_member_admin_votes(acc_name)
@@ -751,8 +765,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 5. Payment Methods API
         elif path == "/api/cbm/payment-methods":
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             acc_name = (params.get("cbm_username") or params.get("name") or params.get("account") or "").strip()
+            if "%" in acc_name:
+                try:
+                    acc_name = urllib.parse.unquote_plus(acc_name).strip()
+                except Exception:
+                    pass
             if not acc_name:
                 return self._send_json(400, {"status": "error", "message": "Missing 'name' or 'cbm_username' query parameter."})
 
@@ -774,8 +792,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 5b. Pending Donation Slips API
         elif path in ("/api/cbm/donations/pending", "/api/cbm/pending-donations"):
-            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
             acc_name = (params.get("account") or params.get("account_name") or params.get("cbm_username") or params.get("name") or "").strip() or None
+            if acc_name and "%" in acc_name:
+                try:
+                    acc_name = urllib.parse.unquote_plus(acc_name).strip()
+                except Exception:
+                    pass
             pending = db.get_pending_donations(acc_name)
             return self._send_json(200, {
                 "status": "ok",
@@ -1368,21 +1390,29 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not acc_name or not pin:
                 return self._send_json(400, {"status": "error", "message": "account_name and pin are required."})
 
+            is_locked, rem_lockout = rate_limiter.is_account_locked(acc_name)
+            if is_locked:
+                return self._send_json(429, {"status": "locked", "message": f"Account temporarily locked due to 5 consecutive failed authentication attempts. Please retry in {int(rem_lockout)} seconds."})
+
             if not db.has_account_pin(acc_name):
                 return self._send_json(400, {"status": "error", "message": "No Access PIN configured for this account. Set a PIN first."})
 
             valid = db.verify_account_pin(acc_name, pin)
             if valid:
-                rate_limiter.record_auth_success(acc_name)
                 return self._send_json(200, {"status": "ok", "message": "PIN verified successfully."})
             else:
-                rate_limiter.record_auth_failure(acc_name)
                 return self._send_json(401, {"status": "unauthorized", "message": "Invalid 6-digit CBM Access PIN."})
 
         # 1. Withdrawal submission (Closed-loop & PIN protected)
-        # 1. Withdrawal submission (Closed-loop & PIN protected)
         elif path == "/api/cbm/withdraw":
             account_name = body.get("account_name", "").strip()
+            acc_clean = account_name.upper()
+            if acc_clean in ("TREASURY", "WAR_CHEST", "BANK", "VAULT", "RESERVES", "DDCBC"):
+                return self._send_json(403, {
+                    "status": "forbidden",
+                    "message": "Covenant violation: Central bank reserves and war chest donations are permanent unencumbered clan capital and cannot be withdrawn or refunded."
+                })
+
             raw_acc = db._get_account_raw(account_name)
             if not raw_acc:
                 return self._send_json(404, {"status": "not_found", "message": f"Account '{account_name}' not registered in CBM."})
@@ -1401,18 +1431,22 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if amount_gold <= 0:
                 return self._send_json(400, {"status": "error", "message": "Withdrawal amount must be at least 1 Gold."})
 
+            # Check account lockout before verifying authentication
+            is_locked, rem_lockout = rate_limiter.is_account_locked(canonical_name)
+            if is_locked:
+                return self._send_json(429, {
+                    "status": "locked",
+                    "message": f"Account temporarily locked due to 5 consecutive failed authentication attempts. Please retry in {int(rem_lockout)} seconds."
+                })
+
             # Security: Must authenticate PIN if PIN is configured, or verify account password
             has_pin = db.has_account_pin(canonical_name)
             if has_pin:
                 if not pin or not db.verify_account_pin(canonical_name, pin):
-                    rate_limiter.record_auth_failure(canonical_name)
                     return self._send_json(401, {"status": "unauthorized", "message": "Authentication Required: Invalid or missing 6-digit CBM Access PIN."})
-                rate_limiter.record_auth_success(canonical_name)
             elif pwd:
                 if not db.verify_account_password(canonical_name, pwd):
-                    rate_limiter.record_auth_failure(canonical_name)
                     return self._send_json(401, {"status": "unauthorized", "message": "Invalid account password."})
-                rate_limiter.record_auth_success(canonical_name)
             else:
                 # If neither PIN nor password is provided, allow self-disbursement ONLY if sending to own verified primary account
                 if target_account.upper() not in (primary_terri.upper(), canonical_name.upper()):
@@ -1982,8 +2016,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 class CBMThreadPoolServer(HTTPServer):
     """
     High-concurrency, bounded thread pool HTTP server designed for CPU-constrained environments.
-    Limits execution to at most 60 worker threads, eliminating thread explosion
-    and kernel context-switch thrashing while effortlessly servicing 100+ concurrent clients.
+    Limits execution to at most 16 worker threads (configurable via MAX_SERVER_WORKERS),
+    eliminating thread explosion and context-switch thrashing while effortlessly servicing 100+ concurrent clients.
     """
     request_queue_size = 256
     allow_reuse_address = True
@@ -1991,7 +2025,7 @@ class CBMThreadPoolServer(HTTPServer):
     def __init__(self, server_address, RequestHandlerClass, max_workers=None):
         super().__init__(server_address, RequestHandlerClass)
         if max_workers is None:
-            max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 128))
+            max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 16))
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cbm_worker")
 
     def process_request(self, request, client_address):
@@ -1999,6 +2033,10 @@ class CBMThreadPoolServer(HTTPServer):
 
     def _process_request_thread(self, request, client_address):
         try:
+            try:
+                request.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except Exception:
+                pass
             self.finish_request(request, client_address)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError, socket.timeout):
             pass
@@ -2021,7 +2059,7 @@ _SERVER_INSTANCE = None
 
 def run_http_server():
     global _SERVER_INSTANCE
-    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 128))
+    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 16))
     server = CBMThreadPoolServer(("0.0.0.0", PORT), CBMHealthHandler, max_workers=max_workers)
     _SERVER_INSTANCE = server
     print(f"[+] CBM Bounded ThreadPool Server ({max_workers} workers, backlog 256) active on 0.0.0.0:{PORT}")

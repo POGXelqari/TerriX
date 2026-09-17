@@ -227,9 +227,27 @@ class CBMDepositDaemon:
                         )
                     except Exception:
                         pass
+
+                # Periodically prune telemetry snapshots older than 30 days (every 100 cycles ~ 25-50 min)
+                if self._poll_count % 100 == 0:
+                    self.prune_old_snapshots(max_age_days=30)
             except Exception as e:
                 print(f"[!] Daemon loop exception: {e}")
             time.sleep(self.poll_interval)
+
+    def prune_old_snapshots(self, max_age_days: int = 30):
+        """Prunes historical vault snapshots older than max_age_days to preserve disk space."""
+        try:
+            cutoff = time.time() - (max_age_days * 86400.0)
+            conn = self.db._get_sqlite_conn()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM cbm_vault_snapshots WHERE timestamp_epoch < ?", (cutoff,))
+            pruned = cur.rowcount
+            if pruned > 0:
+                conn.commit()
+                print(f"[+] Pruned {pruned} historical telemetry snapshot(s) older than {max_age_days} days.")
+        except Exception as e:
+            print(f"[!] Snapshot pruning notice: {e}")
 
     def stop(self):
         self.running = False

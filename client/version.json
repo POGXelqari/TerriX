@@ -2,8 +2,12 @@
   "upstream_version": "2.16.51",
   "asset_version": 1761,
   "upstream_hash": "1312f117bc6b25269d3444d0067b516ce0215be02b030300546e201741ac6036",
-  "last_build_time": "2026-09-17T20:44:58Z",
+  "last_build_time": "2026-09-17T21:10:11Z",
   "active_mods": [
-    "01_cbm_hud.js"
+    "00_core_runtime.js",
+    "01_gameplay_telemetry.js",
+    "02_tactical_ping.js",
+    "03_replay_scrubber.js",
+    "04_controls_and_perf.js"
   ]
 }

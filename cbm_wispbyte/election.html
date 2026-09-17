@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Election Sponsorship – Clan Bank Manager</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --border-subtle: rgba(255, 255, 255, 0.04);
+
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+
+      --gold: #ffd700;
+      --gold-dim: rgba(255, 215, 0, 0.12);
+      --gold-border: rgba(255, 215, 0, 0.3);
+      --emerald: #10b981;
+      --emerald-dim: rgba(16, 185, 129, 0.14);
+      --blue: #0070e0;
+      --blue-dim: rgba(0, 112, 224, 0.15);
+      --purple: #8b5cf6;
+      --purple-dim: rgba(139, 92, 246, 0.15);
+      --danger: #ea3943;
+      --danger-dim: rgba(234, 57, 67, 0.14);
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --maxw: 1200px;
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Navigation Bar */
+    header.site-header {
+      background: rgba(14, 22, 38, 0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-inner {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    .logo-img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .brand-tag {
+      font-size: 0.72rem;
+      color: var(--gold);
+      background: var(--gold-dim);
+      border: 1px solid var(--gold-border);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+      margin-left: 6px;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .nav-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s ease;
+    }
+    .nav-link:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+    .nav-link.active { color: #fff; background: var(--panel-2); border: 1px solid var(--border); }
+    .btn-nav-gold {
+      background: var(--gold-dim);
+      border: 1px solid var(--gold-border);
+      color: var(--gold);
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .btn-nav-gold:hover { background: rgba(255, 215, 0, 0.22); }
+
+    /* Main Container */
+    main.election-container {
+      max-width: var(--maxw);
+      width: 100%;
+      margin: 28px auto 48px;
+      padding: 0 20px;
+      flex: 1;
+    }
+
+    /* Hero Banner */
+    .hero-banner {
+      background: linear-gradient(135deg, rgba(20, 35, 60, 0.7) 0%, rgba(14, 22, 38, 0.9) 100%);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      padding: 32px 36px;
+      margin-bottom: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-banner::after {
+      content: "";
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 320px;
+      height: 320px;
+      background: radial-gradient(circle, rgba(255, 215, 0, 0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .badge-candidate {
+      background: var(--gold-dim);
+      border: 1px solid var(--gold-border);
+      color: var(--gold);
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .badge-status {
+      background: var(--emerald-dim);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: var(--emerald);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+    }
+    .hero-title {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 10px;
+      color: #fff;
+    }
+    .hero-desc {
+      color: var(--text-dim);
+      font-size: 1.02rem;
+      max-width: 820px;
+      line-height: 1.6;
+    }
+
+    /* Metric Cards Grid */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .metric-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-bright);
+    }
+    .metric-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .metric-val {
+      font-size: 1.7rem;
+      font-weight: 800;
+      color: #fff;
+      font-family: var(--font-mono);
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .metric-val.gold { color: var(--gold); }
+    .metric-val.emerald { color: var(--emerald); }
+    .metric-val.blue { color: #38bdf8; }
+    .metric-val.purple { color: #a78bfa; }
+    .metric-unit {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+    .metric-sub {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+    .progress-bar-wrap {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 3px;
+      margin-top: 8px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--emerald) 0%, var(--gold) 100%);
+      width: 0%;
+      transition: width 0.4s ease;
+    }
+
+    /* Content Layout: Claim Portal & Leaderboard */
+    .content-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    @media (max-width: 960px) {
+      .content-layout { grid-template-columns: 1fr; }
+    }
+
+    .panel-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px 28px;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Form Styles */
+    .form-group {
+      margin-bottom: 18px;
+    }
+    .form-label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .form-input {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: var(--blue);
+      background: var(--panel-2);
+    }
+    .form-input::placeholder {
+      color: var(--text-muted);
+    }
+    .calc-breakdown {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      margin: 18px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .calc-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+    }
+    .calc-row.total {
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      font-weight: 700;
+      color: #fff;
+      font-size: 0.95rem;
+    }
+    .calc-val {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: #fff;
+    }
+    .calc-val.gold { color: var(--gold); }
+    .calc-val.emerald { color: var(--emerald); }
+
+    .btn-submit {
+      width: 100%;
+      background: linear-gradient(135deg, #0070e0 0%, #0056b3 100%);
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 12px 20px;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s ease, transform 0.1s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-submit:hover { opacity: 0.92; transform: translateY(-1px); }
+    .btn-submit:disabled {
+      background: #25334c;
+      color: #62718a;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Tables */
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table.telemetry-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    table.telemetry-table th {
+      text-align: left;
+      padding: 10px 12px;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+    }
+    table.telemetry-table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      color: var(--text-dim);
+    }
+    table.telemetry-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+      color: #fff;
+    }
+    .badge-rank {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: var(--panel-2);
+      color: var(--text-dim);
+    }
+    .badge-rank.top-1 { background: var(--gold-dim); color: var(--gold); border: 1px solid var(--gold-border); }
+    .badge-rank.top-2 { background: rgba(226, 232, 240, 0.15); color: #e2e8f0; }
+    .badge-rank.top-3 { background: rgba(205, 127, 50, 0.15); color: #cd7f32; }
+
+    .status-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+      text-transform: uppercase;
+    }
+    .status-tag.settled { background: var(--emerald-dim); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .status-tag.pending { background: var(--gold-dim); color: var(--gold); border: 1px solid var(--gold-border); }
+    .status-tag.failed { background: var(--danger-dim); color: var(--danger); }
+
+    /* Accordion / Rules */
+    .accordion-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .accordion-toggle {
+      width: 100%;
+      background: transparent;
+      border: none;
+      padding: 16px 20px;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .accordion-content {
+      padding: 0 20px 16px;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* Toast Notification */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--panel-2);
+      border: 1px solid var(--border-bright);
+      color: #fff;
+      padding: 14px 20px;
+      border-radius: var(--radius-md);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      z-index: 999;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      max-width: 380px;
+    }
+    #toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+    #toast.success { border-color: var(--emerald); }
+    #toast.error { border-color: var(--danger); }
+
+    /* Footer */
+    footer.site-footer {
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border);
+      padding: 24px 20px;
+      margin-top: auto;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/" class="brand-link">
+        <img src="/cbm-logo.png" alt="CBM Logo" class="logo-img" onerror="this.style.display='none'">
+        <div class="brand-title">Clan Bank Manager <span class="brand-tag">ELECTION</span></div>
+      </a>
+      <nav class="nav-links">
+        <a href="/" class="nav-link">CBM Portal</a>
+        <a href="/vault.html" class="nav-link">Vault Telemetry</a>
+        <a href="/donations.html" class="nav-link">Warchest</a>
+        <a href="/election.html" class="nav-link active">Admin Election</a>
+        <a href="/developer.html" class="nav-link">API & SDK</a>
+        <a href="/rulebook.html" class="nav-link">Rulebook</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="election-container">
+
+    <!-- Hero Banner -->
+    <section class="hero-banner">
+      <div class="hero-badge-row">
+        <span class="badge-candidate">👑 OFFICIAL CANDIDATE: DdcBC</span>
+        <span class="badge-status" id="heroCampaignStatus">CAMPAIGN ACTIVE • 1:1 REIMBURSEMENT</span>
+      </div>
+      <h1 class="hero-title">Admin Election Sponsorship Program</h1>
+      <p class="hero-desc">
+        Vote for official candidate <strong>DdcBC</strong> in Territorial.io Admin Elections. The Clan Bank sponsors 100% of member election costs (1:1 Gold Reimbursement) directly from unencumbered bank reserves, subject to the strict 15% reserve budget cap.
+      </p>
+    </section>
+
+    <!-- Key Financial Telemetry Metrics Grid -->
+    <section class="metrics-grid">
+      <!-- Card 1: Live Standing -->
+      <div class="metric-card">
+        <div class="metric-label">Candidate Standing</div>
+        <div class="metric-val gold" id="metricStanding">
+          <span id="metricPoints">0</span> <span class="metric-unit">pts</span>
+        </div>
+        <div class="metric-sub" id="metricRank">Leaderboard: Checking...</div>
+      </div>
+
+      <!-- Card 2: Reimbursement Ratio -->
+      <div class="metric-card">
+        <div class="metric-label">Reimbursement Ratio</div>
+        <div class="metric-val emerald">1.0x <span class="metric-unit">(1:1)</span></div>
+        <div class="metric-sub">1 CBM Gold credited per 1 Gold voted</div>
+      </div>
+
+      <!-- Card 3: Campaign Reserve Budget & 15% Cap -->
+      <div class="metric-card">
+        <div class="metric-label">Campaign Reserve Budget (15% Cap)</div>
+        <div class="metric-val blue">
+          <span id="metricBudgetCap">0.00</span> <span class="metric-unit">Gold</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" id="budgetProgressBar"></div>
+        </div>
+        <div class="metric-sub" id="metricRemainingBudget">Remaining: 0.00 Gold</div>
+      </div>
+
+      <!-- Card 4: Total Reimbursed -->
+      <div class="metric-card">
+        <div class="metric-label">Total Gold Reimbursed</div>
+        <div class="metric-val purple">
+          <span id="metricTotalReimbursed">0.00</span> <span class="metric-unit">Gold</span>
+        </div>
+        <div class="metric-sub" id="metricVotesSponsored">0 Total Votes Sponsored</div>
+      </div>
+    </section>
+
+    <!-- Content Layout: Claim Portal & Leaderboard -->
+    <section class="content-layout">
+
+      <!-- Left Column: Claim Submission Card -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="panel-title">🗳️ Claim Election Sponsorship</div>
+          <span class="status-tag settled" id="capIndicator">CAP HEALTHY</span>
+        </div>
+        <p style="color: var(--text-dim); font-size: 0.88rem; margin-bottom: 18px;">
+          Cast your vote for candidate <strong>DdcBC</strong> in Territorial.io, then submit your claim below for instant 1:1 Gold credit to your CBM account.
+        </p>
+
+        <form id="voteClaimForm" onsubmit="handleClaimSubmit(event)">
+          <div class="form-group">
+            <label class="form-label" for="cbmUsername">CBM Member Username</label>
+            <input type="text" id="cbmUsername" class="form-input" placeholder="e.g. MyClanUser" required autocomplete="username">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="voterAccount">Territorial.io Voter Account Name</label>
+            <input type="text" id="voterAccount" class="form-input" placeholder="In-game account used to vote" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="votesCount">Number of Votes Cast for DdcBC</label>
+            <input type="number" id="votesCount" class="form-input" min="1" max="5000" value="10" required oninput="updateCalculationBreakdown()">
+          </div>
+
+          <!-- Dynamic Calculation Breakdown -->
+          <div class="calc-breakdown">
+            <div class="calc-row">
+              <span>Candidate Account:</span>
+              <span class="calc-val">DdcBC (Verified Vault)</span>
+            </div>
+            <div class="calc-row">
+              <span>Votes Cast:</span>
+              <span class="calc-val" id="calcVotes">10</span>
+            </div>
+            <div class="calc-row">
+              <span>In-Game Gold Spent (1/vote + 1 fee):</span>
+              <span class="calc-val gold" id="calcSpent">11.00 Gold</span>
+            </div>
+            <div class="calc-row">
+              <span>Funding Source:</span>
+              <span class="calc-val" style="color: #38bdf8;">Bank Reserves (15% Cap)</span>
+            </div>
+            <div class="calc-row total">
+              <span>Clan Bank 1:1 Reimbursement:</span>
+              <span class="calc-val emerald" id="calcReimbursement">+11.00 CBM Gold</span>
+            </div>
+          </div>
+
+          <div class="form-group" id="pinGroup" style="display: none;">
+            <label class="form-label" for="cbmPin">6-Digit CBM Access PIN</label>
+            <input type="password" id="cbmPin" class="form-input" maxlength="6" placeholder="Enter PIN if configured">
+          </div>
+
+          <button type="submit" class="btn-submit" id="btnClaimSubmit">
+            <span>Submit Sponsorship Claim</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Right Column: Top Campaign Backers & Recent Payouts -->
+      <div class="panel-card">
+        <div class="panel-header">
+          <div class="panel-title">🏆 Campaign Honor Roll</div>
+          <span style="font-size: 0.78rem; color: var(--text-muted);">Live Sync</span>
+        </div>
+        <p style="color: var(--text-dim); font-size: 0.88rem; margin-bottom: 14px;">
+          Top members actively supporting candidate <strong>DdcBC</strong> with sponsored election points.
+        </p>
+
+        <div class="table-wrap">
+          <table class="telemetry-table">
+            <thead>
+              <tr>
+                <th style="width: 44px;">Rank</th>
+                <th>Member / Voter</th>
+                <th style="text-align: right;">Votes</th>
+                <th style="text-align: right;">Reimbursed</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboardBody">
+              <tr>
+                <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                  Loading campaign honor roll...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border);">
+          <div style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: #fff;">
+            Recent Sponsorship Disbursements
+          </div>
+          <div class="table-wrap">
+            <table class="telemetry-table">
+              <thead>
+                <tr>
+                  <th>Voter</th>
+                  <th>Votes</th>
+                  <th style="text-align: right;">Credited</th>
+                  <th style="text-align: right;">Status</th>
+                </tr>
+              </thead>
+              <tbody id="recentDisbursementsBody">
+                <tr>
+                  <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 18px;">
+                    No recent disbursements recorded yet.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Program Governance & Rules Accordion -->
+    <section style="margin-top: 24px;">
+      <h2 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 14px; color: #fff;">
+        Governance & Solvency Architecture
+      </h2>
+
+      <div class="accordion-card">
+        <button class="accordion-toggle" onclick="toggleAccordion(this)">
+          <span>1. Zero Liability Funding Guarantee</span>
+          <span>▼</span>
+        </button>
+        <div class="accordion-content">
+          Reimbursements are funded strictly from the Clan Bank's <strong>unencumbered reserves</strong> (accumulated interest margins and banking revenue). Under no circumstances are member deposits or liabilities touched.
+        </div>
+      </div>
+
+      <div class="accordion-card">
+        <button class="accordion-toggle" onclick="toggleAccordion(this)">
+          <span>2. Strict 15% Bank Reserve Budget Cap</span>
+          <span>▼</span>
+        </button>
+        <div class="accordion-content">
+          To maintain strict solvency covenants, total campaign sponsorship expenditures cannot exceed 15% of the Clan Vault's unencumbered reserves. If the 15% cap is approached, new claims are paused automatically until reserves grow.
+        </div>
+      </div>
+
+      <div class="accordion-card">
+        <button class="accordion-toggle" onclick="toggleAccordion(this)">
+          <span>3. Real-Time Telemetry & Reconciliation</span>
+          <span>▼</span>
+        </button>
+        <div class="accordion-content">
+          All voter claims are verified against the Territorial.io Admin Election standings for candidate <code>DdcBC</code>. Once settled, CBM account balances are credited immediately with zero fees.
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toast">Notification message</div>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div style="max-width: var(--maxw); margin: 0 auto;">
+      Clan Bank Manager (CBM) • Admin Election Sponsorship System • Official Candidate <strong>DdcBC</strong>
+    </div>
+  </footer>
+
+  <script>
+    // State
+    let campaignData = null;
+    let isTabVisible = true;
+    let pollIntervalId = null;
+
+    // Visibility listener for low-CPU operation
+    document.addEventListener("visibilitychange", () => {
+      isTabVisible = !document.hidden;
+      if (isTabVisible) {
+        fetchCampaignSummary();
+      }
+    });
+
+    function showToast(msg, type = "success") {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = `show ${type}`;
+      setTimeout(() => {
+        toast.className = "";
+      }, 4500);
+    }
+
+    function toggleAccordion(btn) {
+      const content = btn.nextElementSibling;
+      const arrow = btn.querySelector("span:last-child");
+      if (content.style.display === "none" || !content.style.display) {
+        content.style.display = "block";
+        arrow.textContent = "▲";
+      } else {
+        content.style.display = "none";
+        arrow.textContent = "▼";
+      }
+    }
+
+    function updateCalculationBreakdown() {
+      const votesInput = document.getElementById("votesCount");
+      let votes = parseInt(votesInput.value, 10);
+      if (isNaN(votes) || votes < 1) votes = 1;
+      
+      const spent = (votes + 1).toFixed(2);
+      document.getElementById("calcVotes").textContent = votes.toLocaleString();
+      document.getElementById("calcSpent").textContent = `${spent} Gold`;
+      document.getElementById("calcReimbursement").textContent = `+${spent} CBM Gold`;
+    }
+
+    async function fetchCampaignSummary() {
+      try {
+        const res = await fetch("/api/cbm/election/summary");
+        if (!res.ok) return;
+        const data = await res.json();
+        campaignData = data;
+        renderTelemetry(data);
+      } catch (e) {
+        console.warn("Failed to fetch campaign summary:", e);
+      }
+    }
+
+    function renderTelemetry(data) {
+      // 1. Candidate standing
+      const standing = data.live_election_standing || {};
+      const pts = standing.admin_points !== undefined ? standing.admin_points : (data.candidate_admin_points || 0);
+      const rank = standing.admin_rank ? `#${standing.admin_rank}` : (standing.status || "Active");
+      document.getElementById("metricPoints").textContent = Number(pts).toLocaleString();
+      const vaultAcc = data.target_vault_account || data.target_account || "DdcBC";
+      document.getElementById("metricRank").textContent = `Official Candidate: ${vaultAcc} • Rank: ${rank}`;
+
+      // 2. Budget metrics
+      const capGold = data.max_campaign_budget_gold !== undefined ? data.max_campaign_budget_gold : (data.budget_cap_gold || 0);
+      const disbursedGold = data.total_rewards_disbursed_gold !== undefined ? data.total_rewards_disbursed_gold : (data.total_rewards_gold || 0);
+      const remainingGold = data.available_budget_gold !== undefined ? data.available_budget_gold : (data.remaining_budget_gold || 0);
+      const reservesGold = data.bank_reserves_gold !== undefined ? data.bank_reserves_gold : (data.unencumbered_reserves_gold || 0);
+      const totalVotes = data.total_votes_sponsored || 0;
+
+      document.getElementById("metricBudgetCap").textContent = Number(capGold).toFixed(2);
+      document.getElementById("metricRemainingBudget").textContent = `Remaining: ${Number(remainingGold).toFixed(2)} Gold (${Number(reservesGold).toFixed(2)} Reserves)`;
+      document.getElementById("metricTotalReimbursed").textContent = Number(disbursedGold).toFixed(2);
+      document.getElementById("metricVotesSponsored").textContent = `${Number(totalVotes).toLocaleString()} Total Votes Sponsored`;
+
+      // Progress bar
+      const pct = capGold > 0 ? Math.min(100, Math.max(0, (disbursedGold / capGold) * 100)) : 0;
+      document.getElementById("budgetProgressBar").style.width = `${pct}%`;
+
+      // Cap Indicator
+      const capInd = document.getElementById("capIndicator");
+      const submitBtn = document.getElementById("btnClaimSubmit");
+      if (data.cap_reached) {
+        capInd.textContent = "15% CAP REACHED";
+        capInd.className = "status-tag failed";
+        submitBtn.disabled = true;
+        submitBtn.querySelector("span").textContent = "Campaign Cap Reached";
+      } else {
+        capInd.textContent = "CAP HEALTHY";
+        capInd.className = "status-tag settled";
+        submitBtn.disabled = false;
+        submitBtn.querySelector("span").textContent = "Submit Sponsorship Claim";
+      }
+
+      // Render Leaderboard
+      const lbBody = document.getElementById("leaderboardBody");
+      const backers = data.top_backers || [];
+      if (backers.length === 0) {
+        lbBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 20px;">No sponsor claims recorded yet. Be the first backer!</td></tr>`;
+      } else {
+        lbBody.innerHTML = backers.map((b, idx) => {
+          let rankClass = "badge-rank";
+          if (idx === 0) rankClass += " top-1";
+          else if (idx === 1) rankClass += " top-2";
+          else if (idx === 2) rankClass += " top-3";
+
+          const votes = b.votes_sponsored !== undefined ? b.votes_sponsored : (b.total_votes || 0);
+          const gold = b.reward_gold !== undefined ? b.reward_gold : (b.total_reward || b.total_gold || 0);
+
+          return `
+            <tr>
+              <td><span class="${rankClass}">${idx + 1}</span></td>
+              <td>
+                <div style="font-weight: 700; color: #fff;">${escapeHtml(b.cbm_username)}</div>
+                <div style="font-size: 0.76rem; color: var(--text-muted);">${escapeHtml(b.voter_account)}</div>
+              </td>
+              <td style="text-align: right; font-family: var(--font-mono); font-weight: 600; color: #fff;">
+                ${Number(votes).toLocaleString()}
+              </td>
+              <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--gold);">
+                ${Number(gold).toFixed(2)} G
+              </td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      // Render Recent Disbursements
+      const recentBody = document.getElementById("recentDisbursementsBody");
+      const recent = data.recent_disbursements || [];
+      if (recent.length === 0) {
+        recentBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 18px;">No recent disbursements.</td></tr>`;
+      } else {
+        recentBody.innerHTML = recent.map(r => `
+          <tr>
+            <td>
+              <span style="font-weight: 600; color: #fff;">${escapeHtml(r.voter_account)}</span>
+              <span style="font-size: 0.74rem; color: var(--text-muted); display: block;">${escapeHtml(r.cbm_username)}</span>
+            </td>
+            <td>${Number(r.votes_count).toLocaleString()}</td>
+            <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: var(--emerald);">
+              +${Number(r.reward_gold).toFixed(2)} G
+            </td>
+            <td style="text-align: right;">
+              <span class="status-tag settled">${r.status}</span>
+            </td>
+          </tr>
+        `).join("");
+      }
+    }
+
+    async function handleClaimSubmit(e) {
+      e.preventDefault();
+      const btn = document.getElementById("btnClaimSubmit");
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = `<span>Validating & Reconciling...</span>`;
+
+      const cbmUsername = document.getElementById("cbmUsername").value.trim();
+      const voterAccount = document.getElementById("voterAccount").value.trim();
+      const votesCount = parseInt(document.getElementById("votesCount").value, 10);
+      const pin = document.getElementById("cbmPin").value.trim();
+
+      const payload = {
+        cbm_username: cbmUsername,
+        voter_account: voterAccount,
+        votes_count: votesCount
+      };
+      if (pin) payload.pin = pin;
+
+      try {
+        const res = await fetch("/api/cbm/election/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (res.ok && data.status === "ok") {
+          showToast(`✓ Claim Settled! ${data.claim.reward_gold.toFixed(2)} Gold credited to ${cbmUsername}.`, "success");
+          document.getElementById("votesCount").value = "10";
+          updateCalculationBreakdown();
+          fetchCampaignSummary();
+        } else {
+          showToast(`Error: ${data.message || "Failed to process claim"}`, "error");
+        }
+      } catch (err) {
+        showToast(`Network error: ${err.message}`, "error");
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Auto-detect logged in user if stored in localStorage or sessionStorage
+    function initUserSession() {
+      try {
+        const storedUser = localStorage.getItem("cbm_user") || sessionStorage.getItem("cbm_user");
+        if (storedUser) {
+          const userField = document.getElementById("cbmUsername");
+          if (userField && !userField.value) {
+            userField.value = storedUser;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // Initialize
+    window.addEventListener("DOMContentLoaded", () => {
+      initUserSession();
+      updateCalculationBreakdown();
+      fetchCampaignSummary();
+      // Low-frequency polling every 25s when tab is active
+      pollIntervalId = setInterval(() => {
+        if (isTabVisible) {
+          fetchCampaignSummary();
+        }
+      }, 25000);
+    });
+  </script>
+</body>
+</html>

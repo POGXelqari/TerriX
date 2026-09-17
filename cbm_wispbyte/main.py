@@ -83,6 +83,7 @@ def load_static_cache():
         ("rulebook.html", "text/html; charset=utf-8"),
         ("vault.html", "text/html; charset=utf-8"),
         ("developer.html", "text/html; charset=utf-8"),
+        ("election.html", "text/html; charset=utf-8"),
         ("cbm_discord_sdk.py", "text/x-python; charset=utf-8"),
         ("cbm-logo.png", "image/png"),
     ]
@@ -572,6 +573,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         elif path in ("/developer", "/developer.html", "/dev", "/console", "/api-docs"):
             return self._send_cached_asset("developer.html")
 
+        elif path in ("/election", "/election.html", "/votes", "/campaign"):
+            return self._send_cached_asset("election.html")
+
         # Discord Bot SDK Download
         elif path in ("/api/cbm/dev/sdk/download", "/cbm_discord_sdk.py", "/sdk/discord", "/download/discord-sdk"):
             return self._send_cached_asset("cbm_discord_sdk.py", download_filename="cbm_discord_sdk.py")
@@ -719,6 +723,31 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 days = 7
             raw_bytes, gz_bytes, etag = refresh_vault_analytics_cache(days=days)
             return self._send_cached_json_bytes(raw_bytes, gz_bytes, etag)
+
+        # 4e. Admin Election Campaign Telemetry API
+        elif path in ("/api/cbm/election/summary", "/api/cbm/election", "/api/cbm/votes/summary"):
+            summary = db.get_admin_election_summary()
+            try:
+                from election_worker import get_election_worker
+                ew = get_election_worker(db=db)
+                live_telemetry = ew.get_vault_election_telemetry()
+                summary["live_election_standing"] = live_telemetry
+            except Exception as ex:
+                summary["live_election_standing"] = {"status": "unavailable", "error": str(ex)}
+            return self._send_json(200, summary)
+
+        # 4f. Member Admin Election Votes History
+        elif path in ("/api/cbm/election/my-votes", "/api/cbm/election/votes"):
+            params = dict(qc.split("=") for qc in query.split("&") if "=" in qc)
+            acc_name = (params.get("name") or params.get("account") or params.get("cbm_username") or "").strip()
+            if not acc_name:
+                return self._send_json(400, {"status": "error", "message": "Missing 'name' query parameter."})
+            votes = db.list_member_admin_votes(acc_name)
+            return self._send_json(200, {
+                "status": "ok",
+                "cbm_username": acc_name,
+                "votes": votes
+            })
 
         # 5. Payment Methods API
         elif path == "/api/cbm/payment-methods":
@@ -990,7 +1019,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             "/api/cbm/donate",
             "/api/cbm/profile",
             "/api/cbm/loan/request",
-            "/api/cbm/loan/repay"
+            "/api/cbm/loan/repay",
+            "/api/cbm/election/claim",
+            "/api/cbm/votes/claim"
         }
         if path in sensitive_routes:
             allowed, retry_after = rate_limiter.check_ip_rate_limit(client_ip, limit=30, window_seconds=60.0)
@@ -1013,7 +1044,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             "/api/cbm/donate",
             "/api/cbm/profile",
             "/api/cbm/loan/request",
-            "/api/cbm/loan/repay"
+            "/api/cbm/loan/repay",
+            "/api/cbm/election/claim",
+            "/api/cbm/votes/claim"
         }
         if path in auth_routes:
             target_acc = (body.get("account_name") or body.get("username") or "").strip()
@@ -1403,6 +1436,64 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"status": "ok", "message": msg})
             else:
                 return self._send_json(400, {"status": "error", "message": msg})
+
+        # 1c. Admin Election Vote Reward Claim (1:1 Gold Reimbursement)
+        elif path in ("/api/cbm/election/claim", "/api/cbm/votes/claim"):
+            cbm_username = (body.get("cbm_username") or body.get("account_name") or "").strip()
+            voter_account = (body.get("voter_account") or body.get("territorial_account") or "").strip()
+            pin = body.get("pin")
+            pwd = body.get("password")
+
+            if not cbm_username or not voter_account:
+                return self._send_json(400, {"status": "error", "message": "Missing required fields: cbm_username and voter_account."})
+
+            raw_acc = db._get_account_raw(cbm_username)
+            if not raw_acc:
+                return self._send_json(404, {"status": "not_found", "message": f"Account '{cbm_username}' not registered in CBM."})
+            canonical_name = raw_acc.get("account_name", cbm_username)
+
+            try:
+                votes_count = int(body.get("votes_count", 0))
+            except (ValueError, TypeError):
+                votes_count = 0
+
+            if votes_count <= 0:
+                return self._send_json(400, {"status": "error", "message": "Votes count must be at least 1."})
+
+            gold_spent = body.get("gold_spent")
+            if gold_spent is not None:
+                try:
+                    gold_spent = float(gold_spent)
+                except (ValueError, TypeError):
+                    gold_spent = None
+
+            if db.has_account_pin(canonical_name):
+                if pin and not db.verify_account_pin(canonical_name, pin):
+                    rate_limiter.record_auth_failure(canonical_name)
+                    return self._send_json(401, {"status": "unauthorized", "message": "Invalid 6-digit CBM Access PIN."})
+                if pin:
+                    rate_limiter.record_auth_success(canonical_name)
+
+            ok, msg, details = db.submit_admin_vote_claim(
+                cbm_username=canonical_name,
+                voter_account=voter_account,
+                votes_count=votes_count,
+                gold_spent=gold_spent,
+                auto_settle=True
+            )
+
+            if ok:
+                invalidate_caches()
+                return self._send_json(200, {
+                    "status": "ok",
+                    "message": msg,
+                    "claim": details
+                })
+            else:
+                return self._send_json(400, {
+                    "status": "error",
+                    "message": msg
+                })
 
         # 1b. Loan facility origination
         elif path == "/api/cbm/loan/request":

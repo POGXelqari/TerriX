@@ -24,13 +24,21 @@ DEFAULT_USER_AGENT = (
 )
 
 class CBMDepositDaemon:
-    def __init__(self, db: CBMDatabase, vault_account: str = "DdcBC", vault_password: str = "", poll_interval: float = 30.0, withdrawal_worker=None, invalidate_caches_cb: Optional[Callable] = None):
+    def __init__(self, db: CBMDatabase, vault_account: str = "DdcBC", vault_password: str = "", poll_interval: float = 30.0, withdrawal_worker=None, invalidate_caches_cb: Optional[Callable] = None, election_worker=None):
         self.db = db
         self.vault_account = vault_account.strip()
         self.vault_password = vault_password.strip() or os.environ.get("CBM_VAULT_PASSWORD", "").strip()
         self.poll_interval = poll_interval
         self.withdrawal_worker = withdrawal_worker
         self.invalidate_caches_cb = invalidate_caches_cb
+        if election_worker:
+            self.election_worker = election_worker
+        else:
+            try:
+                from election_worker import get_election_worker
+                self.election_worker = get_election_worker(db=self.db)
+            except Exception:
+                self.election_worker = None
         self.running = False
         self._ssl_ctx = ssl.create_default_context()
         self.on_deposit_callback: Optional[Callable] = None
@@ -182,6 +190,17 @@ class CBMDepositDaemon:
                                 self.invalidate_caches_cb()
                     except Exception as w_err:
                         print(f"[!] Daemon withdrawal processing notice: {w_err}")
+
+                # Sweep and process any queued member admin election vote claims
+                if self.election_worker:
+                    try:
+                        e_res = self.election_worker.process_pending_vote_claims()
+                        if e_res:
+                            print(f"[+] Daemon processed {len(e_res)} admin vote claim(s).")
+                            if self.invalidate_caches_cb:
+                                self.invalidate_caches_cb()
+                    except Exception as e_err:
+                        print(f"[!] Daemon election processing notice: {e_err}")
                 
                 self._poll_count += 1
                 # Periodically re-verify vault balance against live API (every 30 cycles ~ 7.5 min)

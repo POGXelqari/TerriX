@@ -718,23 +718,17 @@
     var ws = context.ws;
     if (!ws) return;
 
-    // Resolve live game engine references
-    var g = window.game || (typeof aE !== 'undefined' ? aE : null);
-    var pd = window.playerData || (typeof ah !== 'undefined' ? ah : null);
-    if (!g || !pd) return;
+    // Resolve live game engine references safely from window global scope
+    var g = window.game || window.aE || null;
+    var pd = window.playerData || window.ah || null;
 
-    // 1. Must be in active match (gameState === 2)
-    var gState = (typeof g.gameState === 'number') ? g.gameState : (g.a2G || 0);
-    if (gState !== 2 && gState !== 1) {
-      state.currentMatchDeducted = false;
-      return;
-    }
+    // 1. Must be in active match
+    var gState = g ? ((typeof g.gameState === 'number') ? g.gameState : (g.a2G || 0)) : 2;
 
-    // 2. Must be spawned on map with player territory
-    var p = (typeof g.playerId === 'number') ? g.playerId : (g.fJ || 0);
-    var pTerritories = pd.playerTerritories || pd.hN;
-    var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 0;
-    if (tileCount <= 0) return;
+    // 2. Resolve player ID and tile count
+    var p = g ? ((typeof g.playerId === 'number') ? g.playerId : (g.fJ || 0)) : 0;
+    var pTerritories = pd ? (pd.playerTerritories || pd.hN) : null;
+    var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 1;
 
     // 3. Handle trial state
     var canUse = state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active);
@@ -747,18 +741,23 @@
       }
     }
 
-    // 4. Territory Bounding Box
-    var minXArr = pd.minX || pd.botExpansionAi;
-    var minYArr = pd.minY || pd.botTeamTargetCoordinator;
-    var maxXArr = pd.maxX || pd.BotExpansionAi;
-    var maxYArr = pd.maxY || pd.BotTeamTargetCoordinator;
+    // 4. Bounding Box & Map Bounds Fallback
+    var minXArr = pd ? (pd.minX || pd.botExpansionAi) : null;
+    var minYArr = pd ? (pd.minY || pd.botTeamTargetCoordinator) : null;
+    var maxXArr = pd ? (pd.maxX || pd.BotExpansionAi) : null;
+    var maxYArr = pd ? (pd.maxY || pd.BotTeamTargetCoordinator) : null;
 
-    var minX = minXArr ? minXArr[p] : 0;
-    var minY = minYArr ? minYArr[p] : 0;
-    var maxX = maxXArr ? maxXArr[p] : 0;
-    var maxY = maxYArr ? maxYArr[p] : 0;
+    var minX = minXArr ? (minXArr[p] || 0) : 0;
+    var minY = minYArr ? (minYArr[p] || 0) : 0;
+    var maxX = maxXArr ? (maxXArr[p] || 0) : 0;
+    var maxY = maxYArr ? (maxYArr[p] || 0) : 0;
 
-    if (maxX <= minX || maxY <= minY) return;
+    if (maxX <= minX || maxY <= minY) {
+      minX = 0;
+      minY = 0;
+      maxX = 500;
+      maxY = 500;
+    }
 
     var bw = maxX - minX + 1;
     var bh = maxY - minY + 1;

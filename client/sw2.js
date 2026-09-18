@@ -1,4 +1,4 @@
-const cacheName = "1789749447929"; // this gets replaced by the build script
+const cacheName = "1789750356005"; // this gets replaced by the build script
 
 self.addEventListener("install", (e) => {
   console.log("[Service Worker] Install", cacheName);
@@ -13,6 +13,9 @@ self.addEventListener("fetch", (e) => {
   const url = e.request.url;
   // Cache http and https only, skip unsupported chrome-extension:// and file://...
   if (!(url.startsWith('http:') || url.startsWith('https:'))) {
+    return;
+  }
+  if (e.request.method !== 'GET') {
     return;
   }
   e.respondWith(

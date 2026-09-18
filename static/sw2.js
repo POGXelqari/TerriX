@@ -15,6 +15,9 @@ self.addEventListener("fetch", (e) => {
   if (!(url.startsWith('http:') || url.startsWith('https:'))) {
     return;
   }
+  if (e.request.method !== 'GET') {
+    return;
+  }
   e.respondWith(
     (async () => {
       const cache = await caches.open(cacheName);

@@ -965,48 +965,49 @@
       var borderTiles = pd.hF[p1];
       if (!borderTiles || borderTiles.length === 0) continue;
 
-      // Cluster border tiles per opponent player (p2 > p1 ensures each border is processed once)
+      // Cluster border tiles per opponent player
       var warClusters = {};
 
       for (var i = 0; i < borderTiles.length; i++) {
         var h7 = borderTiles[i];
-        var p2 = -1;
-        var dx = 1, dy = 0;
 
-        // Zero-GC inlined 4-neighbor lookups (RIGHT, DOWN, LEFT, UP)
+        // 4-neighbor lookups (RIGHT, DOWN, LEFT, UP)
         var nRight = tm.fR(h7 + 4);
-        if (nRight !== p1 && nRight > p1 && nRight < ku && (!pd.nU || pd.nU[nRight] !== 0) && (!pd.a5a || pd.a5a[nRight] !== 2)) {
-          p2 = nRight; dx = 1; dy = 0;
-        } else {
-          var nDown = tm.fR(h7 + step);
-          if (nDown !== p1 && nDown > p1 && nDown < ku && (!pd.nU || pd.nU[nDown] !== 0) && (!pd.a5a || pd.a5a[nDown] !== 2)) {
-            p2 = nDown; dx = 0; dy = 1;
-          } else {
-            var nLeft = tm.fR(h7 - 4);
-            if (nLeft !== p1 && nLeft > p1 && nLeft < ku && (!pd.nU || pd.nU[nLeft] !== 0) && (!pd.a5a || pd.a5a[nLeft] !== 2)) {
-              p2 = nLeft; dx = -1; dy = 0;
-            } else {
-              var nUp = tm.fR(h7 - step);
-              if (nUp !== p1 && nUp > p1 && nUp < ku && (!pd.nU || pd.nU[nUp] !== 0) && (!pd.a5a || pd.a5a[nUp] !== 2)) {
-                p2 = nUp; dx = 0; dy = -1;
-              }
-            }
-          }
+        if (nRight >= 0 && nRight !== p1 && nRight < ku && (!pd.nU || pd.nU[nRight] !== 0) && (!pd.a5a || pd.a5a[nRight] !== 2)) {
+          if (!warClusters[nRight]) warClusters[nRight] = { tiles: [], dx: 0, dy: 0 };
+          warClusters[nRight].tiles.push(h7);
+          warClusters[nRight].dx += 1;
         }
 
-        if (p2 < 0) continue;
-
-        if (!warClusters[p2]) {
-          warClusters[p2] = { tiles: [], dx: 0, dy: 0 };
+        var nDown = tm.fR(h7 + step);
+        if (nDown >= 0 && nDown !== p1 && nDown < ku && (!pd.nU || pd.nU[nDown] !== 0) && (!pd.a5a || pd.a5a[nDown] !== 2)) {
+          if (!warClusters[nDown]) warClusters[nDown] = { tiles: [], dx: 0, dy: 0 };
+          warClusters[nDown].tiles.push(h7);
+          warClusters[nDown].dy += 1;
         }
-        warClusters[p2].tiles.push(h7);
-        warClusters[p2].dx += dx;
-        warClusters[p2].dy += dy;
+
+        var nLeft = tm.fR(h7 - 4);
+        if (nLeft >= 0 && nLeft !== p1 && nLeft < ku && (!pd.nU || pd.nU[nLeft] !== 0) && (!pd.a5a || pd.a5a[nLeft] !== 2)) {
+          if (!warClusters[nLeft]) warClusters[nLeft] = { tiles: [], dx: 0, dy: 0 };
+          warClusters[nLeft].tiles.push(h7);
+          warClusters[nLeft].dx -= 1;
+        }
+
+        var nUp = tm.fR(h7 - step);
+        if (nUp >= 0 && nUp !== p1 && nUp < ku && (!pd.nU || pd.nU[nUp] !== 0) && (!pd.a5a || pd.a5a[nUp] !== 2)) {
+          if (!warClusters[nUp]) warClusters[nUp] = { tiles: [], dx: 0, dy: 0 };
+          warClusters[nUp].tiles.push(h7);
+          warClusters[nUp].dy -= 1;
+        }
       }
 
       var p2Keys = Object.keys(warClusters);
       for (var k = 0; k < p2Keys.length; k++) {
         var enemyId = parseInt(p2Keys[k], 10);
+
+        // Process each unique player border pair ONCE (when p1 < enemyId)
+        if (p1 >= enemyId) continue;
+
         var cluster = warClusters[enemyId];
         if (!cluster || cluster.tiles.length < 2) continue;
 
@@ -1031,7 +1032,6 @@
         }
 
         // Active player border front line rendering
-        var isWarActive = (now - node.lastWarTime < 10000) || (p1ActiveAttackTroops > 0 || enemyActiveAttackTroops > 0);
         var targetAlpha = 1.0;
 
         // 1. Calculate true arithmetic centroid of the border cluster for exact placement
@@ -1086,16 +1086,15 @@
         var canvasH = ws.canvas ? ws.canvas.height : 1080;
         var screenX = node.x * im;
         var screenY = node.y * im;
-        if (screenX < -150 || screenX > canvasW + 150 || screenY < -150 || screenY > canvasH + 150) continue;
+        if (screenX < -200 || screenX > canvasW + 200 || screenY < -200 || screenY > canvasH + 200) continue;
 
         // Active attacking troops on front (or current live total troops during active war)
         var activePTroops = p1ActiveAttackTroops > 0 ? p1ActiveAttackTroops : ((pd.hb && typeof pd.hb[p1] === 'number') ? pd.hb[p1] : 0);
         var activeP2Troops = enemyActiveAttackTroops > 0 ? enemyActiveAttackTroops : ((pd.hb && typeof pd.hb[enemyId] === 'number') ? pd.hb[enemyId] : 0);
 
         var frontLength = cluster.tiles.length;
-        var baseFontSize = Math.min(13, Math.max(8, Math.floor(7 + Math.sqrt(frontLength) * 0.8)));
-        var fontSize = Math.max(9 / Math.max(0.5, im), Math.min(14 / Math.max(0.5, im), baseFontSize / Math.max(0.5, im)));
-        var distOffset = Math.max(2.5, fontSize * 0.35);
+        var fontSize = Math.min(14, Math.max(9, Math.floor(8 + Math.sqrt(frontLength) * 0.7)));
+        var distOffset = Math.max(3.0, fontSize * 0.4);
 
         var pTroopStr = formatTroops(activePTroops);
         var p2TroopStr = formatTroops(activeP2Troops);
@@ -1107,7 +1106,7 @@
         ws.translate(node.x - normX * distOffset, node.y - normY * distOffset);
         ws.rotate(node.angle);
         ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-        ws.lineWidth = 2.2;
+        ws.lineWidth = 2.5;
         ws.strokeText(pTroopStr, 0, 0);
         ws.fillStyle = '#ffffff';
         ws.fillText(pTroopStr, 0, 0);
@@ -1120,7 +1119,7 @@
         ws.translate(node.x + normX * distOffset, node.y + normY * distOffset);
         ws.rotate(node.angle);
         ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-        ws.lineWidth = 2.2;
+        ws.lineWidth = 2.5;
         ws.strokeText(p2TroopStr, 0, 0);
         ws.fillStyle = '#f1c40f';
         ws.fillText(p2TroopStr, 0, 0);

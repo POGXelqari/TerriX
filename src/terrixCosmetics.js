@@ -812,13 +812,9 @@
       offscreenPatternCtx.clearRect(0, 0, bw, bh);
       offscreenPatternCtx.drawImage(offscreenMaskCanvas, 0, 0);
 
-      if (state.patternTexture) {
+      if (state.patternImage && state.patternImage.complete) {
         offscreenPatternCtx.globalCompositeOperation = 'source-in';
-        offscreenPatternCtx.save();
-        offscreenPatternCtx.translate(-minX, -minY);
-        offscreenPatternCtx.fillStyle = state.patternTexture;
-        offscreenPatternCtx.fillRect(minX, minY, bw, bh);
-        offscreenPatternCtx.restore();
+        offscreenPatternCtx.drawImage(state.patternImage, 0, 0, bw, bh);
         offscreenPatternCtx.globalCompositeOperation = 'source-over';
       }
 

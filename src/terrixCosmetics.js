@@ -722,9 +722,12 @@
     var g = window.game || window.aE || null;
     var pd = context.playerData || window.playerData || window.ah || null;
 
-    // 1. Must be in active match (gameState === 2)
+    // 1. Must be in match (gState === 1 active, 2 post-match)
     var gState = g ? ((typeof g.gameState === 'number') ? g.gameState : ((typeof g.a2G === 'number') ? g.a2G : 0)) : 0;
-    if (gState !== 2) return;
+    if (gState === 0) {
+      state.currentMatchDeducted = false;
+      return;
+    }
 
     // 2. Resolve player ID and tile count
     var p = g ? ((typeof g.playerId === 'number') ? g.playerId : ((typeof g.fJ === 'number') ? g.fJ : 0)) : 0;

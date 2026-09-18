@@ -1027,18 +1027,31 @@
         if (!node) {
           node = {
             x: 0, y: 0, angle: 0, alpha: 0,
-            lastWarTime: 0, initialized: false
+            lastWarTime: 0, lastPTroops: 0, lastP2Troops: 0, initialized: false
           };
           telemetryNodes[nodeKey] = node;
         }
 
-        if (p1ActiveAttackTroops > 0 || enemyActiveAttackTroops > 0) {
+        if (p1ActiveAttackTroops > 0) {
+          node.lastPTroops = p1ActiveAttackTroops;
+          node.lastWarTime = now;
+        }
+        if (enemyActiveAttackTroops > 0) {
+          node.lastP2Troops = enemyActiveAttackTroops;
           node.lastWarTime = now;
         }
 
         // War front is active ONLY if an attack wave is moving or occurred within the last 8 seconds
         var isWarActive = (now - node.lastWarTime < 8000);
         var targetAlpha = isWarActive ? 1.0 : 0.0;
+
+        if (!isWarActive) {
+          node.lastPTroops = 0;
+          node.lastP2Troops = 0;
+        }
+
+        var displayPTroops = p1ActiveAttackTroops > 0 ? p1ActiveAttackTroops : (node.lastPTroops || 0);
+        var displayP2Troops = enemyActiveAttackTroops > 0 ? enemyActiveAttackTroops : (node.lastP2Troops || 0);
 
         // 1. Calculate true arithmetic centroid of the border cluster for exact placement
         var sumX = 0, sumY = 0;
@@ -1098,9 +1111,9 @@
         var fontSize = Math.min(14, Math.max(9, Math.floor(8 + Math.sqrt(frontLength) * 0.7)));
         var distOffset = Math.max(3.0, fontSize * 0.4);
 
-        // Render Local Attacker p1 Side A (only if p1 has active attack troops)
-        if (p1ActiveAttackTroops > 0) {
-          var pTroopStr = formatTroops(p1ActiveAttackTroops);
+        // Render Local Attacker p1 Side A (only if p1 has active/cached attack troops)
+        if (displayPTroops > 0) {
+          var pTroopStr = formatTroops(displayPTroops);
           ws.save();
           ws.globalAlpha = node.alpha;
           ws.font = 'bold ' + fontSize + 'px sans-serif';
@@ -1114,9 +1127,9 @@
           ws.restore();
         }
 
-        // Render Enemy Defender enemyId Side B (only if enemyId has active attack troops)
-        if (enemyActiveAttackTroops > 0) {
-          var p2TroopStr = formatTroops(enemyActiveAttackTroops);
+        // Render Enemy Defender enemyId Side B (only if enemyId has active/cached attack troops)
+        if (displayP2Troops > 0) {
+          var p2TroopStr = formatTroops(displayP2Troops);
           ws.save();
           ws.globalAlpha = node.alpha;
           ws.font = 'bold ' + fontSize + 'px sans-serif';

@@ -894,11 +894,41 @@
     return val.toString();
   }
 
+  // Real-time Active War Tracker
+  var lastTileCounts = {};
+  var activeWarTimestamp = {};
+
+  function trackActiveWars(pd, ku) {
+    if (!pd || !pd.hN) return;
+    var now = Date.now();
+    for (var i = 0; i < ku; i++) {
+      var cur = pd.hN[i] || 0;
+      var prev = lastTileCounts[i] || 0;
+      if (prev > 0 && cur !== prev) {
+        activeWarTimestamp[i] = now;
+      }
+      lastTileCounts[i] = cur;
+    }
+  }
+
   // Dual-Sided Border-Facing Rotating Frontline Troop Telemetry Engine
   function renderFrontlineTelemetry(context, g, pd, p, ox, oy) {
-    if (!pd || !pd.hF || !pd.zp) return;
+    if (!pd || !pd.hF || !pd.zp || !pd.a5a) return;
     var ws = context.ws;
     if (!ws) return;
+
+    var ku = (g && typeof g.ku === 'number') ? g.ku : (pd.ku || 0);
+
+    // Track real-time land conquests
+    trackActiveWars(pd, ku);
+
+    // Filter out bots (a5a[p] !== 0) and eliminated players
+    if (pd.a5a[p] !== 0 || (pd.nU && pd.nU[p] === 0)) return;
+
+    // Check if local player is currently in an active war (land changing within last 1.5s)
+    var now = Date.now();
+    var pWarTime = activeWarTimestamp[p] || 0;
+    var pInWar = (now - pWarTime) < 1500;
 
     var mapW = (context.a0O && context.a0O.width) ? context.a0O.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0);
     if (mapW <= 0) return;
@@ -910,84 +940,113 @@
     if (!borderTiles || borderTiles.length === 0) return;
 
     var pTroopVal = pd.zp[p] || 0;
+    if (pTroopVal <= 0) return;
     var pTroopStr = formatTroops(pTroopVal);
 
-    var sampleStep = Math.max(1, Math.floor(borderTiles.length / 15));
+    // Find active war fronts against human real players (a5a === 0, p2 < ku)
+    var warClusters = {};
 
-    ws.save();
-    ws.font = 'bold 11px sans-serif';
-    ws.textAlign = 'center';
-    ws.textBaseline = 'middle';
-
-    for (var i = 0; i < borderTiles.length; i += sampleStep) {
+    for (var i = 0; i < borderTiles.length; i += 3) {
       var h7 = borderTiles[i];
-      var px = Math.floor((h7 / 4) % mapW);
-      var py = Math.floor((h7 / 4) / mapW);
 
       var p2 = -1;
       var dx = 1, dy = 0;
 
-      var nR = h7 + 4;
-      var ownerR = tm.fR(nR);
-      if (ownerR !== p && ownerR !== 0 && ownerR < 512) {
-        p2 = ownerR;
-        dx = 0; dy = 1;
-      } else {
-        var nD = h7 + 4 * mapW;
-        var ownerD = tm.fR(nD);
-        if (ownerD !== p && ownerD !== 0 && ownerD < 512) {
-          p2 = ownerD;
-          dx = 1; dy = 0;
-        } else {
-          var nL = h7 - 4;
-          var ownerL = tm.fR(nL);
-          if (ownerL !== p && ownerL !== 0 && ownerL < 512) {
-            p2 = ownerL;
-            dx = 0; dy = 1;
-          } else {
-            var nU = h7 - 4 * mapW;
-            var ownerU = tm.fR(nU);
-            if (ownerU !== p && ownerU !== 0 && ownerU < 512) {
-              p2 = ownerU;
-              dx = 1; dy = 0;
-            }
+      var neighbors = [h7 + 4, h7 + 4 * mapW, h7 - 4, h7 - 4 * mapW];
+      var dirs = [{x: 0, y: 1}, {x: 1, y: 0}, {x: 0, y: 1}, {x: 1, y: 0}];
+
+      for (var nIdx = 0; nIdx < 4; nIdx++) {
+        var nPos = neighbors[nIdx];
+        var nOwner = tm.fR(nPos);
+        // Exclude neutral land (0), bots (a5a !== 0), and eliminated players
+        if (nOwner !== p && nOwner > 0 && nOwner < ku && pd.a5a[nOwner] === 0 && (pd.nU && pd.nU[nOwner] !== 0)) {
+          // Check if either player is in active war (land changing within 1.5s)
+          var p2WarTime = activeWarTimestamp[nOwner] || 0;
+          if (pInWar || (now - p2WarTime) < 1500) {
+            p2 = nOwner;
+            dx = dirs[nIdx].x;
+            dy = dirs[nIdx].y;
+            break;
           }
         }
       }
 
       if (p2 < 0) continue;
 
-      var p2TroopVal = pd.zp[p2] || 0;
+      if (!warClusters[p2]) {
+        warClusters[p2] = { tiles: [], dx: 0, dy: 0 };
+      }
+      warClusters[p2].tiles.push(h7);
+      warClusters[p2].dx += dx;
+      warClusters[p2].dy += dy;
+    }
+
+    // Render single cluster midpoint per active war front
+    ws.save();
+    ws.textAlign = 'center';
+    ws.textBaseline = 'middle';
+
+    var p2Keys = Object.keys(warClusters);
+    for (var k = 0; k < p2Keys.length; k++) {
+      var enemyId = parseInt(p2Keys[k], 10);
+      var cluster = warClusters[enemyId];
+      if (!cluster || cluster.tiles.length < 2) continue;
+
+      var p2TroopVal = pd.zp[enemyId] || 0;
+      if (p2TroopVal <= 0) continue;
       var p2TroopStr = formatTroops(p2TroopVal);
 
-      var angle = Math.atan2(dy, dx);
+      // Compact fitting font size scaling (8px to 13px max)
+      var frontLength = cluster.tiles.length;
+      var fontSize = Math.min(13, Math.max(8, Math.floor(7 + Math.sqrt(frontLength) * 0.8)));
+      var distOffset = Math.floor(fontSize * 0.65);
+
+      // Midpoint tile of active war front
+      var midTileIdx = Math.floor(cluster.tiles.length / 2);
+      var midH7 = cluster.tiles[midTileIdx];
+
+      var px = Math.floor((midH7 / 4) % mapW);
+      var py = Math.floor((midH7 / 4) / mapW);
+
+      var avgDx = cluster.dx / cluster.tiles.length;
+      var avgDy = cluster.dy / cluster.tiles.length;
+      var angle = Math.atan2(avgDy, avgDx);
       if (angle > Math.PI / 2) angle -= Math.PI;
       if (angle < -Math.PI / 2) angle += Math.PI;
 
       var nx = -Math.sin(angle);
       var ny = Math.cos(angle);
 
+      // Verify normal direction points into local player territory
+      var checkOffset = 4;
+      var checkH7 = 4 * (Math.floor(py + ny * checkOffset) * mapW + Math.floor(px + nx * checkOffset));
+      if (tm.fR(checkH7) !== p) {
+        nx = -nx;
+        ny = -ny;
+      }
+
       var screenX = ox + px;
       var screenY = oy + py;
-      var distOffset = 11;
 
-      // Attacker / Local Player Side A
+      // Local Player Frontline Troop Count (Inside Local Territory)
       ws.save();
+      ws.font = 'bold ' + fontSize + 'px sans-serif';
       ws.translate(screenX + nx * distOffset, screenY + ny * distOffset);
       ws.rotate(angle);
-      ws.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-      ws.lineWidth = 3;
+      ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+      ws.lineWidth = 2.2;
       ws.strokeText(pTroopStr, 0, 0);
       ws.fillStyle = '#ffffff';
       ws.fillText(pTroopStr, 0, 0);
       ws.restore();
 
-      // Defender / Opponent Side B
+      // Enemy Player Frontline Troop Count (Inside Enemy Territory)
       ws.save();
+      ws.font = 'bold ' + fontSize + 'px sans-serif';
       ws.translate(screenX - nx * distOffset, screenY - ny * distOffset);
       ws.rotate(angle);
-      ws.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-      ws.lineWidth = 3;
+      ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+      ws.lineWidth = 2.2;
       ws.strokeText(p2TroopStr, 0, 0);
       ws.fillStyle = '#f1c40f';
       ws.fillText(p2TroopStr, 0, 0);

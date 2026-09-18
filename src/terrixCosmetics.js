@@ -886,46 +886,46 @@
     return Math.floor(val).toLocaleString('en-US');
   }
 
-  // Precise Attack Wave Destination Matcher
-  function isWaveTargetingDefender(path, defenderId, tm, mapW) {
-    if (!path || path.length === 0) return true;
-    if (!tm || typeof tm.fR !== 'function') return true;
-
-    var checkCount = Math.min(4, path.length);
-    for (var c = 0; c < checkCount; c++) {
-      var pos = path[path.length - 1 - c];
-      var owner = tm.fR(pos);
-      if (owner === defenderId) return true;
-      if (mapW > 0) {
-        var neighbors = [pos + 4, pos + 4 * mapW, pos - 4, pos - 4 * mapW];
-        for (var n = 0; n < 4; n++) {
-          if (tm.fR(neighbors[n]) === defenderId) return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  // Active Attack Troop Wave Extractor (from bQ.z)
-  function getActiveAttackTroops(attackerId, defenderId) {
+  // Single-pass attack wave map builder (O(W) per frame, zero GC allocation noise)
+  function buildActiveAttackMap(tm, mapW) {
+    var attackMap = {};
     var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : null;
-    if (!bQz || typeof bQz.mk !== 'number') return 0;
-
-    var tm = window.tileMap || window.ad || null;
-    var mapW = (window.bV && window.bV.fk) ? window.bV.fk : 0;
-    var totalAttackingTroops = 0;
+    if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return attackMap;
 
     for (var i = 0; i < bQz.mk; i++) {
-      var waveAttacker = bQz.mo[i] >> 3;
-      if (waveAttacker === attackerId) {
-        var troopAmt = bQz.a8m[i] || 0;
-        var path = bQz.mm[i];
-        if (isWaveTargetingDefender(path, defenderId, tm, mapW)) {
-          totalAttackingTroops += troopAmt;
+      var attackerId = bQz.mo[i] >> 3;
+      var troopAmt = bQz.a8m[i] || 0;
+      var path = bQz.mm[i];
+      if (troopAmt <= 0) continue;
+
+      var targetPlayer = -1;
+      if (path && path.length > 0 && tm && typeof tm.fR === 'function') {
+        var checkCount = Math.min(4, path.length);
+        for (var c = 0; c < checkCount; c++) {
+          var pos = path[path.length - 1 - c];
+          var owner = tm.fR(pos);
+          if (owner >= 0) {
+            targetPlayer = owner;
+            break;
+          }
         }
       }
+
+      if (targetPlayer >= 0) {
+        var key = attackerId + '_' + targetPlayer;
+        attackMap[key] = (attackMap[key] || 0) + troopAmt;
+      } else {
+        var keyAll = attackerId + '_all';
+        attackMap[keyAll] = (attackMap[keyAll] || 0) + troopAmt;
+      }
     }
-    return totalAttackingTroops;
+    return attackMap;
+  }
+
+  function getActiveAttackTroopsFromMap(attackMap, attackerId, defenderId) {
+    var specific = attackMap[attackerId + '_' + defenderId] || 0;
+    var fallback = attackMap[attackerId + '_all'] || 0;
+    return specific + fallback;
   }
 
   // Persistent Telemetry Nodes for Smooth LERP Animation (No Jittering/Teleporting)
@@ -946,12 +946,16 @@
     var tm = context.tileMap || window.tileMap || window.ad || null;
     if (!tm || typeof tm.fR !== 'function') return;
 
+    // Single-pass attack wave index for O(1) troop lookups
+    var activeAttackMap = buildActiveAttackMap(tm, mapW);
+
     ws.save();
     ws.textAlign = 'center';
     ws.textBaseline = 'middle';
 
     var activeKeysThisFrame = {};
     var now = Date.now();
+    var step = mapW * 4;
 
     // Loop through ALL active players (p1) to render frontline telemetry for ALL active wars
     for (var p1 = 0; p1 < ku; p1++) {
@@ -968,17 +972,24 @@
         var p2 = -1;
         var dx = 1, dy = 0;
 
-        var neighbors = [h7 + 4, h7 + 4 * mapW, h7 - 4, h7 - 4 * mapW];
-        var dirs = [{x: 0, y: 1}, {x: 1, y: 0}, {x: 0, y: 1}, {x: 1, y: 0}];
-
-        for (var nIdx = 0; nIdx < 4; nIdx++) {
-          var nPos = neighbors[nIdx];
-          var nOwner = tm.fR(nPos);
-          if (nOwner !== p1 && nOwner > p1 && nOwner < ku && (!pd.nU || pd.nU[nOwner] !== 0) && (!pd.a5a || pd.a5a[nOwner] !== 2)) {
-            p2 = nOwner;
-            dx = dirs[nIdx].x;
-            dy = dirs[nIdx].y;
-            break;
+        // Zero-GC inlined 4-neighbor lookups (RIGHT, DOWN, LEFT, UP)
+        var nRight = tm.fR(h7 + 4);
+        if (nRight !== p1 && nRight > p1 && nRight < ku && (!pd.nU || pd.nU[nRight] !== 0) && (!pd.a5a || pd.a5a[nRight] !== 2)) {
+          p2 = nRight; dx = 1; dy = 0;
+        } else {
+          var nDown = tm.fR(h7 + step);
+          if (nDown !== p1 && nDown > p1 && nDown < ku && (!pd.nU || pd.nU[nDown] !== 0) && (!pd.a5a || pd.a5a[nDown] !== 2)) {
+            p2 = nDown; dx = 0; dy = 1;
+          } else {
+            var nLeft = tm.fR(h7 - 4);
+            if (nLeft !== p1 && nLeft > p1 && nLeft < ku && (!pd.nU || pd.nU[nLeft] !== 0) && (!pd.a5a || pd.a5a[nLeft] !== 2)) {
+              p2 = nLeft; dx = -1; dy = 0;
+            } else {
+              var nUp = tm.fR(h7 - step);
+              if (nUp !== p1 && nUp > p1 && nUp < ku && (!pd.nU || pd.nU[nUp] !== 0) && (!pd.a5a || pd.a5a[nUp] !== 2)) {
+                p2 = nUp; dx = 0; dy = -1;
+              }
+            }
           }
         }
 
@@ -998,9 +1009,9 @@
         var cluster = warClusters[enemyId];
         if (!cluster || cluster.tiles.length < 2) continue;
 
-        // Extract active attack troops deployed from p1 toward enemyId (or enemyId toward p1)
-        var p1ActiveAttackTroops = getActiveAttackTroops(p1, enemyId);
-        var enemyActiveAttackTroops = getActiveAttackTroops(enemyId, p1);
+        // O(1) lookup of active attack troops deployed between p1 and enemyId
+        var p1ActiveAttackTroops = getActiveAttackTroopsFromMap(activeAttackMap, p1, enemyId);
+        var enemyActiveAttackTroops = getActiveAttackTroopsFromMap(activeAttackMap, enemyId, p1);
 
         var nodeKey = p1 + '_' + enemyId;
         activeKeysThisFrame[nodeKey] = true;

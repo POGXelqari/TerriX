@@ -1070,6 +1070,11 @@
 
         if (node.alpha < 0.02) continue; // Skip rendering if faded out
 
+        // Skip canvas drawing if node is offscreen beyond viewport margin (tracking continues in memory)
+        var canvasW = ws.canvas ? ws.canvas.width : 1920;
+        var canvasH = ws.canvas ? ws.canvas.height : 1080;
+        if (node.x < -150 || node.x > canvasW + 150 || node.y < -150 || node.y > canvasH + 150) continue;
+
         // Active attacking troops on front (or current live total troops during active war)
         var activePTroops = p1ActiveAttackTroops > 0 ? p1ActiveAttackTroops : ((pd.hb && typeof pd.hb[p1] === 'number') ? pd.hb[p1] : 0);
         var activeP2Troops = enemyActiveAttackTroops > 0 ? enemyActiveAttackTroops : ((pd.hb && typeof pd.hb[enemyId] === 'number') ? pd.hb[enemyId] : 0);

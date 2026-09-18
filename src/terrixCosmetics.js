@@ -888,10 +888,12 @@
 
   // Single-pass attack wave map builder (O(W) per frame, zero GC allocation noise)
   var staticAttackMap = {};
-  function buildActiveAttackMap(tm, mapW) {
+  function buildActiveAttackMap(tm, mapW, ku) {
     for (var k in staticAttackMap) delete staticAttackMap[k];
-    var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : null;
+    var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : (typeof bQ !== 'undefined' && bQ ? bQ.z : null);
     if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return staticAttackMap;
+
+    var bp = window.bP || (typeof bP !== 'undefined' ? bP : null);
 
     for (var i = 0; i < bQz.mk; i++) {
       var attackerId = bQz.mo[i] >> 3;
@@ -901,12 +903,14 @@
 
       var targetPlayer = -1;
 
-      // Extract target defender from path waypoints (waypoint index fL converts to RGBA byteOffset via fL << 2)
+      // Extract target defender from path waypoints (scanning from destination backwards to origin)
       for (var c = path.length - 1; c >= 0; c--) {
         var rawWaypoint = path[c];
-        var byteOffset = rawWaypoint << 2;
+        var tileIdx = (bp && typeof bp.jJ === 'function' && typeof bp.jK === 'function') ?
+                        bp.jK(bp.jJ(rawWaypoint)) : rawWaypoint;
+        var byteOffset = tileIdx * 4;
         var owner = tm.fR(byteOffset);
-        if (owner >= 0 && owner !== attackerId) {
+        if (typeof owner === 'number' && owner >= 0 && owner < ku && owner !== attackerId) {
           targetPlayer = owner;
           break;
         }
@@ -947,7 +951,7 @@
     var im = context.im || (window.im ? window.im : 1.0);
 
     // Single-pass attack wave index for O(1) troop lookups
-    var activeAttackMap = buildActiveAttackMap(tm, mapW);
+    var activeAttackMap = buildActiveAttackMap(tm, mapW, ku);
 
     ws.save();
     ws.textAlign = 'center';

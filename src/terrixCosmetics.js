@@ -893,22 +893,24 @@
     var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : null;
     if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return staticAttackMap;
 
+    var bPjJ = (window.bP && typeof window.bP.jJ === 'function') ? window.bP.jJ : null;
+
     for (var i = 0; i < bQz.mk; i++) {
       var attackerId = bQz.mo[i] >> 3;
       var troopAmt = bQz.a8m[i] || 0;
       var path = bQz.mm[i];
-      if (troopAmt <= 0) continue;
+      if (troopAmt <= 0 || !path || path.length === 0) continue;
 
       var targetPlayer = -1;
-      if (path && path.length > 0 && tm && typeof tm.fR === 'function') {
-        var checkCount = Math.min(5, path.length);
-        for (var c = 0; c < checkCount; c++) {
-          var pos = path[path.length - 1 - c];
-          var owner = tm.fR(pos);
-          if (owner >= 0 && owner !== attackerId) {
-            targetPlayer = owner;
-            break;
-          }
+
+      // Extract target defender from destination waypoints using bP.jJ tile conversion
+      for (var c = path.length - 1; c >= Math.max(0, path.length - 5); c--) {
+        var rawWaypoint = path[c];
+        var byteOffset = bPjJ ? bPjJ(rawWaypoint) : rawWaypoint;
+        var owner = tm.fR(byteOffset);
+        if (owner >= 0 && owner !== attackerId) {
+          targetPlayer = owner;
+          break;
         }
       }
 
@@ -1031,8 +1033,9 @@
           node.lastWarTime = now;
         }
 
-        // Active player border front line rendering
-        var targetAlpha = 1.0;
+        // War front is active ONLY if an attack wave is moving or occurred within the last 8 seconds
+        var isWarActive = (now - node.lastWarTime < 8000);
+        var targetAlpha = isWarActive ? 1.0 : 0.0;
 
         // 1. Calculate true arithmetic centroid of the border cluster for exact placement
         var sumX = 0, sumY = 0;
@@ -1088,42 +1091,41 @@
         var screenY = node.y * im;
         if (screenX < -200 || screenX > canvasW + 200 || screenY < -200 || screenY > canvasH + 200) continue;
 
-        // Active attacking troops on front (or current live total troops during active war)
-        var activePTroops = p1ActiveAttackTroops > 0 ? p1ActiveAttackTroops : ((pd.hb && typeof pd.hb[p1] === 'number') ? pd.hb[p1] : 0);
-        var activeP2Troops = enemyActiveAttackTroops > 0 ? enemyActiveAttackTroops : ((pd.hb && typeof pd.hb[enemyId] === 'number') ? pd.hb[enemyId] : 0);
-
         var frontLength = cluster.tiles.length;
         var fontSize = Math.min(14, Math.max(9, Math.floor(8 + Math.sqrt(frontLength) * 0.7)));
         var distOffset = Math.max(3.0, fontSize * 0.4);
 
-        var pTroopStr = formatTroops(activePTroops);
-        var p2TroopStr = formatTroops(activeP2Troops);
+        // Render Local Attacker p1 Side A (only if p1 has active attack troops)
+        if (p1ActiveAttackTroops > 0) {
+          var pTroopStr = formatTroops(p1ActiveAttackTroops);
+          ws.save();
+          ws.globalAlpha = node.alpha;
+          ws.font = 'bold ' + fontSize + 'px sans-serif';
+          ws.translate(node.x - normX * distOffset, node.y - normY * distOffset);
+          ws.rotate(node.angle);
+          ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+          ws.lineWidth = 2.5;
+          ws.strokeText(pTroopStr, 0, 0);
+          ws.fillStyle = '#ffffff';
+          ws.fillText(pTroopStr, 0, 0);
+          ws.restore();
+        }
 
-        // Render Local Attacker p1 Side A (-normX, -normY into p1's territory)
-        ws.save();
-        ws.globalAlpha = node.alpha;
-        ws.font = 'bold ' + fontSize + 'px sans-serif';
-        ws.translate(node.x - normX * distOffset, node.y - normY * distOffset);
-        ws.rotate(node.angle);
-        ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-        ws.lineWidth = 2.5;
-        ws.strokeText(pTroopStr, 0, 0);
-        ws.fillStyle = '#ffffff';
-        ws.fillText(pTroopStr, 0, 0);
-        ws.restore();
-
-        // Render Enemy Defender enemyId Side B (+normX, +normY into enemyId's territory)
-        ws.save();
-        ws.globalAlpha = node.alpha;
-        ws.font = 'bold ' + fontSize + 'px sans-serif';
-        ws.translate(node.x + normX * distOffset, node.y + normY * distOffset);
-        ws.rotate(node.angle);
-        ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-        ws.lineWidth = 2.5;
-        ws.strokeText(p2TroopStr, 0, 0);
-        ws.fillStyle = '#f1c40f';
-        ws.fillText(p2TroopStr, 0, 0);
-        ws.restore();
+        // Render Enemy Defender enemyId Side B (only if enemyId has active attack troops)
+        if (enemyActiveAttackTroops > 0) {
+          var p2TroopStr = formatTroops(enemyActiveAttackTroops);
+          ws.save();
+          ws.globalAlpha = node.alpha;
+          ws.font = 'bold ' + fontSize + 'px sans-serif';
+          ws.translate(node.x + normX * distOffset, node.y + normY * distOffset);
+          ws.rotate(node.angle);
+          ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+          ws.lineWidth = 2.5;
+          ws.strokeText(p2TroopStr, 0, 0);
+          ws.fillStyle = '#f1c40f';
+          ws.fillText(p2TroopStr, 0, 0);
+          ws.restore();
+        }
       }
     }
 

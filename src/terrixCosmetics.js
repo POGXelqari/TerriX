@@ -906,7 +906,7 @@
             targetPlayer = tm.fR(endPos);
           }
         }
-        if (targetPlayer === defenderId || targetPlayer === -1) {
+        if (targetPlayer === defenderId || targetPlayer === 0 || targetPlayer === -1) {
           totalAttackingTroops += troopAmt;
         }
       }
@@ -918,8 +918,8 @@
   var telemetryNodes = {};
 
   // Dual-Sided Border-Facing Rotating Frontline Troop Telemetry Engine
-  function renderFrontlineTelemetry(context, g, pd, p, ox, oy) {
-    if (!pd || !pd.hF || !pd.a5a) return;
+  function renderFrontlineTelemetry(context, g, pd, ox, oy) {
+    if (!pd || !pd.hF) return;
     var ws = context.ws;
     if (!ws) return;
 
@@ -937,16 +937,17 @@
     ws.textBaseline = 'middle';
 
     var activeKeysThisFrame = {};
+    var now = Date.now();
 
-    // Loop through ALL active human players to render frontline telemetry for ALL active human-vs-human wars
+    // Loop through ALL active players (p1) to render frontline telemetry for ALL active wars
     for (var p1 = 0; p1 < ku; p1++) {
-      // Filter out bots (a5a[p1] !== 0) and eliminated players
-      if (pd.a5a[p1] !== 0 || (pd.nU && pd.nU[p1] === 0)) continue;
+      // Skip eliminated / inactive players (nU === 0 or a5a === 2)
+      if ((pd.nU && pd.nU[p1] === 0) || (pd.a5a && pd.a5a[p1] === 2)) continue;
 
       var borderTiles = pd.hF[p1];
       if (!borderTiles || borderTiles.length === 0) continue;
 
-      // Cluster border tiles per human opponent player (p2 > p1 ensures each border is processed once)
+      // Cluster border tiles per opponent player (p2 > p1 ensures each border is processed once)
       var warClusters = {};
       for (var i = 0; i < borderTiles.length; i += 3) {
         var h7 = borderTiles[i];
@@ -959,7 +960,7 @@
         for (var nIdx = 0; nIdx < 4; nIdx++) {
           var nPos = neighbors[nIdx];
           var nOwner = tm.fR(nPos);
-          if (nOwner !== p1 && nOwner > p1 && nOwner < ku && pd.a5a[nOwner] === 0 && (pd.nU && pd.nU[nOwner] !== 0)) {
+          if (nOwner !== p1 && nOwner > p1 && nOwner < ku && (!pd.nU || pd.nU[nOwner] !== 0) && (!pd.a5a || pd.a5a[nOwner] !== 2)) {
             p2 = nOwner;
             dx = dirs[nIdx].x;
             dy = dirs[nIdx].y;
@@ -987,8 +988,6 @@
         var p1ActiveAttackTroops = getActiveAttackTroops(p1, enemyId);
         var enemyActiveAttackTroops = getActiveAttackTroops(enemyId, p1);
 
-        var isWarActive = (p1ActiveAttackTroops > 0 || enemyActiveAttackTroops > 0);
-
         var nodeKey = p1 + '_' + enemyId;
         activeKeysThisFrame[nodeKey] = true;
 
@@ -996,11 +995,16 @@
         if (!node) {
           node = {
             x: 0, y: 0, angle: 0, alpha: 0,
-            initialized: false
+            lastWarTime: 0, initialized: false
           };
           telemetryNodes[nodeKey] = node;
         }
 
+        if (p1ActiveAttackTroops > 0 || enemyActiveAttackTroops > 0) {
+          node.lastWarTime = now;
+        }
+
+        var isWarActive = (now - node.lastWarTime < 6000);
         var targetAlpha = isWarActive ? 1.0 : 0.0;
 
         // Midpoint tile of active war front
@@ -1051,9 +1055,9 @@
 
         if (node.alpha < 0.02) continue; // Skip rendering if faded out
 
-        // Active attacking/defending troops on front (stacking multi-attacks, resetting on cancel/stop)
-        var activePTroops = p1ActiveAttackTroops;
-        var activeP2Troops = enemyActiveAttackTroops;
+        // Active attacking troops on front (or current live total troops during active war)
+        var activePTroops = p1ActiveAttackTroops > 0 ? p1ActiveAttackTroops : ((pd.hb && typeof pd.hb[p1] === 'number') ? pd.hb[p1] : 0);
+        var activeP2Troops = enemyActiveAttackTroops > 0 ? enemyActiveAttackTroops : ((pd.hb && typeof pd.hb[enemyId] === 'number') ? pd.hb[enemyId] : 0);
 
         var frontLength = cluster.tiles.length;
         var fontSize = Math.min(13, Math.max(8, Math.floor(7 + Math.sqrt(frontLength) * 0.8)));

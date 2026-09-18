@@ -894,40 +894,47 @@
     return val.toString();
   }
 
-  // Pair-Specific Active War Tracker
-  var lastTileCounts = {};
-  var lastTroopCounts = {};
-  var activeWarPairTimestamps = {};
+  // Tile-Level Active War Front Tracker
+  var borderTileLastOwners = {};
+  var activeBorderPairTimestamps = {};
 
-  function trackActivePairWars(pd, ku) {
-    if (!pd || !pd.hN || !pd.hb) return;
+  function trackBorderTileConquests(context, pd, p) {
+    if (!pd || !pd.hF) return;
+    var tm = context.tileMap || window.tileMap || window.ad || null;
+    if (!tm || typeof tm.fR !== 'function') return;
+
+    var borderTiles = pd.hF[p];
+    if (!borderTiles || borderTiles.length === 0) return;
+
     var now = Date.now();
 
-    // Detect per-player land and troop changes
-    var activePlayers = [];
-    for (var i = 0; i < ku; i++) {
-      if (pd.a5a && pd.a5a[i] !== 0) continue; // skip bots
-      var curHN = pd.hN[i] || 0;
-      var prevHN = lastTileCounts[i] || 0;
-      var curHB = pd.hb[i] || 0;
-      var prevHB = lastTroopCounts[i] || 0;
+    // Sample border tiles to detect actual tile ownership flips
+    var sampleStep = Math.max(1, Math.floor(borderTiles.length / 40));
+    for (var i = 0; i < borderTiles.length; i += sampleStep) {
+      var h7 = borderTiles[i];
+      var curOwner = tm.fR(h7);
 
-      if (prevHN > 0 && curHN !== prevHN) {
-        activePlayers.push(i);
-      }
-      lastTileCounts[i] = curHN;
-      lastTroopCounts[i] = curHB;
-    }
-
-    // Mark pair timestamp when two adjacent players are actively fighting
-    if (activePlayers.length >= 2) {
-      for (var a = 0; a < activePlayers.length; a++) {
-        for (var b = a + 1; b < activePlayers.length; b++) {
-          var p1 = activePlayers[a];
-          var p2 = activePlayers[b];
-          var pairKey = Math.min(p1, p2) + '_' + Math.max(p1, p2);
-          activeWarPairTimestamps[pairKey] = now;
+      var prevOwner = borderTileLastOwners[h7];
+      if (prevOwner !== undefined && prevOwner !== curOwner) {
+        if (prevOwner > 0 && curOwner > 0 && prevOwner !== curOwner) {
+          var pairKey = Math.min(prevOwner, curOwner) + '_' + Math.max(prevOwner, curOwner);
+          activeBorderPairTimestamps[pairKey] = now;
         }
+      }
+      borderTileLastOwners[h7] = curOwner;
+
+      var neighbors = [h7 + 4, h7 - 4];
+      for (var n = 0; n < neighbors.length; n++) {
+        var nPos = neighbors[n];
+        var nOwner = tm.fR(nPos);
+        var nPrev = borderTileLastOwners[nPos];
+        if (nPrev !== undefined && nPrev !== nOwner) {
+          if (nPrev > 0 && nOwner > 0 && nPrev !== nOwner) {
+            var nPairKey = Math.min(nPrev, nOwner) + '_' + Math.max(nPrev, nOwner);
+            activeBorderPairTimestamps[nPairKey] = now;
+          }
+        }
+        borderTileLastOwners[nPos] = nOwner;
       }
     }
   }
@@ -940,11 +947,11 @@
 
     var ku = (g && typeof g.ku === 'number') ? g.ku : (pd.ku || 0);
 
-    // Track real-time pair-specific land conquests
-    trackActivePairWars(pd, ku);
-
     // Filter out bots (a5a[p] !== 0) and eliminated players
     if (pd.a5a[p] !== 0 || (pd.nU && pd.nU[p] === 0)) return;
+
+    // Track tile-level ownership flips on local player's border
+    trackBorderTileConquests(context, pd, p);
 
     var now = Date.now();
 
@@ -979,10 +986,10 @@
         var nOwner = tm.fR(nPos);
         // Exclude neutral land (0), bots (a5a !== 0), and eliminated players
         if (nOwner !== p && nOwner > 0 && nOwner < ku && pd.a5a[nOwner] === 0 && (pd.nU && pd.nU[nOwner] !== 0)) {
-          // MUST be in an active war specifically between p and nOwner (land changed in last 1.6s)
+          // MUST be an active war front where tile flips occurred within last 1.5 seconds!
           var pairKey = Math.min(p, nOwner) + '_' + Math.max(p, nOwner);
-          var pairWarTime = activeWarPairTimestamps[pairKey] || 0;
-          if ((now - pairWarTime) < 1600) {
+          var pairWarTime = activeBorderPairTimestamps[pairKey] || 0;
+          if ((now - pairWarTime) < 1500) {
             p2 = nOwner;
             dx = dirs[nIdx].x;
             dy = dirs[nIdx].y;

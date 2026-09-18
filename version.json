@@ -1,12 +1,8 @@
 {
-  "version": "4.0.0.0.0.0.0.7",
-  "major": 4,
-  "epoch": 0,
-  "subsystem": 0,
-  "gui": 0,
-  "network": 0,
-  "turnstile": 0,
-  "protocol": 0,
-  "revision": 7,
-  "build_timestamp": "2026-09-11T01:15:00.209647+00:00"
+    "version": "0.6.29.1",
+    "lastUpdated": "September 4",
+    "changes": [
+        "Patches for the recent game updates (Merged PR #32 by QZxV4)"
+    ],
+    "isSignificant": false
 }

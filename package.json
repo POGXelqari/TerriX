@@ -1,0 +1,27 @@
+{
+  "name": "terrix-client",
+  "version": "1.0.0",
+  "description": "TerriX Client - Modern Territorial.io Client built on FXclient architecture",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "build": "node index.js",
+    "build-only": "node build.js",
+    "build-client": "node build.js --skip-patching",
+    "patch": "node build.js --patch-only"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/POGXelqari/TerriX.git"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "core-js": "^3.44.0",
+    "js-beautify": "^1.14.11",
+    "obscenity": "^0.4.6",
+    "uglify-js": "^3.19.2"
+  },
+  "devDependencies": {
+    "webpack": "^5.95.0"
+  }
+}

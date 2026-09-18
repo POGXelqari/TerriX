@@ -906,8 +906,18 @@
       // Extract target defender from path waypoints (scanning from destination backwards to origin)
       for (var c = path.length - 1; c >= 0; c--) {
         var rawWaypoint = path[c];
-        var tileIdx = (bp && typeof bp.jJ === 'function' && typeof bp.jK === 'function') ?
-                        bp.jK(bp.jJ(rawWaypoint)) : rawWaypoint;
+        var tileIdx = rawWaypoint;
+        if (bp && typeof bp.jJ === 'function' && typeof bp.jK === 'function') {
+          try {
+            var iv = bp.jJ(rawWaypoint);
+            if (typeof iv === 'number' && !isNaN(iv)) {
+              var kVal = bp.jK(iv);
+              if (typeof kVal === 'number' && !isNaN(kVal)) {
+                tileIdx = kVal;
+              }
+            }
+          } catch (e) {}
+        }
         var byteOffset = tileIdx * 4;
         var owner = tm.fR(byteOffset);
         if (typeof owner === 'number' && owner >= 0 && owner < ku && owner !== attackerId) {
@@ -1096,11 +1106,11 @@
 
         if (node.alpha < 0.02) continue; // Skip rendering if faded out
 
-        // Accurate screen-space canvas viewport culling (scaling node.x and node.y by camera zoom im)
+        // Accurate screen-space canvas viewport culling (node.x and node.y are already in canvas pixels)
         var canvasW = ws.canvas ? ws.canvas.width : 1920;
         var canvasH = ws.canvas ? ws.canvas.height : 1080;
-        var screenX = node.x * im;
-        var screenY = node.y * im;
+        var screenX = node.x;
+        var screenY = node.y;
         if (screenX < -200 || screenX > canvasW + 200 || screenY < -200 || screenY > canvasH + 200) continue;
 
         var frontLength = cluster.tiles.length;

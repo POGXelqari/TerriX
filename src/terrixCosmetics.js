@@ -925,10 +925,15 @@
     var ws = context.ws;
     if (!ws) return;
 
-    var ku = (g && typeof g.ku === 'number') ? g.ku : (pd.ku || 0);
+    var game = window.aE || context.game || g || null;
+    var ku = (game && typeof game.ku === 'number') ? game.ku : (pd.a5a ? pd.a5a.length : 512);
+
+    if (p === undefined || p === null || p < 0) {
+      p = (game && typeof game.fJ === 'number') ? game.fJ : 0;
+    }
 
     // Filter out bots (a5a[p] !== 0) and eliminated players
-    if (pd.a5a[p] !== 0 || (pd.nU && pd.nU[p] === 0)) return;
+    if (!pd.a5a || pd.a5a[p] !== 0 || (pd.nU && pd.nU[p] === 0)) return;
 
     var mapW = (context.a0O && context.a0O.width) ? context.a0O.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0);
     if (mapW <= 0) return;
@@ -1050,9 +1055,9 @@
 
       if (node.alpha < 0.02) continue; // Skip rendering if faded out
 
-      // Active troops on front or fallback live total troops
-      var activePTroops = pActiveAttackTroops > 0 ? pActiveAttackTroops : ((pd.hb && typeof pd.hb[p] === 'number') ? pd.hb[p] : 0);
-      var activeP2Troops = enemyActiveAttackTroops > 0 ? enemyActiveAttackTroops : ((pd.hb && typeof pd.hb[enemyId] === 'number') ? pd.hb[enemyId] : 0);
+      // Active attacking/defending troops on front (stacking multi-attacks, resetting on cancel/stop)
+      var activePTroops = pActiveAttackTroops;
+      var activeP2Troops = enemyActiveAttackTroops;
 
       var frontLength = cluster.tiles.length;
       var fontSize = Math.min(13, Math.max(8, Math.floor(7 + Math.sqrt(frontLength) * 0.8)));

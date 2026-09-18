@@ -94,16 +94,40 @@
     }
   }
 
+  function buildMipmaps(img) {
+    var mipmaps = [img];
+    var cur = img;
+    var w = img.width || 512;
+    var h = img.height || 512;
+
+    while (w > 32 && h > 32) {
+      w = Math.floor(w / 2);
+      h = Math.floor(h / 2);
+      var cvs = document.createElement('canvas');
+      cvs.width = w;
+      cvs.height = h;
+      var ctxt = cvs.getContext('2d');
+      ctxt.imageSmoothingEnabled = true;
+      ctxt.imageSmoothingQuality = 'high';
+      ctxt.drawImage(cur, 0, 0, w, h);
+      mipmaps.push(cvs);
+      cur = cvs;
+    }
+    return mipmaps;
+  }
+
   // Pre-load pattern texture
   function initPatternAssets() {
     var img = new Image();
     img.src = 'assets/patterns/hello-kitty-pattern.png';
     img.onload = function() {
       state.patternImage = img;
+      state.mipmaps = buildMipmaps(img);
       var dummyCanvas = document.createElement('canvas');
       var dummyCtx = dummyCanvas.getContext('2d');
-      state.patternTexture = dummyCtx.createPattern(img, 'repeat');
-      console.log('[TerriX Cosmetics] Hello Kitty pattern texture initialized.');
+      var crispTile = state.mipmaps[2] || state.mipmaps[1] || img;
+      state.patternTexture = dummyCtx.createPattern(crispTile, 'repeat');
+      console.log('[TerriX Cosmetics] Hello Kitty pattern texture initialized with high-res mipmapping.');
     };
     img.onerror = function() {
       console.warn('[TerriX Cosmetics] Pattern image failed to load from assets/patterns/hello-kitty-pattern.png');
@@ -817,17 +841,22 @@
         offscreenPatternCtx.imageSmoothingQuality = 'high';
         offscreenPatternCtx.globalCompositeOperation = 'source-in';
 
-        var imgW = state.patternImage.width || 512;
-        var imgH = state.patternImage.height || 512;
+        if (!state.patternTexture && state.mipmaps) {
+          var crispTile = state.mipmaps[2] || state.mipmaps[1] || state.patternImage;
+          state.patternTexture = offscreenPatternCtx.createPattern(crispTile, 'repeat');
+        }
 
-        // High-quality uniform scale preserving aspect ratio (cover fit)
-        var scale = Math.max(bw / imgW, bh / imgH);
-        var drawW = imgW * scale;
-        var drawH = imgH * scale;
-        var drawX = (bw - drawW) / 2;
-        var drawY = (bh - drawH) / 2;
+        if (state.patternTexture) {
+          offscreenPatternCtx.save();
+          offscreenPatternCtx.translate(-minX, -minY);
+          offscreenPatternCtx.fillStyle = state.patternTexture;
+          offscreenPatternCtx.fillRect(minX, minY, bw, bh);
+          offscreenPatternCtx.restore();
+        } else {
+          var bestMip = (state.mipmaps && state.mipmaps[2]) ? state.mipmaps[2] : state.patternImage;
+          offscreenPatternCtx.drawImage(bestMip, 0, 0, bw, bh);
+        }
 
-        offscreenPatternCtx.drawImage(state.patternImage, drawX, drawY, drawW, drawH);
         offscreenPatternCtx.globalCompositeOperation = 'source-over';
       }
 

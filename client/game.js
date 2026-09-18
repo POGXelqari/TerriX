@@ -4351,7 +4351,7 @@ a6H=a6G.substring(a6E-3*(aC+1),a6E-3*aC)+" "+a6H;}return a6G.substring(0,a6E-3*(
 
 return g1.toFixed(mathUtils.distanceBetweenPointsAndEncoded(Math.floor((a6K===undefined?3:a6K)-Math.log10(Math.max(g1,1))),0,8));
 
-};this.a6L=function(g1,o7,a6E){return(g1*o7).toFixed(a6E);};this.a2z=function(username){
+};this.a6L=function(g1,o7,a6E){var n=Number(g1);return(isNaN(n)?0:n*o7).toFixed(a6E);};this.a2z=function(username){
 
 var fO,fd;fO=username.indexOf("[");if(fO<0){return null;}fd=username.indexOf("]");
 

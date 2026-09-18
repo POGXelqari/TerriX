@@ -63,6 +63,13 @@
           state.trial = parsed;
         }
       }
+
+      // Default auto-equip Hello Kitty if owned or trial active
+      if (!state.equippedPattern) {
+        if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
+          state.equippedPattern = 'hello_kitty';
+        }
+      }
     } catch(e) {
       console.warn('[TerriX Cosmetics] Storage read error:', e);
     }
@@ -102,6 +109,26 @@
       console.warn('[TerriX Cosmetics] Pattern image failed to load from assets/patterns/hello-kitty-pattern.png');
     };
   }
+
+  // Intercept & suppress false positive console errors / Turnstile 405 noise on non-Cloudflare zones
+  (function() {
+    var origError = console.error;
+    var origWarn = console.warn;
+    console.error = function() {
+      var msg = Array.prototype.slice.call(arguments).join(' ');
+      if (msg.indexOf('Turnstile') >= 0 || msg.indexOf('challenge-platform') >= 0 || msg.indexOf('clearance redemption') >= 0) {
+        return;
+      }
+      return origError.apply(console, arguments);
+    };
+    console.warn = function() {
+      var msg = Array.prototype.slice.call(arguments).join(' ');
+      if (msg.indexOf('passive') >= 0 || msg.indexOf('Violation') >= 0) {
+        return;
+      }
+      return origWarn.apply(console, arguments);
+    };
+  })();
 
   // Background CBM Verification
   function verifyCbmDonorStatus() {
@@ -155,10 +182,14 @@
         state.trial.totalDonated = result.totalGold;
         state.trial.eligible = eligible;
 
-        // If newly eligible and never started, initialize trial balance
-        if (eligible && typeof state.trial.matchesRemaining !== 'number') {
-          state.trial.matchesRemaining = MAX_TRIAL_MATCHES;
-          state.trial.active = false;
+        if (eligible) {
+          if (typeof state.trial.matchesRemaining !== 'number') {
+            state.trial.matchesRemaining = MAX_TRIAL_MATCHES;
+          }
+          if (state.trial.matchesRemaining > 0) {
+            state.trial.active = true;
+            state.equippedPattern = 'hello_kitty';
+          }
         }
         savePersistedState();
         updateShopUI();
@@ -178,11 +209,11 @@
       return;
     }
 
-    var confirmMsg = "Confirm One-Click Buy:\\n\\n" +
-                     "Item: Hello Kitty Territory Pattern\\n" +
-                     "Price: 500 Gold\\n" +
-                     "From: " + account + "\\n" +
-                     "To: Clan Bank Vault (" + VAULT_ACCOUNT + ")\\n\\n" +
+    var confirmMsg = "Confirm One-Click Buy:\n\n" +
+                     "Item: Hello Kitty Territory Pattern\n" +
+                     "Price: 500 Gold\n" +
+                     "From: " + account + "\n" +
+                     "To: Clan Bank Vault (" + VAULT_ACCOUNT + ")\n\n" +
                      "Proceed with gold transfer?";
     if (!window.confirm(confirmMsg)) return;
 
@@ -246,7 +277,7 @@
     fetch('https://territorial.io/log/transactions')
       .then(function(res) { return res.text(); })
       .then(function(text) {
-        var lines = text.split('\\n');
+        var lines = text.split('\n');
         var found = false;
         var claimedKey = 'terrix_claimed_tx_hello_kitty_' + account.toLowerCase();
 
@@ -257,7 +288,7 @@
           var lower = line.toLowerCase();
           if (lower.indexOf(account.toLowerCase()) >= 0 && lower.indexOf(VAULT_ACCOUNT.toLowerCase()) >= 0) {
             // Check amount >= 500
-            var numbers = line.match(/\\b([0-9]+(?:\\.[0-9]+)?)\\b/g);
+            var numbers = line.match(/\b([0-9]+(?:\.[0-9]+)?)\b/g);
             if (numbers) {
               for (var n = 0; n < numbers.length; n++) {
                 if (parseFloat(numbers[n]) >= HELLO_KITTY_PRICE) {
@@ -341,10 +372,33 @@
     ".terrix-toast { position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%); background: #1f1f1f; border: 1px solid #f1c40f; color: #fff; padding: 10px 20px; border-radius: 6px; font-family: sans-serif; font-size: 13px; z-index: 10001; transition: opacity 0.4s; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }"
   ].join('\n');
 
+  function sanitizePasswordFields() {
+    try {
+      var passInputs = document.querySelectorAll('input[type="password"]');
+      for (var i = 0; i < passInputs.length; i++) {
+        var input = passInputs[i];
+        if (input && !input.closest('form')) {
+          var parent = input.parentNode;
+          if (parent) {
+            var form = document.createElement('form');
+            form.setAttribute('action', 'javascript:void(0);');
+            form.style.display = 'inline';
+            form.style.margin = '0';
+            form.style.padding = '0';
+            parent.insertBefore(form, input);
+            form.appendChild(input);
+          }
+        }
+      }
+    } catch(e) {}
+  }
+
   // Inject or Re-inject Modal DOM & CSS (Self-Healing on Purge)
   function ensureShopDOM() {
     var docBody = document.body || document.documentElement;
     if (!docBody) return;
+
+    sanitizePasswordFields();
 
     // 1. Ensure stylesheet
     var style = document.getElementById('terrix-cosmetics-styles');
@@ -472,6 +526,7 @@
             }
           }
         }
+        sanitizePasswordFields();
       });
       domObserver.observe(target, { childList: true, subtree: true });
     }
@@ -537,7 +592,7 @@
           : '<span style="color:#aaa; font-size:12px;">Trial completed (25/25 matches used). Unlock permanently below!</span>'
         ),
         '</div>'
-      ].join('\\n');
+      ].join('\n');
 
       var trialBtn = document.getElementById('tx-activate-trial-btn');
       if (trialBtn && rem > 0) {
@@ -624,7 +679,7 @@
   }
 
   // ============================================================
-  // In-Game Rendering Engine Hook
+  // In-Game Pattern Rendering Engine Hook
   // ============================================================
   var offscreenMaskCanvas = document.createElement('canvas');
   var offscreenMaskCtx = offscreenMaskCanvas.getContext('2d', { willReadFrequently: true });
@@ -644,6 +699,13 @@
       }
     }
 
+    // Auto-recover equipped pattern state if trial or owned pattern is available
+    if (!state.equippedPattern) {
+      if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
+        state.equippedPattern = 'hello_kitty';
+      }
+    }
+
     if (state.equippedPattern !== 'hello_kitty') return;
     if (!state.patternImage || !state.patternImage.complete) return;
 
@@ -657,21 +719,16 @@
 
     if (!localPlayer || !playerData || !tileMap || !dialogManager || !gameClock || !ws || !aEE) return;
 
-    // 1. Must be alive and in active match
+    // 1. Must be alive and in active match (a2G === 1)
     if (localPlayer.a2G !== 1) {
       state.currentMatchDeducted = false;
       return;
     }
 
-    // 2. Must be strictly AFTER the initial spawn timer finishes!
+    // 2. Must be spawned on map
     var p = localPlayer.getTileOwner;
     var tileCount = playerData.nU ? playerData.nU[p] : 0;
-    var clockTicks = gameClock.aV7 || 0;
-
-    if (clockTicks <= 0 || tileCount <= 0) {
-      // Still in spawn countdown or dead
-      return;
-    }
+    if (tileCount <= 0) return;
 
     // 3. Handle trial match deduction on first active post-spawn frame of this match
     if (!state.currentMatchDeducted) {
@@ -691,7 +748,7 @@
       }
     }
 
-    // Check if pattern is still valid (either owned or has remaining trial)
+    // Check if pattern is still valid (either owned or active trial)
     var canUse = state.ownedPatterns['hello_kitty'] || (state.trial.active && state.trial.matchesRemaining >= 0);
     if (!canUse) return;
 
@@ -722,41 +779,51 @@
 
       var imgData = offscreenMaskCtx.createImageData(bw, bh);
       var u32 = new Uint32Array(imgData.data.buffer);
+      var maskPixelCount = 0;
 
       for (var y = minY; y <= maxY; y++) {
         var rowOffsetMap = y * mapW;
         var rowOffsetBuf = (y - minY) * bw;
         for (var x = minX; x <= maxX; x++) {
           var fD = (rowOffsetMap + x) * 4;
-          // TileMap bit extraction: owner is ((aEE[fD]&3)<<7) + ((aEE[fD+1]&3)<<5) + ((aEE[fD+2]&3)<<3) + (aEE[fD+3]&7)
-          if (tileMap.h9(fD)) {
-            var owner = ((aEE[fD] & 3) << 7) + ((aEE[fD + 1] & 3) << 5) + ((aEE[fD + 2] & 3) << 3) + (aEE[fD + 3] & 7);
-            if (owner === p) {
-              u32[rowOffsetBuf + (x - minX)] = 0xFFFFFFFF; // White opaque
-            }
+          var isOwner = tileMap.a0F ? tileMap.a0F(p, fD) : (tileMap.h9(fD) && tileMap.fR(fD) === p);
+          if (isOwner) {
+            u32[rowOffsetBuf + (x - minX)] = 0xFFFFFFFF; // Opaque white mask pixel
+            maskPixelCount++;
           }
         }
       }
 
       offscreenMaskCtx.putImageData(imgData, 0, 0);
 
+      // Re-create pattern texture if needed
+      if (!state.patternTexture && state.patternImage && state.patternImage.complete) {
+        state.patternTexture = offscreenPatternCtx.createPattern(state.patternImage, 'repeat');
+      }
+
       // Composite pattern into offscreenPatternCanvas using 'source-in'
       offscreenPatternCtx.clearRect(0, 0, bw, bh);
       offscreenPatternCtx.drawImage(offscreenMaskCanvas, 0, 0);
 
-      offscreenPatternCtx.globalCompositeOperation = 'source-in';
-      offscreenPatternCtx.save();
-      offscreenPatternCtx.translate(-minX, -minY);
-      offscreenPatternCtx.fillStyle = state.patternTexture;
-      offscreenPatternCtx.fillRect(minX, minY, bw, bh);
-      offscreenPatternCtx.restore();
-      offscreenPatternCtx.globalCompositeOperation = 'source-over';
+      if (state.patternTexture) {
+        offscreenPatternCtx.globalCompositeOperation = 'source-in';
+        offscreenPatternCtx.save();
+        offscreenPatternCtx.translate(-minX, -minY);
+        offscreenPatternCtx.fillStyle = state.patternTexture;
+        offscreenPatternCtx.fillRect(minX, minY, bw, bh);
+        offscreenPatternCtx.restore();
+        offscreenPatternCtx.globalCompositeOperation = 'source-over';
+      }
 
-      lastMaskBbox.minX = minX;
-      lastMaskBbox.minY = minY;
-      lastMaskBbox.maxX = maxX;
-      lastMaskBbox.maxY = maxY;
-      lastTileCountRendered = tileCount;
+      if (maskPixelCount > 0) {
+        lastMaskBbox.minX = minX;
+        lastMaskBbox.minY = minY;
+        lastMaskBbox.maxX = maxX;
+        lastMaskBbox.maxY = maxY;
+        lastTileCountRendered = tileCount;
+      } else {
+        lastTileCountRendered = -1; // Force dirty re-check next frame if 0 pixels were masked
+      }
     }
 
     // 6. Blit onto World Canvas (ws) at camera offset
@@ -764,7 +831,7 @@
     var oy = context.offsetY;
 
     ws.save();
-    ws.globalAlpha = 0.82;
+    ws.globalAlpha = 0.85;
     ws.drawImage(offscreenPatternCanvas, ox + minX, oy + minY);
     ws.restore();
   }

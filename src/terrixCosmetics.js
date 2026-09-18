@@ -887,10 +887,11 @@
   }
 
   // Single-pass attack wave map builder (O(W) per frame, zero GC allocation noise)
+  var staticAttackMap = {};
   function buildActiveAttackMap(tm, mapW) {
-    var attackMap = {};
+    for (var k in staticAttackMap) delete staticAttackMap[k];
     var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : null;
-    if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return attackMap;
+    if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return staticAttackMap;
 
     for (var i = 0; i < bQz.mk; i++) {
       var attackerId = bQz.mo[i] >> 3;
@@ -913,13 +914,13 @@
 
       if (targetPlayer >= 0) {
         var key = attackerId + '_' + targetPlayer;
-        attackMap[key] = (attackMap[key] || 0) + troopAmt;
+        staticAttackMap[key] = (staticAttackMap[key] || 0) + troopAmt;
       } else {
         var keyAll = attackerId + '_all';
-        attackMap[keyAll] = (attackMap[keyAll] || 0) + troopAmt;
+        staticAttackMap[keyAll] = (staticAttackMap[keyAll] || 0) + troopAmt;
       }
     }
-    return attackMap;
+    return staticAttackMap;
   }
 
   function getActiveAttackTroopsFromMap(attackMap, attackerId, defenderId) {
@@ -930,6 +931,7 @@
 
   // Persistent Telemetry Nodes for Smooth LERP Animation (No Jittering/Teleporting)
   var telemetryNodes = {};
+  var activeKeysThisFrame = {};
 
   // Dual-Sided Border-Facing Rotating Frontline Troop Telemetry Engine
   function renderFrontlineTelemetry(context, g, pd, ox, oy) {
@@ -946,6 +948,9 @@
     var tm = context.tileMap || window.tileMap || window.ad || null;
     if (!tm || typeof tm.fR !== 'function') return;
 
+    // Zoom scale factor (im)
+    var im = context.im || (window.im ? window.im : 1.0);
+
     // Single-pass attack wave index for O(1) troop lookups
     var activeAttackMap = buildActiveAttackMap(tm, mapW);
 
@@ -953,7 +958,7 @@
     ws.textAlign = 'center';
     ws.textBaseline = 'middle';
 
-    var activeKeysThisFrame = {};
+    for (var kKey in activeKeysThisFrame) delete activeKeysThisFrame[kKey];
     var now = Date.now();
     var step = mapW * 4;
 
@@ -965,8 +970,11 @@
       var borderTiles = pd.hF[p1];
       if (!borderTiles || borderTiles.length === 0) continue;
 
-      // Cluster border tiles per opponent player (p2 > p1 ensures each border is processed once)
+      // Cluster border tiles per opponent player and disjoint front segments
       var warClusters = {};
+      var lastH7PerP2 = {};
+      var clusterIdxPerP2 = {};
+
       for (var i = 0; i < borderTiles.length; i++) {
         var h7 = borderTiles[i];
         var p2 = -1;
@@ -995,25 +1003,43 @@
 
         if (p2 < 0) continue;
 
-        if (!warClusters[p2]) {
-          warClusters[p2] = { tiles: [], dx: 0, dy: 0 };
+        // Disjoint front segment detection (if tile gap > 25, split into separate sub-front cluster)
+        var cIdx = clusterIdxPerP2[p2] || 0;
+        var lastH7 = lastH7PerP2[p2];
+        if (lastH7 !== undefined) {
+          var tile1 = Math.floor(lastH7 / 4);
+          var tile2 = Math.floor(h7 / 4);
+          var t1x = tile1 % mapW, t1y = Math.floor(tile1 / mapW);
+          var t2x = tile2 % mapW, t2y = Math.floor(tile2 / mapW);
+          if (Math.hypot(t2x - t1x, t2y - t1y) > 25) {
+            cIdx++;
+            clusterIdxPerP2[p2] = cIdx;
+          }
         }
-        warClusters[p2].tiles.push(h7);
-        warClusters[p2].dx += dx;
-        warClusters[p2].dy += dy;
+        lastH7PerP2[p2] = h7;
+
+        var cKey = p2 + '_' + cIdx;
+        if (!warClusters[cKey]) {
+          warClusters[cKey] = { enemyId: p2, tiles: [], dx: 0, dy: 0 };
+        }
+        warClusters[cKey].tiles.push(h7);
+        warClusters[cKey].dx += dx;
+        warClusters[cKey].dy += dy;
       }
 
-      var p2Keys = Object.keys(warClusters);
-      for (var k = 0; k < p2Keys.length; k++) {
-        var enemyId = parseInt(p2Keys[k], 10);
-        var cluster = warClusters[enemyId];
+      var cKeys = Object.keys(warClusters);
+      for (var k = 0; k < cKeys.length; k++) {
+        var cKey = cKeys[k];
+        var cluster = warClusters[cKey];
         if (!cluster || cluster.tiles.length < 2) continue;
+
+        var enemyId = cluster.enemyId;
 
         // O(1) lookup of active attack troops deployed between p1 and enemyId
         var p1ActiveAttackTroops = getActiveAttackTroopsFromMap(activeAttackMap, p1, enemyId);
         var enemyActiveAttackTroops = getActiveAttackTroopsFromMap(activeAttackMap, enemyId, p1);
 
-        var nodeKey = p1 + '_' + enemyId;
+        var nodeKey = p1 + '_' + enemyId + '_' + cKey;
         activeKeysThisFrame[nodeKey] = true;
 
         var node = telemetryNodes[nodeKey];
@@ -1033,28 +1059,27 @@
         var isWarActive = (now - node.lastWarTime < 6000);
         var targetAlpha = isWarActive ? 1.0 : 0.0;
 
-        // Midpoint tile of active war front
-        var midTileIdx = Math.floor(cluster.tiles.length / 2);
-        var midH7 = cluster.tiles[midTileIdx];
+        // 1. Calculate true arithmetic centroid of the border cluster for exact placement
+        var sumX = 0, sumY = 0;
+        for (var cIdxPos = 0; cIdxPos < cluster.tiles.length; cIdxPos++) {
+          var tH7 = cluster.tiles[cIdxPos];
+          var tIdx = Math.floor(tH7 / 4);
+          sumX += (tIdx % mapW);
+          sumY += Math.floor(tIdx / mapW);
+        }
+        var px = Math.floor(sumX / cluster.tiles.length);
+        var py = Math.floor(sumY / cluster.tiles.length);
 
-        var px = Math.floor((midH7 / 4) % mapW);
-        var py = Math.floor((midH7 / 4) / mapW);
-
+        // 2. Calculate border normal vector (pointing from p1 into enemyId) and tangent angle
         var avgDx = cluster.dx / cluster.tiles.length;
         var avgDy = cluster.dy / cluster.tiles.length;
-        var targetAngle = Math.atan2(avgDy, avgDx);
+        var vecLen = Math.hypot(avgDx, avgDy) || 1;
+        var normX = avgDx / vecLen;
+        var normY = avgDy / vecLen;
+
+        var targetAngle = Math.atan2(normY, normX) + Math.PI / 2;
         if (targetAngle > Math.PI / 2) targetAngle -= Math.PI;
         if (targetAngle < -Math.PI / 2) targetAngle += Math.PI;
-
-        var nx = -Math.sin(targetAngle);
-        var ny = Math.cos(targetAngle);
-
-        var checkOffset = 4;
-        var checkH7 = 4 * (Math.floor(py + ny * checkOffset) * mapW + Math.floor(px + nx * checkOffset));
-        if (tm.fR(checkH7) !== p1) {
-          nx = -nx;
-          ny = -ny;
-        }
 
         var targetX = ox + px;
         var targetY = oy + py;
@@ -1081,27 +1106,30 @@
 
         if (node.alpha < 0.02) continue; // Skip rendering if faded out
 
-        // Skip canvas drawing if node is offscreen beyond viewport margin (tracking continues in memory)
+        // Accurate screen-space canvas viewport culling (scaling node.x and node.y by camera zoom im)
         var canvasW = ws.canvas ? ws.canvas.width : 1920;
         var canvasH = ws.canvas ? ws.canvas.height : 1080;
-        if (node.x < -150 || node.x > canvasW + 150 || node.y < -150 || node.y > canvasH + 150) continue;
+        var screenX = node.x * im;
+        var screenY = node.y * im;
+        if (screenX < -150 || screenX > canvasW + 150 || screenY < -150 || screenY > canvasH + 150) continue;
 
         // Active attacking troops on front (or current live total troops during active war)
         var activePTroops = p1ActiveAttackTroops > 0 ? p1ActiveAttackTroops : ((pd.hb && typeof pd.hb[p1] === 'number') ? pd.hb[p1] : 0);
         var activeP2Troops = enemyActiveAttackTroops > 0 ? enemyActiveAttackTroops : ((pd.hb && typeof pd.hb[enemyId] === 'number') ? pd.hb[enemyId] : 0);
 
         var frontLength = cluster.tiles.length;
-        var fontSize = Math.min(13, Math.max(8, Math.floor(7 + Math.sqrt(frontLength) * 0.8)));
-        var distOffset = Math.floor(fontSize * 0.65);
+        var baseFontSize = Math.min(13, Math.max(8, Math.floor(7 + Math.sqrt(frontLength) * 0.8)));
+        var fontSize = Math.max(9 / Math.max(0.5, im), Math.min(14 / Math.max(0.5, im), baseFontSize / Math.max(0.5, im)));
+        var distOffset = Math.max(2.5, fontSize * 0.35);
 
         var pTroopStr = formatTroops(activePTroops);
         var p2TroopStr = formatTroops(activeP2Troops);
 
-        // Render Local Attacker p1 Side A with node.alpha opacity
+        // Render Local Attacker p1 Side A (-normX, -normY into p1's territory)
         ws.save();
         ws.globalAlpha = node.alpha;
         ws.font = 'bold ' + fontSize + 'px sans-serif';
-        ws.translate(node.x + nx * distOffset, node.y + ny * distOffset);
+        ws.translate(node.x - normX * distOffset, node.y - normY * distOffset);
         ws.rotate(node.angle);
         ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
         ws.lineWidth = 2.2;
@@ -1110,11 +1138,11 @@
         ws.fillText(pTroopStr, 0, 0);
         ws.restore();
 
-        // Render Enemy Defender enemyId Side B with node.alpha opacity
+        // Render Enemy Defender enemyId Side B (+normX, +normY into enemyId's territory)
         ws.save();
         ws.globalAlpha = node.alpha;
         ws.font = 'bold ' + fontSize + 'px sans-serif';
-        ws.translate(node.x - nx * distOffset, node.y - ny * distOffset);
+        ws.translate(node.x + normX * distOffset, node.y + normY * distOffset);
         ws.rotate(node.angle);
         ws.strokeStyle = 'rgba(0, 0, 0, 0.9)';
         ws.lineWidth = 2.2;

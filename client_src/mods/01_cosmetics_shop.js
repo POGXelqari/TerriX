@@ -432,10 +432,10 @@
 
       modal.innerHTML = [
         '<div class="terrix-modal-box">',
-        '  <div class="terrix-modal-header">',
-        '    <h2>TerriX Cosmetics Shop</h2>',
-        '    <button class="terrix-close-btn" id="tx-close-modal">&times;</button>',
-        '  </div>',
+        '<div class="terrix-modal-header">',
+        '  <h2>TerriX Cosmetics Shop <span id="tx-user-gold-balance" style="font-size: 13px; color: #f1c40f; margin-left: 12px; font-weight: normal;"></span></h2>',
+        '  <button class="terrix-close-btn" id="tx-close-modal">&times;</button>',
+        '</div>',
         '  <div class="terrix-modal-body">',
         '    <!-- Verified CBM Perk Banner -->',
         '    <div id="tx-cbm-perk-container"></div>',
@@ -570,6 +570,16 @@
 
   // Update dynamic buttons and perk banner in modal
   function updateShopUI() {
+    var goldDisplayEl = document.getElementById('tx-user-gold-balance');
+    if (goldDisplayEl) {
+      var goldVal = 0;
+      if (window.__TERRIX_ENGINE__ && typeof window.__TERRIX_ENGINE__.getAccountGold === 'function') {
+        goldVal = window.__TERRIX_ENGINE__.getAccountGold();
+      }
+      var formattedGold = (goldVal * 0.01).toFixed(2);
+      goldDisplayEl.innerText = '(Gold Balance: ' + formattedGold + ')';
+    }
+
     var perkContainer = document.getElementById('tx-cbm-perk-container');
     var btnContainer = document.getElementById('tx-action-buttons');
     if (!perkContainer || !btnContainer) return;

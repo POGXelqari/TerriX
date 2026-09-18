@@ -10095,10 +10095,10 @@ aQh.s6(gameServer.z.aQi("/wiki/gold"),"0.75em").style.marginBottom="0.8em";
 var aQj=[L(167),L(168),L(169),L(170),
 
 L(171),L(172),L(173),L(174),L(175),L(176),L(177),L(178),L(179),L(180)];
-var eH=data.aQk;aQh.s6(
-
-L(181)+gameState.tI.a6L(data.isTileWrap,0.01,2)+"<br>"+L(182)+(eH+1)+" / "+data.y3+"<br>"+L(183)+aQj[aQl(eH,data.isTileWrap)]
-
+var eH=data.aQk;
+var userBal=(data&&data.isTileWrap!=null&&data.isTileWrap!==0)?data.isTileWrap:((typeof connectionMgr!=='undefined'&&connectionMgr.buffer&&connectionMgr.buffer.data&&connectionMgr.buffer.data[113])?connectionMgr.buffer.data[113].value:0);
+aQh.s6(
+L(181)+gameState.tI.a6L(userBal,0.01,2)+"<br>"+L(182)+(eH+1)+" / "+data.y3+"<br>"+L(183)+aQj[aQl(eH,userBal)]
 );return aQh;}
 
 function aQl(eH,y4){if(eH<10){return 0;}if(eH<30){return 1;
@@ -10357,7 +10357,8 @@ return;}}else{if(!aR8){return;}if(data.isTileWrap<10000){return;}}var aQh=new rx
 var aR9=data.isTileWrap>=100000;
 var aRA=aQh.LobbyChatPanel(aR8?(aR9?"⚠️ ":"")+L(255):L(256));aR9&&(aRA.style.color="yellow");
 
-if(aR8){aQh.s2(L(257,[gameState.tI.a6L(data.isTileWrap,0.01,0)]));}else{var aRB=new t7({value:data.aRC,eI:-1});
+var userBal=(data&&data.isTileWrap!=null&&data.isTileWrap!==0)?data.isTileWrap:((typeof connectionMgr!=='undefined'&&connectionMgr.buffer&&connectionMgr.buffer.data&&connectionMgr.buffer.data[113])?connectionMgr.buffer.data[113].value:0);
+if(aR8){aQh.s2(L(257,[gameState.tI.a6L(userBal,0.01,0)]));}else{var aRB=new t7({value:data.aRC,eI:-1});
 
 aRB.e.readOnly=true;aRB.e.type="password";aQh.sB(aRB);aQh.sB((new tl([(new x(L(191),function(e){
 

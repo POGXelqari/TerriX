@@ -198,6 +198,21 @@ window.__TERRIX_ENGINE__ = {
   get hoverHandler() { return typeof hoverHandler !== 'undefined' ? hoverHandler : null; },
   get camera() { return typeof camera !== 'undefined' ? camera : null; },
   get im() { return typeof im !== 'undefined' ? im : 1; },
+  getAccountGold: function() {
+    if (typeof account !== 'undefined' && account.z && account.z.aPy && account.z.aPy.isTileWrap !== undefined && account.z.aPy.isTileWrap !== null && account.z.aPy.isTileWrap !== 0) {
+      return account.z.aPy.isTileWrap;
+    }
+    if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[113] && connectionMgr.buffer.data[113].value !== undefined) {
+      return connectionMgr.buffer.data[113].value;
+    }
+    return 0;
+  },
+  getAccountUsername: function() {
+    if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105]) {
+      return connectionMgr.buffer.data[105].value || '';
+    }
+    return '';
+  },
   onRenderFrameCallbacks: [],
   onRenderFrame: function(cb) { this.onRenderFrameCallbacks.push(cb); }
 };

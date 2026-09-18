@@ -1,6 +1,6 @@
 /**
  * TerriX Client Extension Bundle
- * Compiled: 2026-09-18 06:06:15 UTC
+ * Compiled: 2026-09-18 12:06:08 UTC
  * Active Mods: 01_cosmetics_shop.js
  */
 ;(function(window, document) {

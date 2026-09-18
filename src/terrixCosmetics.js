@@ -901,11 +901,11 @@
 
       var targetPlayer = -1;
       if (path && path.length > 0 && tm && typeof tm.fR === 'function') {
-        var checkCount = Math.min(4, path.length);
+        var checkCount = Math.min(5, path.length);
         for (var c = 0; c < checkCount; c++) {
           var pos = path[path.length - 1 - c];
           var owner = tm.fR(pos);
-          if (owner >= 0) {
+          if (owner >= 0 && owner !== attackerId) {
             targetPlayer = owner;
             break;
           }
@@ -915,18 +915,13 @@
       if (targetPlayer >= 0) {
         var key = attackerId + '_' + targetPlayer;
         staticAttackMap[key] = (staticAttackMap[key] || 0) + troopAmt;
-      } else {
-        var keyAll = attackerId + '_all';
-        staticAttackMap[keyAll] = (staticAttackMap[keyAll] || 0) + troopAmt;
       }
     }
     return staticAttackMap;
   }
 
   function getActiveAttackTroopsFromMap(attackMap, attackerId, defenderId) {
-    var specific = attackMap[attackerId + '_' + defenderId] || 0;
-    var fallback = attackMap[attackerId + '_all'] || 0;
-    return specific + fallback;
+    return attackMap[attackerId + '_' + defenderId] || 0;
   }
 
   // Persistent Telemetry Nodes for Smooth LERP Animation (No Jittering/Teleporting)
@@ -970,10 +965,8 @@
       var borderTiles = pd.hF[p1];
       if (!borderTiles || borderTiles.length === 0) continue;
 
-      // Cluster border tiles per opponent player and disjoint front segments
+      // Cluster border tiles per opponent player (p2 > p1 ensures each border is processed once)
       var warClusters = {};
-      var lastH7PerP2 = {};
-      var clusterIdxPerP2 = {};
 
       for (var i = 0; i < borderTiles.length; i++) {
         var h7 = borderTiles[i];
@@ -1003,43 +996,25 @@
 
         if (p2 < 0) continue;
 
-        // Disjoint front segment detection (if tile gap > 25, split into separate sub-front cluster)
-        var cIdx = clusterIdxPerP2[p2] || 0;
-        var lastH7 = lastH7PerP2[p2];
-        if (lastH7 !== undefined) {
-          var tile1 = Math.floor(lastH7 / 4);
-          var tile2 = Math.floor(h7 / 4);
-          var t1x = tile1 % mapW, t1y = Math.floor(tile1 / mapW);
-          var t2x = tile2 % mapW, t2y = Math.floor(tile2 / mapW);
-          if (Math.hypot(t2x - t1x, t2y - t1y) > 25) {
-            cIdx++;
-            clusterIdxPerP2[p2] = cIdx;
-          }
+        if (!warClusters[p2]) {
+          warClusters[p2] = { tiles: [], dx: 0, dy: 0 };
         }
-        lastH7PerP2[p2] = h7;
-
-        var cKey = p2 + '_' + cIdx;
-        if (!warClusters[cKey]) {
-          warClusters[cKey] = { enemyId: p2, tiles: [], dx: 0, dy: 0 };
-        }
-        warClusters[cKey].tiles.push(h7);
-        warClusters[cKey].dx += dx;
-        warClusters[cKey].dy += dy;
+        warClusters[p2].tiles.push(h7);
+        warClusters[p2].dx += dx;
+        warClusters[p2].dy += dy;
       }
 
-      var cKeys = Object.keys(warClusters);
-      for (var k = 0; k < cKeys.length; k++) {
-        var cKey = cKeys[k];
-        var cluster = warClusters[cKey];
+      var p2Keys = Object.keys(warClusters);
+      for (var k = 0; k < p2Keys.length; k++) {
+        var enemyId = parseInt(p2Keys[k], 10);
+        var cluster = warClusters[enemyId];
         if (!cluster || cluster.tiles.length < 2) continue;
-
-        var enemyId = cluster.enemyId;
 
         // O(1) lookup of active attack troops deployed between p1 and enemyId
         var p1ActiveAttackTroops = getActiveAttackTroopsFromMap(activeAttackMap, p1, enemyId);
         var enemyActiveAttackTroops = getActiveAttackTroopsFromMap(activeAttackMap, enemyId, p1);
 
-        var nodeKey = p1 + '_' + enemyId + '_' + cKey;
+        var nodeKey = p1 + '_' + enemyId;
         activeKeysThisFrame[nodeKey] = true;
 
         var node = telemetryNodes[nodeKey];

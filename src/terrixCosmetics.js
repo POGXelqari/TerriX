@@ -893,8 +893,6 @@
     var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : null;
     if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return staticAttackMap;
 
-    var bPjJ = (window.bP && typeof window.bP.jJ === 'function') ? window.bP.jJ : null;
-
     for (var i = 0; i < bQz.mk; i++) {
       var attackerId = bQz.mo[i] >> 3;
       var troopAmt = bQz.a8m[i] || 0;
@@ -903,14 +901,22 @@
 
       var targetPlayer = -1;
 
-      // Extract target defender from destination waypoints using bP.jJ tile conversion
+      // Extract target defender from destination waypoints using window.bP.jJ tile conversion
       for (var c = path.length - 1; c >= Math.max(0, path.length - 5); c--) {
         var rawWaypoint = path[c];
-        var byteOffset = bPjJ ? bPjJ(rawWaypoint) : rawWaypoint;
-        var owner = tm.fR(byteOffset);
-        if (owner >= 0 && owner !== attackerId) {
-          targetPlayer = owner;
-          break;
+        try {
+          var byteOffset = (window.bP && typeof window.bP.jJ === 'function') ? window.bP.jJ(rawWaypoint) : rawWaypoint;
+          var owner = tm.fR(byteOffset);
+          if (owner >= 0 && owner !== attackerId) {
+            targetPlayer = owner;
+            break;
+          }
+        } catch (e) {
+          var fallbackOwner = tm.fR(rawWaypoint);
+          if (fallbackOwner >= 0 && fallbackOwner !== attackerId) {
+            targetPlayer = fallbackOwner;
+            break;
+          }
         }
       }
 

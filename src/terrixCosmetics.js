@@ -877,6 +877,124 @@
     ws.globalAlpha = 0.88;
     ws.drawImage(offscreenPatternCanvas, ox + minX, oy + minY);
     ws.restore();
+
+    // 7. Render Dual-Sided Border-Facing Rotating Frontline Troop Telemetry (no emojis)
+    renderFrontlineTelemetry(context, g, pd, p, ox, oy);
+  }
+
+  // Number Formatter (NO EMOJIS)
+  function formatTroops(val) {
+    if (!val || val <= 0) return '0';
+    if (val >= 1000000) {
+      return (val / 1000000).toFixed(1) + 'M';
+    }
+    if (val >= 1000) {
+      return (val / 1000).toFixed(0) + 'K';
+    }
+    return val.toString();
+  }
+
+  // Dual-Sided Border-Facing Rotating Frontline Troop Telemetry Engine
+  function renderFrontlineTelemetry(context, g, pd, p, ox, oy) {
+    if (!pd || !pd.hF || !pd.zp) return;
+    var ws = context.ws;
+    if (!ws) return;
+
+    var mapW = (context.a0O && context.a0O.width) ? context.a0O.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0);
+    if (mapW <= 0) return;
+
+    var tm = context.tileMap || window.tileMap || window.ad || null;
+    if (!tm || typeof tm.fR !== 'function') return;
+
+    var borderTiles = pd.hF[p];
+    if (!borderTiles || borderTiles.length === 0) return;
+
+    var pTroopVal = pd.zp[p] || 0;
+    var pTroopStr = formatTroops(pTroopVal);
+
+    var sampleStep = Math.max(1, Math.floor(borderTiles.length / 15));
+
+    ws.save();
+    ws.font = 'bold 11px sans-serif';
+    ws.textAlign = 'center';
+    ws.textBaseline = 'middle';
+
+    for (var i = 0; i < borderTiles.length; i += sampleStep) {
+      var h7 = borderTiles[i];
+      var px = Math.floor((h7 / 4) % mapW);
+      var py = Math.floor((h7 / 4) / mapW);
+
+      var p2 = -1;
+      var dx = 1, dy = 0;
+
+      var nR = h7 + 4;
+      var ownerR = tm.fR(nR);
+      if (ownerR !== p && ownerR !== 0 && ownerR < 512) {
+        p2 = ownerR;
+        dx = 0; dy = 1;
+      } else {
+        var nD = h7 + 4 * mapW;
+        var ownerD = tm.fR(nD);
+        if (ownerD !== p && ownerD !== 0 && ownerD < 512) {
+          p2 = ownerD;
+          dx = 1; dy = 0;
+        } else {
+          var nL = h7 - 4;
+          var ownerL = tm.fR(nL);
+          if (ownerL !== p && ownerL !== 0 && ownerL < 512) {
+            p2 = ownerL;
+            dx = 0; dy = 1;
+          } else {
+            var nU = h7 - 4 * mapW;
+            var ownerU = tm.fR(nU);
+            if (ownerU !== p && ownerU !== 0 && ownerU < 512) {
+              p2 = ownerU;
+              dx = 1; dy = 0;
+            }
+          }
+        }
+      }
+
+      if (p2 < 0) continue;
+
+      var p2TroopVal = pd.zp[p2] || 0;
+      var p2TroopStr = formatTroops(p2TroopVal);
+
+      var angle = Math.atan2(dy, dx);
+      if (angle > Math.PI / 2) angle -= Math.PI;
+      if (angle < -Math.PI / 2) angle += Math.PI;
+
+      var nx = -Math.sin(angle);
+      var ny = Math.cos(angle);
+
+      var screenX = ox + px;
+      var screenY = oy + py;
+      var distOffset = 11;
+
+      // Attacker / Local Player Side A
+      ws.save();
+      ws.translate(screenX + nx * distOffset, screenY + ny * distOffset);
+      ws.rotate(angle);
+      ws.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+      ws.lineWidth = 3;
+      ws.strokeText(pTroopStr, 0, 0);
+      ws.fillStyle = '#ffffff';
+      ws.fillText(pTroopStr, 0, 0);
+      ws.restore();
+
+      // Defender / Opponent Side B
+      ws.save();
+      ws.translate(screenX - nx * distOffset, screenY - ny * distOffset);
+      ws.rotate(angle);
+      ws.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+      ws.lineWidth = 3;
+      ws.strokeText(p2TroopStr, 0, 0);
+      ws.fillStyle = '#f1c40f';
+      ws.fillText(p2TroopStr, 0, 0);
+      ws.restore();
+    }
+
+    ws.restore();
   }
 
   // Initialize Mod

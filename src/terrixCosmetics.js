@@ -729,19 +729,6 @@
       }
     }
 
-    // Auto-recover equipped pattern state if trial or owned pattern is available
-    if (!state.equippedPattern) {
-      if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
-        state.equippedPattern = 'hello_kitty';
-      }
-    }
-
-    if (state.equippedPattern !== 'hello_kitty') return;
-    if (!state.patternImage || !state.patternImage.complete) return;
-
-    var ws = context.ws;
-    if (!ws) return;
-
     // Resolve live game engine references safely from window global scope
     var g = window.game || window.aE || null;
     var pd = context.playerData || window.playerData || window.ah || null;
@@ -753,13 +740,27 @@
       return;
     }
 
-    // 2. Resolve player ID and tile count
+    var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
+    var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
+
+    // 2. ALWAYS render Dual-Sided Border-Facing Rotating Frontline Troop Telemetry (independent of equipped cosmetics)
+    renderFrontlineTelemetry(context, g, pd, ox, oy);
+
+    // 3. Cosmetic Pattern UI & Masking Engine (only runs if Hello Kitty pattern is equipped)
+    if (!state.equippedPattern) {
+      if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
+        state.equippedPattern = 'hello_kitty';
+      }
+    }
+
+    if (state.equippedPattern !== 'hello_kitty') return;
+    if (!state.patternImage || !state.patternImage.complete) return;
+
     var p = g ? ((typeof g.playerId === 'number') ? g.playerId : ((typeof g.fJ === 'number') ? g.fJ : 0)) : 0;
     var pTerritories = pd ? (pd.jS ? pd.hN : (pd.playerTerritories || pd.hN)) : null;
     var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 0;
     if (tileCount <= 0) return;
 
-    // 3. Handle trial state
     var canUse = state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active);
     if (!canUse) return;
 
@@ -877,9 +878,6 @@
     ws.globalAlpha = 0.88;
     ws.drawImage(offscreenPatternCanvas, ox + minX, oy + minY);
     ws.restore();
-
-    // 7. Render Dual-Sided Border-Facing Rotating Frontline Troop Telemetry (no emojis)
-    renderFrontlineTelemetry(context, g, pd, p, ox, oy);
   }
 
   // Number Formatter (Full Comma-Separated Numbers, NO EMOJIS, NO K/M)

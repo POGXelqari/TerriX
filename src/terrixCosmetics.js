@@ -886,12 +886,33 @@
     return Math.floor(val).toLocaleString('en-US');
   }
 
+  // Precise Attack Wave Destination Matcher
+  function isWaveTargetingDefender(path, defenderId, tm, mapW) {
+    if (!path || path.length === 0) return true;
+    if (!tm || typeof tm.fR !== 'function') return true;
+
+    var checkCount = Math.min(4, path.length);
+    for (var c = 0; c < checkCount; c++) {
+      var pos = path[path.length - 1 - c];
+      var owner = tm.fR(pos);
+      if (owner === defenderId) return true;
+      if (mapW > 0) {
+        var neighbors = [pos + 4, pos + 4 * mapW, pos - 4, pos - 4 * mapW];
+        for (var n = 0; n < 4; n++) {
+          if (tm.fR(neighbors[n]) === defenderId) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // Active Attack Troop Wave Extractor (from bQ.z)
   function getActiveAttackTroops(attackerId, defenderId) {
     var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : null;
     if (!bQz || typeof bQz.mk !== 'number') return 0;
 
     var tm = window.tileMap || window.ad || null;
+    var mapW = (window.bV && window.bV.fk) ? window.bV.fk : 0;
     var totalAttackingTroops = 0;
 
     for (var i = 0; i < bQz.mk; i++) {
@@ -899,14 +920,7 @@
       if (waveAttacker === attackerId) {
         var troopAmt = bQz.a8m[i] || 0;
         var path = bQz.mm[i];
-        var targetPlayer = -1;
-        if (path && path.length > 0) {
-          var endPos = path[path.length - 1];
-          if (tm && typeof tm.fR === 'function') {
-            targetPlayer = tm.fR(endPos);
-          }
-        }
-        if (targetPlayer === defenderId || targetPlayer === 0 || targetPlayer === -1) {
+        if (isWaveTargetingDefender(path, defenderId, tm, mapW)) {
           totalAttackingTroops += troopAmt;
         }
       }
@@ -1000,8 +1014,13 @@
           telemetryNodes[nodeKey] = node;
         }
 
-        // Set targetAlpha to 1.0 for active shared border fronts
-        var targetAlpha = 1.0;
+        if (p1ActiveAttackTroops > 0 || enemyActiveAttackTroops > 0) {
+          node.lastWarTime = now;
+        }
+
+        // War front is active ONLY if an attack wave is moving or occurred within the last 6 seconds
+        var isWarActive = (now - node.lastWarTime < 6000);
+        var targetAlpha = isWarActive ? 1.0 : 0.0;
 
         // Midpoint tile of active war front
         var midTileIdx = Math.floor(cluster.tiles.length / 2);

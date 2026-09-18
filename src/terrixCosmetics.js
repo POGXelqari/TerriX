@@ -949,7 +949,7 @@
 
       // Cluster border tiles per opponent player (p2 > p1 ensures each border is processed once)
       var warClusters = {};
-      for (var i = 0; i < borderTiles.length; i += 3) {
+      for (var i = 0; i < borderTiles.length; i++) {
         var h7 = borderTiles[i];
         var p2 = -1;
         var dx = 1, dy = 0;
@@ -1000,12 +1000,8 @@
           telemetryNodes[nodeKey] = node;
         }
 
-        if (p1ActiveAttackTroops > 0 || enemyActiveAttackTroops > 0) {
-          node.lastWarTime = now;
-        }
-
-        var isWarActive = (now - node.lastWarTime < 6000);
-        var targetAlpha = isWarActive ? 1.0 : 0.0;
+        // Set targetAlpha to 1.0 for active shared border fronts
+        var targetAlpha = 1.0;
 
         // Midpoint tile of active war front
         var midTileIdx = Math.floor(cluster.tiles.length / 2);

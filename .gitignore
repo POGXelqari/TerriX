@@ -23,6 +23,8 @@ venv/
 ENV/
 *.key
 cbm_secret.key
+.github_token
+*.token
 
 # IDE / Editor artifacts
 .vscode/

@@ -1,7 +1,7 @@
 import { definePatch } from "../modUtils.js";
 
-export default definePatch(({ replaceCode, modifyCode }) => {
-  // Defensive a6L & TerriX Engine bridge
+export default definePatch(({ replaceCode }) => {
+  // Defensive a6L & TerriX Engine bridge with live render frame hook
   replaceCode(
     `this.a6L = function(g1, o7, a6E) { return (g1 * o7).toFixed(a6E); };`,
     `this.a6L = function(g1, o7, a6E) {
@@ -18,6 +18,25 @@ export default definePatch(({ replaceCode, modifyCode }) => {
       getAccountUsername: function() {
         if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105]) return connectionMgr.buffer.data[105].value || '';
         return '';
+      },
+      onRenderFrameCallbacks: [],
+      onRenderFrame: function(cb) { this.onRenderFrameCallbacks.push(cb); }
+    };
+    window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
+      if (window.__TERRIX_ENGINE__ && window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length > 0) {
+        for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) {
+          try {
+            window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i]({
+              ws: ws, a0O: a0O, im: im, offsetX: ox, offsetY: oy,
+              localPlayer: typeof localPlayer !== 'undefined' ? localPlayer : null,
+              playerData: typeof playerData !== 'undefined' ? playerData : null,
+              tileMap: typeof tileMap !== 'undefined' ? tileMap : null,
+              dialogManager: typeof dialogManager !== 'undefined' ? dialogManager : null,
+              gameClock: typeof gameClock !== 'undefined' ? gameClock : null,
+              clanPanel: typeof clanPanel !== 'undefined' ? clanPanel : null
+            });
+          } catch(e) { console.error("[TerriX Engine Hook Error]", e); }
+        }
       }
     };`
   );

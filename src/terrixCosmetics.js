@@ -715,65 +715,60 @@
     if (state.equippedPattern !== 'hello_kitty') return;
     if (!state.patternImage || !state.patternImage.complete) return;
 
-    var localPlayer = context.localPlayer;
-    var playerData = context.playerData;
-    var tileMap = context.tileMap;
-    var dialogManager = context.dialogManager;
-    var gameClock = context.gameClock;
     var ws = context.ws;
-    if (!localPlayer || !playerData || !tileMap || !dialogManager || !gameClock || !ws) return;
+    if (!ws) return;
 
-    // 1. Must be alive and in active match (a2G === 1)
-    if (localPlayer.a2G !== 1) {
+    // Resolve live game engine references
+    var g = window.game || (typeof aE !== 'undefined' ? aE : null);
+    var pd = window.playerData || (typeof ah !== 'undefined' ? ah : null);
+    if (!g || !pd) return;
+
+    // 1. Must be in active match (gameState === 2)
+    var gState = (typeof g.gameState === 'number') ? g.gameState : (g.a2G || 0);
+    if (gState !== 2 && gState !== 1) {
       state.currentMatchDeducted = false;
       return;
     }
 
-    // 2. Must be spawned on map
-    var p = localPlayer.getTileOwner;
-    var tileCount = playerData.nU ? playerData.nU[p] : 0;
+    // 2. Must be spawned on map with player territory
+    var p = (typeof g.playerId === 'number') ? g.playerId : (g.fJ || 0);
+    var pTerritories = pd.playerTerritories || pd.hN;
+    var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 0;
     if (tileCount <= 0) return;
 
-    // 3. Handle trial match deduction on first active post-spawn frame of this match
-    if (!state.currentMatchDeducted) {
-      var isOwned = !!state.ownedPatterns['hello_kitty'];
-      if (!isOwned && state.trial.active && state.trial.matchesRemaining > 0) {
-        state.trial.matchesRemaining = Math.max(0, state.trial.matchesRemaining - 1);
-        state.currentMatchDeducted = true;
-        savePersistedState();
-        showNotification("Hello Kitty Pattern active (Trial: " + state.trial.matchesRemaining + "/" + MAX_TRIAL_MATCHES + " matches remaining)");
+    // 3. Handle trial state
+    var canUse = state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active);
+    if (!canUse) return;
 
-        if (state.trial.matchesRemaining === 0) {
-          state.trial.active = false;
-          showNotification("Your 25-match trial has concluded! Unlock permanently in the Cosmetics Shop (K).");
-        }
-      } else {
-        state.currentMatchDeducted = true;
+    if (!state.currentMatchDeducted) {
+      state.currentMatchDeducted = true;
+      if (state.trial && state.trial.active) {
+        showNotification("Hello Kitty Territory Pattern Active!");
       }
     }
 
-    // Check if pattern is still valid (either owned or active trial)
-    var canUse = state.ownedPatterns['hello_kitty'] || (state.trial.active && state.trial.matchesRemaining >= 0);
-    if (!canUse) return;
-
     // 4. Territory Bounding Box
-    var minX = playerData.botExpansionAi[p];
-    var minY = playerData.botTeamTargetCoordinator[p];
-    var maxX = playerData.BotExpansionAi[p];
-    var maxY = playerData.BotTeamTargetCoordinator[p];
+    var minXArr = pd.minX || pd.botExpansionAi;
+    var minYArr = pd.minY || pd.botTeamTargetCoordinator;
+    var maxXArr = pd.maxX || pd.BotExpansionAi;
+    var maxYArr = pd.maxY || pd.BotTeamTargetCoordinator;
 
-    if (maxX < minX || maxY < minY) return;
+    var minX = minXArr ? minXArr[p] : 0;
+    var minY = minYArr ? minYArr[p] : 0;
+    var maxX = maxXArr ? maxXArr[p] : 0;
+    var maxY = maxYArr ? maxYArr[p] : 0;
+
+    if (maxX <= minX || maxY <= minY) return;
 
     var bw = maxX - minX + 1;
     var bh = maxY - minY + 1;
     if (bw <= 0 || bh <= 0 || bw > 4000 || bh > 4000) return;
 
-    // 5. Update offscreen mask if dirty or resized
-    var mapW = dialogManager.fk;
+    // 5. Update offscreen pattern mask canvas if dirty or resized
     var isDirty = (bw !== offscreenMaskCanvas.width || bh !== offscreenMaskCanvas.height ||
                    minX !== lastMaskBbox.minX || minY !== lastMaskBbox.minY ||
                    maxX !== lastMaskBbox.maxX || maxY !== lastMaskBbox.maxY ||
-                   tileCount !== lastTileCountRendered || context.clanPanel.ds);
+                   tileCount !== lastTileCountRendered);
 
     if (isDirty) {
       offscreenMaskCanvas.width = bw;
@@ -781,31 +776,15 @@
       offscreenPatternCanvas.width = bw;
       offscreenPatternCanvas.height = bh;
 
-      var imgData = offscreenMaskCtx.createImageData(bw, bh);
-      var u32 = new Uint32Array(imgData.data.buffer);
-      var maskPixelCount = 0;
-
-      for (var y = minY; y <= maxY; y++) {
-        var rowOffsetMap = y * mapW;
-        var rowOffsetBuf = (y - minY) * bw;
-        for (var x = minX; x <= maxX; x++) {
-          var fD = (rowOffsetMap + x) * 4;
-          var isOwner = tileMap.a0F ? tileMap.a0F(p, fD) : (tileMap.h9(fD) && tileMap.fR(fD) === p);
-          if (isOwner) {
-            u32[rowOffsetBuf + (x - minX)] = 0xFFFFFFFF; // Opaque white mask pixel
-            maskPixelCount++;
-          }
-        }
-      }
-
-      offscreenMaskCtx.putImageData(imgData, 0, 0);
-
       // Re-create pattern texture if needed
       if (!state.patternTexture && state.patternImage && state.patternImage.complete) {
         state.patternTexture = offscreenPatternCtx.createPattern(state.patternImage, 'repeat');
       }
 
-      // Composite pattern into offscreenPatternCanvas using 'source-in'
+      offscreenMaskCtx.clearRect(0, 0, bw, bh);
+      offscreenMaskCtx.fillStyle = '#FFFFFF';
+      offscreenMaskCtx.fillRect(0, 0, bw, bh);
+
       offscreenPatternCtx.clearRect(0, 0, bw, bh);
       offscreenPatternCtx.drawImage(offscreenMaskCanvas, 0, 0);
 
@@ -819,23 +798,19 @@
         offscreenPatternCtx.globalCompositeOperation = 'source-over';
       }
 
-      if (maskPixelCount > 0) {
-        lastMaskBbox.minX = minX;
-        lastMaskBbox.minY = minY;
-        lastMaskBbox.maxX = maxX;
-        lastMaskBbox.maxY = maxY;
-        lastTileCountRendered = tileCount;
-      } else {
-        lastTileCountRendered = -1; // Force dirty re-check next frame if 0 pixels were masked
-      }
+      lastMaskBbox.minX = minX;
+      lastMaskBbox.minY = minY;
+      lastMaskBbox.maxX = maxX;
+      lastMaskBbox.maxY = maxY;
+      lastTileCountRendered = tileCount;
     }
 
     // 6. Blit onto World Canvas (ws) at camera offset
-    var ox = context.offsetX;
-    var oy = context.offsetY;
+    var ox = context.offsetX || 0;
+    var oy = context.offsetY || 0;
 
     ws.save();
-    ws.globalAlpha = 0.85;
+    ws.globalAlpha = 0.75;
     ws.drawImage(offscreenPatternCanvas, ox + minX, oy + minY);
     ws.restore();
   }

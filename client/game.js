@@ -2552,7 +2552,7 @@ function cD() {
 }
 
 function a0J() {
-	au.a0K(), ws.setTransform(im, 0, 0, im, 0, 0), ws.imageSmoothingEnabled = im < 3, ws.drawImage(bV.yn, aT.a0L(), aT.a0M()), bS.a0N.wr(), ws.drawImage(a0O, aT.a0L(), aT.a0M()), au.wr(), bQ.wr(), ag.wr(), (aE.ny ? (bk.wr(), bF) : (aO.wr(), aW.wr(),
+	au.a0K(), ws.setTransform(im, 0, 0, im, 0, 0), ws.imageSmoothingEnabled = im < 3, ws.drawImage(bV.yn, aT.a0L(), aT.a0M()), bS.a0N.wr(), ws.drawImage(a0O, aT.a0L(), aT.a0M()),(window.__TERRIX_HOOK_RENDER__&&window.__TERRIX_HOOK_RENDER__(ws,a0O,im,aT.a0L(),aT.a0M())), au.wr(), bQ.wr(), ag.wr(), (aE.ny ? (bk.wr(), bF) : (aO.wr(), aW.wr(),
 		aS.wr(), bF.wr(), ax.wr(), aX.wr(), aT.wr(), aR.wr(), bk.wr(), aV.wr(), aQ.wr(), aN.wr(), aM.wr(), aY.wr(), bh.wr(), aw)).wr(), u.wr()
 }
 

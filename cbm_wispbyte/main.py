@@ -504,15 +504,30 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         is_sandbox = (key_record.get("environment") == "test") or token.startswith("cbm_test_") or (self.headers.get("X-CBM-Environment", "").lower() == "sandbox")
         if not is_sandbox:
+            owner = key_record.get("owner_account", "").strip()
+            owner_acc = db.get_account(owner)
+            is_leader = (
+                owner.lower() in ("b8bbq", "[anti-og] leader") or
+                (owner_acc and (
+                    owner_acc.get("account_name", "").lower() == "b8bbq" or
+                    "[anti-og] leader" in owner_acc.get("display_name", "").lower() or
+                    owner_acc.get("primary_territorial_account", "").lower() == "b8bbq"
+                ))
+            )
+            cost_gold = 0.01 if is_leader else 1.00
+            cost_cents = int(round(cost_gold * 100))
+            key_record["cost_gold"] = cost_gold
+            key_record["is_leader_tier"] = is_leader
+
             owner_balance_cents = key_record.get("owner_balance_cents", 0)
-            if owner_balance_cents < 100:  # Less than 1.00 Gold / 1.00 Credit
+            if owner_balance_cents < cost_cents:
                 return False, None, {
                     "status": 402,
                     "body": {
                         "error": "insufficient_credits",
-                        "message": f"Payment Required: API Key owner '{key_record['owner_account']}' has {owner_balance_cents / 100.0:.2f} API Credits. A minimum balance of 1.00 Credit (1.00 Gold) is required per live request. Deposit Gold in CBM to replenish credits.",
+                        "message": f"Payment Required: API Key owner '{owner}' has {owner_balance_cents / 100.0:.2f} API Credits. A minimum balance of {cost_gold:.2f} Credit ({cost_gold:.2f} Gold) is required per live request. Deposit Gold in CBM to replenish credits.",
                         "credits_available": round(owner_balance_cents / 100.0, 2),
-                        "credit_cost_per_request": 1.00
+                        "credit_cost_per_request": cost_gold
                     }
                 }
 
@@ -531,11 +546,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 headers["X-CBM-Credits-Cost"] = "0.00"
                 headers["X-CBM-Credits-Remaining"] = f"{key_record.get('owner_balance_gold', 0.0):.2f}"
             elif status_code >= 200 and status_code < 300:
-                # Live mode successful response: Charge 1.00 Credit (1.00 Gold) and convert to clan reserves!
-                charged, msg, billing = db.charge_api_credit(key_record["owner_account"], key_record["key_id"], cost_gold=1.0)
+                cost_gold = key_record.get("cost_gold", 1.0)
+                # Live mode successful response: Charge credit and convert to clan reserves!
+                charged, msg, billing = db.charge_api_credit(key_record["owner_account"], key_record["key_id"], cost_gold=cost_gold)
                 if charged:
                     headers["X-CBM-Environment"] = "live"
-                    headers["X-CBM-Credits-Cost"] = "1.00"
+                    headers["X-CBM-Credits-Cost"] = f"{cost_gold:.2f}"
                     headers["X-CBM-Credits-Remaining"] = f"{billing.get('credits_remaining', 0.0):.2f}"
                     headers["X-CBM-Billing"] = "converted_to_clan_reserves"
                     headers["X-CBM-Ledger-Tx"] = billing.get("tx_hash", "")

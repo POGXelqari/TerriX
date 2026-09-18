@@ -1,14 +1,4 @@
 /**
- * TerriX Client Extension Bundle
- * Compiled: 2026-09-18 00:28:59 UTC
- * Active Mods: 01_cosmetics_shop.js
- */
-;(function(window, document) {
-  'use strict';
-  console.log('[TerriX] Initializing client extensions...');
-
-  /* --- Mod: 01_cosmetics_shop.js --- */
-/**
  * ================================================================
  * TerriX Client Official Addon: Cosmetics Shop & Territory Patterns
  * ================================================================
@@ -706,8 +696,5 @@
   } else {
     init();
   }
-
-})(window, document);
-
 
 })(window, document);

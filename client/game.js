@@ -3179,7 +3179,7 @@ return true;}}
 
 function a0J(){scoreSystem.a0K();ws.setTransform(im,0,0,im,0,0);ws.imageSmoothingEnabled=im<3;
 
-ws.drawImage(dialogManager.yn,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());armySystem.getEmojiFromId.wr();ws.drawImage(a0O,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());
+ws.drawImage(dialogManager.yn,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());armySystem.getEmojiFromId.wr();ws.drawImage(a0O,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());if(window.__TERRIX_HOOK_RENDER__)window.__TERRIX_HOOK_RENDER__(ws,a0O,im,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());
 
 scoreSystem.wr();bonusSystem.wr();troops.wr();if(localPlayer.ny){gameMenu.wr();packetReader.wr();account.wr();return;}hoverProcessor.wr();
 
@@ -15606,4 +15606,34 @@ var aei=s1.split(",");if(aei.length<2){console.log("error 266");return;
 var yS=minimapRenderer.f0.yP(s1);
 var fZ=yS.length;this.writeBits(30,fZ);for(var aC=0;aC<fZ;aC++){
 
-this.writeBits(6,yS[aC]);}};}setTimeout(initGame,10000);window.onload=function(){initGame();};    })();
+this.writeBits(6,yS[aC]);}};}setTimeout(initGame,10000);window.onload=function(){initGame();};    
+window.__TERRIX_ENGINE__ = {
+  get localPlayer() { return typeof localPlayer !== 'undefined' ? localPlayer : null; },
+  get playerData() { return typeof playerData !== 'undefined' ? playerData : null; },
+  get tileMap() { return typeof tileMap !== 'undefined' ? tileMap : null; },
+  get dialogManager() { return typeof dialogManager !== 'undefined' ? dialogManager : null; },
+  get ws() { return typeof ws !== 'undefined' ? ws : null; },
+  get a0O() { return typeof a0O !== 'undefined' ? a0O : null; },
+  get aEE() { return typeof aEE !== 'undefined' ? aEE : null; },
+  get gameClock() { return typeof gameClock !== 'undefined' ? gameClock : null; },
+  get clanPanel() { return typeof clanPanel !== 'undefined' ? clanPanel : null; },
+  get hoverHandler() { return typeof hoverHandler !== 'undefined' ? hoverHandler : null; },
+  get camera() { return typeof camera !== 'undefined' ? camera : null; },
+  get im() { return typeof im !== 'undefined' ? im : 1; },
+  onRenderFrameCallbacks: [],
+  onRenderFrame: function(cb) { this.onRenderFrameCallbacks.push(cb); }
+};
+window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
+  if (window.__TERRIX_ENGINE__ && window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length > 0) {
+    for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) {
+      try {
+        window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i]({
+          ws: ws, a0O: a0O, im: im, offsetX: ox, offsetY: oy,
+          localPlayer: localPlayer, playerData: playerData, tileMap: tileMap,
+          dialogManager: dialogManager, gameClock: gameClock, clanPanel: clanPanel
+        });
+      } catch(e) { console.error("[TerriX Engine Hook Error]", e); }
+    }
+  }
+};
+})();

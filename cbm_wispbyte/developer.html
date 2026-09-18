@@ -1017,7 +1017,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
         </div>
 
         <label class="form-label">API Key (Bearer)</label>
-        <input type="password" id="pg-token" class="input-field" placeholder="cbm_live_... or cbm_test_...">
+        <input type="text" id="pg-token" class="input-field" placeholder="cbm_live_... or cbm_test_..." autocomplete="off" spellcheck="false">
 
         <div id="pg-body-wrap" style="display: none;">
           <label class="form-label">JSON Request Body</label>
@@ -1044,47 +1044,49 @@ async def balance(interaction: discord.Interaction, player_name: str):
   <!-- Key Creation Modal -->
   <div class="modal-overlay" id="key-modal">
     <div class="modal-card">
-      <h3 class="modal-title">Create API Key</h3>
-      <p class="modal-subtitle">Generate credentials for your application or Discord bot.</p>
+      <form id="key-create-form" onsubmit="event.preventDefault(); submitKeyCreation();">
+        <h3 class="modal-title">Create API Key</h3>
+        <p class="modal-subtitle">Generate credentials for your application or Discord bot.</p>
 
-      <div class="form-group">
-        <label class="form-label">Account Name</label>
-        <input type="text" id="modal-acc" class="input-field" placeholder="Your CBM account username">
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">6-Digit Access PIN</label>
-        <input type="password" id="modal-pin" class="input-field" placeholder="Security PIN" maxlength="6">
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Application Name</label>
-        <input type="text" id="modal-app" class="input-field" placeholder="e.g. Clan Discord Bot">
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Environment</label>
-        <select id="modal-env" class="input-field">
-          <option value="live">Live Production (1 Credit = 1.00 Gold converted to reserves)</option>
-          <option value="test">Sandbox Test Mode (0 Fee Dry-Run)</option>
-        </select>
-      </div>
-
-      <div id="modal-secret-area" style="display: none;">
-        <div class="secret-box">
-          <div>
-            <div style="font-size: 11px; font-weight: 700; color: #60a5fa; text-transform: uppercase;">Save your secret token:</div>
-            <div class="secret-token-text" id="modal-secret-val"></div>
-          </div>
-          <button class="btn-pill btn-glow" style="padding: 6px 12px; font-size: 12px;" onclick="copySecretToken()">Copy</button>
+        <div class="form-group">
+          <label class="form-label">Account Name</label>
+          <input type="text" id="modal-acc" class="input-field" placeholder="Your CBM account username" autocomplete="username">
         </div>
-        <p style="font-size: 12px; color: var(--danger);">⚠️ This key will never be displayed again. Store it securely!</p>
-      </div>
 
-      <div class="modal-actions">
-        <button class="btn-pill btn-ghost" onclick="closeKeyModal()">Cancel</button>
-        <button class="btn-pill btn-glow" id="btn-modal-submit" onclick="submitKeyCreation()">Issue Key →</button>
-      </div>
+        <div class="form-group">
+          <label class="form-label">6-Digit Access PIN</label>
+          <input type="password" id="modal-pin" class="input-field" placeholder="Security PIN" maxlength="6" autocomplete="current-password">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Application Name</label>
+          <input type="text" id="modal-app" class="input-field" placeholder="e.g. Clan Discord Bot">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Environment</label>
+          <select id="modal-env" class="input-field">
+            <option value="live">Live Production (1 Credit = 1.00 Gold converted to reserves)</option>
+            <option value="test">Sandbox Test Mode (0 Fee Dry-Run)</option>
+          </select>
+        </div>
+
+        <div id="modal-secret-area" style="display: none;">
+          <div class="secret-box">
+            <div>
+              <div style="font-size: 11px; font-weight: 700; color: #60a5fa; text-transform: uppercase;">Save your secret token:</div>
+              <div class="secret-token-text" id="modal-secret-val"></div>
+            </div>
+            <button type="button" class="btn-pill btn-glow" style="padding: 6px 12px; font-size: 12px;" onclick="copySecretToken()">Copy</button>
+          </div>
+          <p style="font-size: 12px; color: var(--danger);">⚠️ This key will never be displayed again. Store it securely!</p>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-pill btn-ghost" onclick="closeKeyModal()">Cancel</button>
+          <button type="submit" class="btn-pill btn-glow" id="btn-modal-submit">Issue Key →</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -1154,11 +1156,23 @@ async def balance(interaction: discord.Interaction, player_name: str):
       }
     }
 
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     function openKeyModal() {
       document.getElementById('modal-secret-area').style.display = 'none';
       document.getElementById('btn-modal-submit').style.display = 'inline-flex';
-      const stored = localStorage.getItem('cbm_active_account') || '';
+      const stored = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (stored) document.getElementById('modal-acc').value = stored;
+      const storedPin = sessionStorage.getItem('cbm_pin') || '';
+      if (storedPin) document.getElementById('modal-pin').value = storedPin;
       document.getElementById('key-modal').classList.add('open');
     }
 
@@ -1188,6 +1202,8 @@ async def balance(interaction: discord.Interaction, player_name: str):
           document.getElementById('btn-modal-submit').style.display = 'none';
           document.getElementById('pg-token').value = data.api_key;
           localStorage.setItem('cbm_active_account', acc);
+          localStorage.setItem('cbm_user', acc);
+          if (pin) sessionStorage.setItem('cbm_pin', pin);
           loadKeysTable(acc, pin);
         } else {
           alert('Error: ' + (data.message || 'Failed to generate key.'));
@@ -1205,7 +1221,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
     }
 
     async function refreshDeveloperOverview() {
-      const acc = localStorage.getItem('cbm_active_account') || '';
+      const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (!acc) return;
       try {
         const res = await fetch(`/api/cbm/dev/overview?account=${encodeURIComponent(acc)}`);
@@ -1220,34 +1236,90 @@ async def balance(interaction: discord.Interaction, player_name: str):
 
     async function loadKeysTable(acc, pin) {
       if (!acc) return;
+      const tbody = document.getElementById('keys-tbody');
+      const pinVal = pin !== undefined ? pin : (sessionStorage.getItem('cbm_pin') || '');
       try {
-        const res = await fetch(`/api/cbm/dev/keys?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pin || '')}`);
+        const res = await fetch(`/api/cbm/dev/keys?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pinVal)}`);
         const data = await res.json();
+
+        if (res.status === 401) {
+          // Inline PIN unlock box for accounts requiring PIN authorization
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 28px 16px;">
+                <div style="max-width: 320px; margin: 0 auto;">
+                  <div style="font-size: 14px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">🔒 Security PIN Required</div>
+                  <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 14px;">Enter your 6-digit PIN to view and manage API keys for <strong>${escapeHtml(acc)}</strong>.</p>
+                  <form onsubmit="event.preventDefault(); unlockKeysWithPin('${escapeHtml(acc)}');" style="display: flex; gap: 8px; justify-content: center;">
+                    <input type="password" id="unlock-pin" class="input-field" maxlength="6" placeholder="6-digit PIN" style="margin-bottom: 0; text-align: center; letter-spacing: 3px; font-weight: 700; width: 140px;" autocomplete="current-password" autofocus>
+                    <button type="submit" class="btn-pill btn-glow" style="padding: 6px 16px;">Unlock →</button>
+                  </form>
+                  <div id="unlock-pin-err" style="color: var(--danger); font-size: 11px; margin-top: 8px; display: none;"></div>
+                </div>
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
         if (res.ok && data.status === 'ok') {
-          const tbody = document.getElementById('keys-tbody');
+          if (pinVal) sessionStorage.setItem('cbm_pin', pinVal);
           if (!data.keys || data.keys.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">No API keys created yet.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 24px; color: var(--text-muted);">No API keys created yet. Click "+ Create New Key" above to generate one.</td></tr>';
             return;
           }
           tbody.innerHTML = data.keys.map(k => `
             <tr>
-              <td><span class="key-token-tag">${k.key_prefix}</span></td>
-              <td><strong>${k.app_name}</strong></td>
-              <td><span class="env-tag env-${k.environment}">${k.environment}</span></td>
+              <td><span class="key-token-tag">${escapeHtml(k.key_prefix)}</span></td>
+              <td><strong>${escapeHtml(k.app_name)}</strong></td>
+              <td><span class="env-tag env-${escapeHtml(k.environment)}">${escapeHtml(k.environment)}</span></td>
               <td>${k.total_requests}</td>
               <td>${k.credits_consumed_gold.toFixed(2)} Gold</td>
               <td>
-                ${k.is_active ? `<button class="btn-pill btn-ghost" style="padding: 4px 8px; font-size: 11px; color: var(--danger);" onclick="revokeKey('${k.key_id}', '${acc}')">Revoke</button>` : '<span style="color: var(--text-muted);">Revoked</span>'}
+                ${k.is_active ? `<button class="btn-pill btn-ghost" style="padding: 4px 8px; font-size: 11px; color: var(--danger);" onclick="revokeKey('${escapeHtml(k.key_id)}', '${escapeHtml(acc)}')">Revoke</button>` : '<span style="color: var(--text-muted);">Revoked</span>'}
               </td>
             </tr>
           `).join('');
+        } else {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 20px;">${escapeHtml(data.message || 'Failed to load keys.')}</td></tr>`;
         }
-      } catch (e) {}
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 20px;">Network error loading API keys.</td></tr>`;
+      }
+    }
+
+    async function unlockKeysWithPin(acc) {
+      const pinEl = document.getElementById('unlock-pin');
+      const errEl = document.getElementById('unlock-pin-err');
+      const pin = (pinEl ? pinEl.value : '').trim();
+      if (!pin) {
+        if (errEl) { errEl.innerText = 'Please enter your 6-digit PIN.'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        const res = await fetch(`/api/cbm/dev/keys?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pin)}`);
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          sessionStorage.setItem('cbm_pin', pin);
+          loadKeysTable(acc, pin);
+        } else {
+          if (errEl) {
+            errEl.innerText = data.message || 'Invalid PIN.';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (e) {
+        if (errEl) {
+          errEl.innerText = 'Network error connecting to CBM server.';
+          errEl.style.display = 'block';
+        }
+      }
     }
 
     async function revokeKey(keyId, acc) {
       if (!confirm(`Are you sure you want to revoke key ${keyId}?`)) return;
-      const pin = prompt('Enter your 6-digit PIN to confirm revocation:') || '';
+      const pin = sessionStorage.getItem('cbm_pin') || prompt('Enter your 6-digit PIN to confirm revocation:') || '';
+      if (!pin) return;
       try {
         const res = await fetch('/api/cbm/dev/keys/revoke', {
           method: 'POST',
@@ -1278,10 +1350,11 @@ async def balance(interaction: discord.Interaction, player_name: str):
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-      const acc = localStorage.getItem('cbm_active_account') || '';
+      const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (acc) {
         refreshDeveloperOverview();
-        loadKeysTable(acc, '');
+        const pin = sessionStorage.getItem('cbm_pin') || '';
+        loadKeysTable(acc, pin);
       }
     });
   </script>

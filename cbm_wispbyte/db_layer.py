@@ -4263,6 +4263,18 @@ class CBMDatabase:
         total_consumed = sum(k.get("credits_consumed_gold", 0.0) for k in keys)
 
         balance_gold = round(acc.get("deposited_cents", 0) / 100.0, 2)
+        is_leader = (
+            owner_account.lower() in ("b8bbq", "[anti-og] leader") or
+            acc.get("account_name", "").lower() == "b8bbq" or
+            "[anti-og] leader" in acc.get("display_name", "").lower() or
+            acc.get("primary_territorial_account", "").lower() == "b8bbq"
+        )
+        cost_gold = 0.01 if is_leader else 1.00
+        rate_note = (
+            "Special Leader Rate: 1 API Request = 0.01 Credit (0.01 Gold) -> Converted to Unencumbered Clan Reserves"
+            if is_leader else
+            "1 API Request = 1.00 Credit (1.00 Gold) -> Converted to Unencumbered Clan Reserves"
+        )
         return {
             "owner_account": owner_account,
             "api_credits": balance_gold,
@@ -4272,7 +4284,9 @@ class CBMDatabase:
             "total_keys_count": len(keys),
             "total_requests": total_requests,
             "total_credits_consumed": round(total_consumed, 2),
-            "rate_conversion_note": "1 API Request = 1.00 Credit (1.00 Gold) -> Converted to Unencumbered Clan Reserves"
+            "cost_per_request_gold": cost_gold,
+            "is_leader_tier": is_leader,
+            "rate_conversion_note": rate_note
         }
 
     # -------------------------------------------------------------------------

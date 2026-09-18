@@ -172,25 +172,70 @@ def assemble_client(active_mods: list[str]):
     """Packages game.js, styles.css, assets, and index.html into client/."""
     log("Assembling client distribution bundle in client/...")
     
-    # 1. Sync game.js from territorial_deobfuscated_latest.js
+    # 1. Sync game.js from territorial_deobfuscated_latest.js with TerriX Engine hooks
     src_game_js = os.path.join(ROOT_DIR, "territorial_deobfuscated_latest.js")
     dst_game_js = os.path.join(CLIENT_DIR, "game.js")
-    shutil.copyfile(src_game_js, dst_game_js)
+    with open(src_game_js, "r", encoding="utf-8") as f:
+        game_code = f.read()
+
+    # Inject render frame hook after a0O draw
+    render_target = "ws.drawImage(a0O,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());"
+    render_hook = "ws.drawImage(a0O,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());if(window.__TERRIX_HOOK_RENDER__)window.__TERRIX_HOOK_RENDER__(ws,a0O,im,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());"
+    if render_target in game_code:
+        game_code = game_code.replace(render_target, render_hook, 1)
+
+    bridge_code = """
+window.__TERRIX_ENGINE__ = {
+  get localPlayer() { return typeof localPlayer !== 'undefined' ? localPlayer : null; },
+  get playerData() { return typeof playerData !== 'undefined' ? playerData : null; },
+  get tileMap() { return typeof tileMap !== 'undefined' ? tileMap : null; },
+  get dialogManager() { return typeof dialogManager !== 'undefined' ? dialogManager : null; },
+  get ws() { return typeof ws !== 'undefined' ? ws : null; },
+  get a0O() { return typeof a0O !== 'undefined' ? a0O : null; },
+  get aEE() { return typeof aEE !== 'undefined' ? aEE : null; },
+  get gameClock() { return typeof gameClock !== 'undefined' ? gameClock : null; },
+  get clanPanel() { return typeof clanPanel !== 'undefined' ? clanPanel : null; },
+  get hoverHandler() { return typeof hoverHandler !== 'undefined' ? hoverHandler : null; },
+  get camera() { return typeof camera !== 'undefined' ? camera : null; },
+  get im() { return typeof im !== 'undefined' ? im : 1; },
+  onRenderFrameCallbacks: [],
+  onRenderFrame: function(cb) { this.onRenderFrameCallbacks.push(cb); }
+};
+window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
+  if (window.__TERRIX_ENGINE__ && window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length > 0) {
+    for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) {
+      try {
+        window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i]({
+          ws: ws, a0O: a0O, im: im, offsetX: ox, offsetY: oy,
+          localPlayer: localPlayer, playerData: playerData, tileMap: tileMap,
+          dialogManager: dialogManager, gameClock: gameClock, clanPanel: clanPanel
+        });
+      } catch(e) { console.error("[TerriX Engine Hook Error]", e); }
+    }
+  }
+};
+"""
+    if "})();" in game_code:
+        idx = game_code.rfind("})();")
+        game_code = game_code[:idx] + bridge_code + game_code[idx:]
+
+    with open(dst_game_js, "w", encoding="utf-8") as f:
+        f.write(game_code)
     
     # 2. Sync styles.css
     src_css = os.path.join(ROOT_DIR, "styles.css")
     dst_css = os.path.join(CLIENT_DIR, "styles.css")
     shutil.copyfile(src_css, dst_css)
     
-    # 3. Sync assets
+    # 3. Sync assets (recursive)
     src_assets = os.path.join(ROOT_DIR, "assets")
     dst_assets = os.path.join(CLIENT_DIR, "assets")
-    os.makedirs(dst_assets, exist_ok=True)
-    for a in os.listdir(src_assets):
-        sp = os.path.join(src_assets, a)
-        dp = os.path.join(dst_assets, a)
-        if os.path.isfile(sp):
-            shutil.copyfile(sp, dp)
+    for root, dirs, files in os.walk(src_assets):
+        rel_dir = os.path.relpath(root, src_assets)
+        target_dir = os.path.join(dst_assets, rel_dir) if rel_dir != "." else dst_assets
+        os.makedirs(target_dir, exist_ok=True)
+        for f_name in files:
+            shutil.copyfile(os.path.join(root, f_name), os.path.join(target_dir, f_name))
 
     # 4. Generate client/index.html with mod script injection
     mod_script_tag = '  <script src="game.mods.js"></script>\n' if active_mods else ''

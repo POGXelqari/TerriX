@@ -1030,9 +1030,9 @@
           node.lastWarTime = now;
         }
 
-        // War front is active ONLY if an attack wave is moving or occurred within the last 6 seconds
-        var isWarActive = (now - node.lastWarTime < 6000);
-        var targetAlpha = isWarActive ? 1.0 : 0.0;
+        // Active player border front line rendering
+        var isWarActive = (now - node.lastWarTime < 10000) || (p1ActiveAttackTroops > 0 || enemyActiveAttackTroops > 0);
+        var targetAlpha = 1.0;
 
         // 1. Calculate true arithmetic centroid of the border cluster for exact placement
         var sumX = 0, sumY = 0;

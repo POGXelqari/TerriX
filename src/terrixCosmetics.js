@@ -894,41 +894,59 @@
     return val.toString();
   }
 
-  // Real-time Active War Tracker
+  // Pair-Specific Active War Tracker
   var lastTileCounts = {};
-  var activeWarTimestamp = {};
+  var lastTroopCounts = {};
+  var activeWarPairTimestamps = {};
 
-  function trackActiveWars(pd, ku) {
-    if (!pd || !pd.hN) return;
+  function trackActivePairWars(pd, ku) {
+    if (!pd || !pd.hN || !pd.hb) return;
     var now = Date.now();
+
+    // Detect per-player land and troop changes
+    var activePlayers = [];
     for (var i = 0; i < ku; i++) {
-      var cur = pd.hN[i] || 0;
-      var prev = lastTileCounts[i] || 0;
-      if (prev > 0 && cur !== prev) {
-        activeWarTimestamp[i] = now;
+      if (pd.a5a && pd.a5a[i] !== 0) continue; // skip bots
+      var curHN = pd.hN[i] || 0;
+      var prevHN = lastTileCounts[i] || 0;
+      var curHB = pd.hb[i] || 0;
+      var prevHB = lastTroopCounts[i] || 0;
+
+      if (prevHN > 0 && curHN !== prevHN) {
+        activePlayers.push(i);
       }
-      lastTileCounts[i] = cur;
+      lastTileCounts[i] = curHN;
+      lastTroopCounts[i] = curHB;
+    }
+
+    // Mark pair timestamp when two adjacent players are actively fighting
+    if (activePlayers.length >= 2) {
+      for (var a = 0; a < activePlayers.length; a++) {
+        for (var b = a + 1; b < activePlayers.length; b++) {
+          var p1 = activePlayers[a];
+          var p2 = activePlayers[b];
+          var pairKey = Math.min(p1, p2) + '_' + Math.max(p1, p2);
+          activeWarPairTimestamps[pairKey] = now;
+        }
+      }
     }
   }
 
   // Dual-Sided Border-Facing Rotating Frontline Troop Telemetry Engine
   function renderFrontlineTelemetry(context, g, pd, p, ox, oy) {
-    if (!pd || !pd.hF || !pd.zp || !pd.a5a) return;
+    if (!pd || !pd.hF || !pd.a5a) return;
     var ws = context.ws;
     if (!ws) return;
 
     var ku = (g && typeof g.ku === 'number') ? g.ku : (pd.ku || 0);
 
-    // Track real-time land conquests
-    trackActiveWars(pd, ku);
+    // Track real-time pair-specific land conquests
+    trackActivePairWars(pd, ku);
 
     // Filter out bots (a5a[p] !== 0) and eliminated players
     if (pd.a5a[p] !== 0 || (pd.nU && pd.nU[p] === 0)) return;
 
-    // Check if local player is currently in an active war (land changing within last 1.5s)
     var now = Date.now();
-    var pWarTime = activeWarTimestamp[p] || 0;
-    var pInWar = (now - pWarTime) < 1500;
 
     var mapW = (context.a0O && context.a0O.width) ? context.a0O.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0);
     if (mapW <= 0) return;
@@ -939,7 +957,8 @@
     var borderTiles = pd.hF[p];
     if (!borderTiles || borderTiles.length === 0) return;
 
-    var pTroopVal = pd.zp[p] || 0;
+    // Use live total troop count (pd.hb)
+    var pTroopVal = (pd.hb && typeof pd.hb[p] === 'number') ? pd.hb[p] : (pd.zp ? (pd.zp[p] || 0) : 0);
     if (pTroopVal <= 0) return;
     var pTroopStr = formatTroops(pTroopVal);
 
@@ -960,9 +979,10 @@
         var nOwner = tm.fR(nPos);
         // Exclude neutral land (0), bots (a5a !== 0), and eliminated players
         if (nOwner !== p && nOwner > 0 && nOwner < ku && pd.a5a[nOwner] === 0 && (pd.nU && pd.nU[nOwner] !== 0)) {
-          // Check if either player is in active war (land changing within 1.5s)
-          var p2WarTime = activeWarTimestamp[nOwner] || 0;
-          if (pInWar || (now - p2WarTime) < 1500) {
+          // MUST be in an active war specifically between p and nOwner (land changed in last 1.6s)
+          var pairKey = Math.min(p, nOwner) + '_' + Math.max(p, nOwner);
+          var pairWarTime = activeWarPairTimestamps[pairKey] || 0;
+          if ((now - pairWarTime) < 1600) {
             p2 = nOwner;
             dx = dirs[nIdx].x;
             dy = dirs[nIdx].y;
@@ -992,7 +1012,8 @@
       var cluster = warClusters[enemyId];
       if (!cluster || cluster.tiles.length < 2) continue;
 
-      var p2TroopVal = pd.zp[enemyId] || 0;
+      // Use opponent's live total troop count (pd.hb)
+      var p2TroopVal = (pd.hb && typeof pd.hb[enemyId] === 'number') ? pd.hb[enemyId] : (pd.zp ? (pd.zp[enemyId] || 0) : 0);
       if (p2TroopVal <= 0) continue;
       var p2TroopStr = formatTroops(p2TroopVal);
 

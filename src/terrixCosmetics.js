@@ -720,15 +720,17 @@
 
     // Resolve live game engine references safely from window global scope
     var g = window.game || window.aE || null;
-    var pd = window.playerData || window.ah || null;
+    var pd = context.playerData || window.playerData || window.ah || null;
 
-    // 1. Must be in active match
-    var gState = g ? ((typeof g.gameState === 'number') ? g.gameState : (g.a2G || 0)) : 2;
+    // 1. Must be in active match (gameState === 2)
+    var gState = g ? ((typeof g.gameState === 'number') ? g.gameState : ((typeof g.a2G === 'number') ? g.a2G : 0)) : 0;
+    if (gState !== 2) return;
 
     // 2. Resolve player ID and tile count
-    var p = g ? ((typeof g.playerId === 'number') ? g.playerId : (g.fJ || 0)) : 0;
-    var pTerritories = pd ? (pd.playerTerritories || pd.hN) : null;
-    var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 1;
+    var p = g ? ((typeof g.playerId === 'number') ? g.playerId : ((typeof g.fJ === 'number') ? g.fJ : 0)) : 0;
+    var pTerritories = pd ? (pd.jS ? pd.hN : (pd.playerTerritories || pd.hN)) : null;
+    var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 0;
+    if (tileCount <= 0) return;
 
     // 3. Handle trial state
     var canUse = state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active);
@@ -741,23 +743,18 @@
       }
     }
 
-    // 4. Bounding Box & Map Bounds Fallback
-    var minXArr = pd ? (pd.minX || pd.botExpansionAi) : null;
-    var minYArr = pd ? (pd.minY || pd.botTeamTargetCoordinator) : null;
-    var maxXArr = pd ? (pd.maxX || pd.BotExpansionAi) : null;
-    var maxYArr = pd ? (pd.maxY || pd.BotTeamTargetCoordinator) : null;
+    // 4. Bounding Box Lookup
+    var minXArr = pd ? (pd.jS || pd.minX) : null;
+    var minYArr = pd ? (pd.jU || pd.minY) : null;
+    var maxXArr = pd ? (pd.jT || pd.maxX) : null;
+    var maxYArr = pd ? (pd.jV || pd.maxY) : null;
 
     var minX = minXArr ? (minXArr[p] || 0) : 0;
     var minY = minYArr ? (minYArr[p] || 0) : 0;
     var maxX = maxXArr ? (maxXArr[p] || 0) : 0;
     var maxY = maxYArr ? (maxYArr[p] || 0) : 0;
 
-    if (maxX <= minX || maxY <= minY) {
-      minX = 0;
-      minY = 0;
-      maxX = 500;
-      maxY = 500;
-    }
+    if (maxX <= minX || maxY <= minY) return;
 
     var bw = maxX - minX + 1;
     var bh = maxY - minY + 1;
@@ -781,8 +778,33 @@
       }
 
       offscreenMaskCtx.clearRect(0, 0, bw, bh);
-      offscreenMaskCtx.fillStyle = '#FFFFFF';
-      offscreenMaskCtx.fillRect(0, 0, bw, bh);
+
+      var mapW = (context.a0O && context.a0O.width) ? context.a0O.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0);
+      var tm = context.tileMap || window.tileMap || window.ad || null;
+      var hasA0F = tm && typeof tm.a0F === 'function';
+      var hasFR = tm && typeof tm.fR === 'function';
+
+      if (tm && (hasA0F || hasFR) && mapW > 0) {
+        var maskImgData = offscreenMaskCtx.createImageData(bw, bh);
+        var maskBuf32 = new Uint32Array(maskImgData.data.buffer);
+
+        for (var py = minY; py <= maxY; py++) {
+          var mapRowOffset = 4 * py * mapW;
+          var localRowOffset = (py - minY) * bw;
+          for (var px = minX; px <= maxX; px++) {
+            var fD = mapRowOffset + 4 * px;
+            var isOwned = hasA0F ? tm.a0F(p, fD) : (tm.fR(fD) === p);
+            if (isOwned) {
+              maskBuf32[localRowOffset + (px - minX)] = 0xFFFFFFFF;
+            }
+          }
+        }
+        offscreenMaskCtx.putImageData(maskImgData, 0, 0);
+      } else {
+        // Fallback if tileMap is unavailable
+        offscreenMaskCtx.fillStyle = '#FFFFFF';
+        offscreenMaskCtx.fillRect(0, 0, bw, bh);
+      }
 
       offscreenPatternCtx.clearRect(0, 0, bw, bh);
       offscreenPatternCtx.drawImage(offscreenMaskCanvas, 0, 0);
@@ -805,8 +827,8 @@
     }
 
     // 6. Blit onto World Canvas (ws) at camera offset
-    var ox = context.offsetX || 0;
-    var oy = context.offsetY || 0;
+    var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
+    var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
 
     ws.save();
     ws.globalAlpha = 0.75;

@@ -813,8 +813,21 @@
       offscreenPatternCtx.drawImage(offscreenMaskCanvas, 0, 0);
 
       if (state.patternImage && state.patternImage.complete) {
+        offscreenPatternCtx.imageSmoothingEnabled = true;
+        offscreenPatternCtx.imageSmoothingQuality = 'high';
         offscreenPatternCtx.globalCompositeOperation = 'source-in';
-        offscreenPatternCtx.drawImage(state.patternImage, 0, 0, bw, bh);
+
+        var imgW = state.patternImage.width || 512;
+        var imgH = state.patternImage.height || 512;
+
+        // High-quality uniform scale preserving aspect ratio (cover fit)
+        var scale = Math.max(bw / imgW, bh / imgH);
+        var drawW = imgW * scale;
+        var drawH = imgH * scale;
+        var drawX = (bw - drawW) / 2;
+        var drawY = (bh - drawH) / 2;
+
+        offscreenPatternCtx.drawImage(state.patternImage, drawX, drawY, drawW, drawH);
         offscreenPatternCtx.globalCompositeOperation = 'source-over';
       }
 
@@ -830,7 +843,9 @@
     var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
 
     ws.save();
-    ws.globalAlpha = 0.75;
+    ws.imageSmoothingEnabled = true;
+    ws.imageSmoothingQuality = 'high';
+    ws.globalAlpha = 0.88;
     ws.drawImage(offscreenPatternCanvas, ox + minX, oy + minY);
     ws.restore();
   }

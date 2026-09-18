@@ -171,6 +171,16 @@ async function patchGameCode() {
 		"indent_empty_lines": false
 	});
 
+	const renderHookRegex = /ws\.drawImage\(a0O,\s*([^,]+),\s*([^)]+)\);/;
+	if (renderHookRegex.test(script)) {
+		script = script.replace(renderHookRegex, (match, ox, oy) => {
+			return `${match}if(window.__TERRIX_HOOK_RENDER__)window.__TERRIX_HOOK_RENDER__(ws,a0O,im,${ox},${oy});`;
+		});
+		console.log("Successfully injected TerriX render hook into game script.");
+	} else {
+		console.warn("Could not find ws.drawImage(a0O, ...) in game script.");
+	}
+
 	fs.writeFileSync("./build/game.js", script);
 	console.log("Wrote ./build/game.js");
 }

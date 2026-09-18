@@ -3667,7 +3667,30 @@ function a4V() {
 		},
 		getAccountUsername: function() {
 			return "undefined" != typeof connectionMgr && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105] && connectionMgr.buffer.data[105].value || ""
+		},
+		onRenderFrameCallbacks: [],
+		onRenderFrame: function(cb) {
+			this.onRenderFrameCallbacks.push(cb)
 		}
+	}, window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
+		if (window.__TERRIX_ENGINE__ && 0 < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length)
+			for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) try {
+				window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i]({
+					ws: ws,
+					a0O: a0O,
+					im: im,
+					offsetX: ox,
+					offsetY: oy,
+					localPlayer: "undefined" != typeof localPlayer ? localPlayer : null,
+					playerData: "undefined" != typeof playerData ? playerData : null,
+					tileMap: "undefined" != typeof tileMap ? tileMap : null,
+					dialogManager: "undefined" != typeof dialogManager ? dialogManager : null,
+					gameClock: "undefined" != typeof gameClock ? gameClock : null,
+					clanPanel: "undefined" != typeof clanPanel ? clanPanel : null
+				})
+			} catch (e) {
+				console.error("[TerriX Engine Hook Error]", e)
+			}
 	}, this.a2z = function(username) {
 		var fd, fO = username.indexOf("[");
 		return !(fO < 0) && 1 < (fd = username.indexOf("]")) - fO && fd - fO <= 8 ? username.substring(fO + 1, fd).toUpperCase().trim() : null

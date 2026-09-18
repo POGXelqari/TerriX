@@ -25,7 +25,7 @@
   var CBM_API_BASE = "https://cbm.wispbyte.org/api/v1";
   var VAULT_ACCOUNT = "DdcBC";
   var HELLO_KITTY_PRICE = 500;
-  var MAX_TRIAL_MATCHES = 25;
+  var MAX_TRIAL_MATCHES = Infinity;
 
   // State Management
   var state = {
@@ -590,27 +590,23 @@
 
     // Perk Banner
     if (trial.eligible) {
-      var rem = (typeof trial.matchesRemaining === 'number') ? trial.matchesRemaining : MAX_TRIAL_MATCHES;
       perkContainer.innerHTML = [
         '<div class="terrix-perk-banner">',
         '  <h4>Verified CBM Donor Perk Active</h4>',
-        '  <p>Your verified account has donated <b>' + trial.totalDonated.toFixed(1) + ' Gold</b> to the Clan Bank. You qualify for a free <b>25-match trial</b> of the Hello Kitty territory pattern.</p>',
-        (rem > 0
-          ? '<button class="terrix-action-btn gold" id="tx-activate-trial-btn">' +
-              (trial.active ? ('Trial Active (' + rem + '/' + MAX_TRIAL_MATCHES + ' matches left)') : ('Activate Free Trial (' + rem + '/' + MAX_TRIAL_MATCHES + ' Left)')) +
-            '</button>'
-          : '<span style="color:#aaa; font-size:12px;">Trial completed (25/25 matches used). Unlock permanently below!</span>'
-        ),
+        '  <p>Your verified account has donated <b>' + trial.totalDonated.toFixed(1) + ' Gold</b> to the Clan Bank. You qualify for an <b>Unlimited Free Trial</b> of the Hello Kitty territory pattern.</p>',
+        '  <button class="terrix-action-btn gold" id="tx-activate-trial-btn">' +
+             (trial.active ? 'Trial Active (Unlimited Matches)' : 'Activate Unlimited Free Trial') +
+           '</button>',
         '</div>'
       ].join('\n');
 
       var trialBtn = document.getElementById('tx-activate-trial-btn');
-      if (trialBtn && rem > 0) {
+      if (trialBtn) {
         trialBtn.onclick = function() {
           trial.active = true;
           state.equippedPattern = 'hello_kitty';
           savePersistedState();
-          showNotification("Hello Kitty Pattern equipped via Verified CBM Trial (" + rem + " matches remaining)!");
+          showNotification("Hello Kitty Pattern equipped via Verified CBM Unlimited Trial!");
           updateShopUI();
         };
       }
@@ -725,9 +721,7 @@
     var dialogManager = context.dialogManager;
     var gameClock = context.gameClock;
     var ws = context.ws;
-    var aEE = window.__TERRIX_ENGINE__.aEE;
-
-    if (!localPlayer || !playerData || !tileMap || !dialogManager || !gameClock || !ws || !aEE) return;
+    if (!localPlayer || !playerData || !tileMap || !dialogManager || !gameClock || !ws) return;
 
     // 1. Must be alive and in active match (a2G === 1)
     if (localPlayer.a2G !== 1) {

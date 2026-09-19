@@ -893,7 +893,7 @@
     var bQz = (window.bQ && window.bQ.z) ? window.bQ.z : (typeof bQ !== 'undefined' && bQ ? bQ.z : null);
     if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return staticAttackMap;
 
-    var bp = window.bP || (typeof bP !== 'undefined' ? bP : null);
+    var totalTiles = mapW * mapW;
 
     for (var i = 0; i < bQz.mk; i++) {
       var attackerId = bQz.mo[i] >> 3;
@@ -906,19 +906,7 @@
       // Extract target defender from path waypoints (scanning from destination backwards to origin)
       for (var c = path.length - 1; c >= 0; c--) {
         var rawWaypoint = path[c];
-        var tileIdx = rawWaypoint;
-        if (bp && typeof bp.jJ === 'function' && typeof bp.jK === 'function') {
-          try {
-            var iv = bp.jJ(rawWaypoint);
-            if (typeof iv === 'number' && !isNaN(iv)) {
-              var kVal = bp.jK(iv);
-              if (typeof kVal === 'number' && !isNaN(kVal)) {
-                tileIdx = kVal;
-              }
-            }
-          } catch (e) {}
-        }
-        var byteOffset = tileIdx * 4;
+        var byteOffset = (rawWaypoint < totalTiles) ? (rawWaypoint * 4) : rawWaypoint;
         var owner = tm.fR(byteOffset);
         if (typeof owner === 'number' && owner >= 0 && owner < ku && owner !== attackerId) {
           targetPlayer = owner;
@@ -951,7 +939,7 @@
     var game = window.aE || context.game || g || null;
     var ku = (game && typeof game.ku === 'number') ? game.ku : (pd.a5a ? pd.a5a.length : 512);
 
-    var mapW = (context.a0O && context.a0O.width) ? context.a0O.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0);
+    var mapW = (window.bV && window.bV.fk) ? window.bV.fk : ((context.a0O && context.a0O.width) ? context.a0O.width : 0);
     if (mapW <= 0) return;
 
     var tm = context.tileMap || window.tileMap || window.ad || null;
@@ -970,6 +958,7 @@
     for (var kKey in activeKeysThisFrame) delete activeKeysThisFrame[kKey];
     var now = Date.now();
     var step = mapW * 4;
+    var fX = window.bj ? window.bj.fX : null;
 
     // Loop through ALL active players (p1) to render frontline telemetry for ALL active wars
     for (var p1 = 0; p1 < ku; p1++) {
@@ -1019,6 +1008,9 @@
       for (var k = 0; k < p2Keys.length; k++) {
         var enemyId = parseInt(p2Keys[k], 10);
 
+        // Teammate / Peace check: Skip teammate borders completely
+        if (fX && fX[p1] !== 0 && fX[p1] === fX[enemyId]) continue;
+
         var cluster = warClusters[enemyId];
         if (!cluster || cluster.tiles.length < 2) continue;
 
@@ -1047,8 +1039,8 @@
           node.lastWarTime = now;
         }
 
-        // War front is active ONLY if an attack wave is moving or occurred within the last 8 seconds
-        var isWarActive = (now - node.lastWarTime < 8000);
+        // War front is active ONLY if an attack wave is moving or occurred within the last 15 seconds
+        var isWarActive = (now - node.lastWarTime < 15000);
         var targetAlpha = isWarActive ? 1.0 : 0.0;
 
         if (!isWarActive) {
@@ -1106,11 +1098,11 @@
 
         if (node.alpha < 0.02) continue; // Skip rendering if faded out
 
-        // Accurate screen-space canvas viewport culling (node.x and node.y are already in canvas pixels)
+        // Accurate screen-space canvas viewport culling (node.x * im is screen pixels)
         var canvasW = ws.canvas ? ws.canvas.width : 1920;
         var canvasH = ws.canvas ? ws.canvas.height : 1080;
-        var screenX = node.x;
-        var screenY = node.y;
+        var screenX = node.x * im;
+        var screenY = node.y * im;
         if (screenX < -200 || screenX > canvasW + 200 || screenY < -200 || screenY > canvasH + 200) continue;
 
         var frontLength = cluster.tiles.length;

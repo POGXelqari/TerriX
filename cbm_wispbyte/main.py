@@ -84,6 +84,9 @@ def load_static_cache():
         ("vault.html", "text/html; charset=utf-8"),
         ("developer.html", "text/html; charset=utf-8"),
         ("election.html", "text/html; charset=utf-8"),
+        ("product.html", "text/html; charset=utf-8"),
+        ("widget.html", "text/html; charset=utf-8"),
+        ("widget.js", "application/javascript; charset=utf-8"),
         ("cbm_discord_sdk.py", "text/x-python; charset=utf-8"),
         ("cbm-logo.png", "image/png"),
     ]
@@ -283,11 +286,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 30.0
 
-    def _apply_security_headers(self):
+    def _apply_security_headers(self, allow_framing: bool = False):
         """Applies OWASP-recommended HTTP security headers to protect against common attacks."""
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        if not allow_framing:
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        frame_ancestor = "*" if allow_framing else "'self'"
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self' 'unsafe-inline' https://api.dicebear.com https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
@@ -296,14 +301,14 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: https:; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "frame-ancestors 'self';"
+            f"frame-ancestors {frame_ancestor};"
         )
 
-    def _send_cached_asset(self, asset_key: str, download_filename: Optional[str] = None):
+    def _send_cached_asset(self, asset_key: str, download_filename: Optional[str] = None, allow_framing: bool = False):
         asset = _STATIC_CACHE.get(asset_key)
         if not asset:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            return self._send_file(os.path.join(base_dir, asset_key), download_filename=download_filename)
+            return self._send_file(os.path.join(base_dir, asset_key), download_filename=download_filename, allow_framing=allow_framing)
 
         inm = self.headers.get("If-None-Match", "")
         if inm and asset["etag"] in inm:
@@ -312,7 +317,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 self.send_header("ETag", asset["etag"])
                 self.send_header("Cache-Control", "public, max-age=300")
                 self.send_header("Access-Control-Allow-Origin", "*")
-                self._apply_security_headers()
+                self._apply_security_headers(allow_framing=allow_framing)
                 self.end_headers()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
@@ -329,7 +334,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             self.send_header("ETag", asset["etag"])
             self.send_header("Cache-Control", "public, max-age=300")
             self.send_header("Access-Control-Allow-Origin", "*")
-            self._apply_security_headers()
+            self._apply_security_headers(allow_framing=allow_framing)
 
             if supports_gzip:
                 self.send_header("Content-Encoding", "gzip")
@@ -386,7 +391,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         except Exception as e:
             print(f"[!] Error sending cached JSON bytes: {e}")
 
-    def _send_file(self, file_path: str, content_type: str = "text/html; charset=utf-8", download_filename: Optional[str] = None):
+    def _send_file(self, file_path: str, content_type: str = "text/html; charset=utf-8", download_filename: Optional[str] = None, allow_framing: bool = False):
         if not os.path.exists(file_path):
             self.send_error(404, "Asset not found")
             return
@@ -399,7 +404,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Access-Control-Allow-Origin", "*")
-            self._apply_security_headers()
+            self._apply_security_headers(allow_framing=allow_framing)
             self.end_headers()
             self.wfile.write(content)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -509,9 +514,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             is_leader = (
                 owner.lower() in ("b8bbq", "[anti-og] leader") or
                 (owner_acc and (
-                    owner_acc.get("account_name", "").lower() == "b8bbq" or
-                    "[anti-og] leader" in owner_acc.get("display_name", "").lower() or
-                    owner_acc.get("primary_territorial_account", "").lower() == "b8bbq"
+                    (owner_acc.get("account_name") or "").lower() == "b8bbq" or
+                    "[anti-og] leader" in (owner_acc.get("display_name") or "").lower() or
+                    (owner_acc.get("primary_territorial_account") or "").lower() == "b8bbq"
                 ))
             )
             cost_gold = 0.01 if is_leader else 1.00
@@ -591,6 +596,32 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         elif path in ("/election", "/election.html", "/votes", "/campaign"):
             return self._send_cached_asset("election.html")
+
+        elif path in ("/product", "/product.html", "/checkout", "/pay"):
+            return self._send_cached_asset("product.html")
+
+        elif path in ("/widget.js", "/widget"):
+            return self._send_cached_asset("widget.js")
+
+        elif path in ("/widget.html", "/embed"):
+            return self._send_cached_asset("widget.html", allow_framing=True)
+
+        elif path.startswith("/assets/products/"):
+            fname = path[len("/assets/products/"):].strip("/")
+            if fname and "/" not in fname and "\\" not in fname and not fname.startswith("."):
+                fpath = os.path.join(base_dir, "assets", "products", fname)
+                if os.path.isfile(fpath):
+                    ext = os.path.splitext(fname)[1].lower()
+                    mimes = {
+                        ".png": "image/png",
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".webp": "image/webp",
+                        ".gif": "image/gif",
+                        ".svg": "image/svg+xml"
+                    }
+                    return self._send_file(fpath, content_type=mimes.get(ext, "application/octet-stream"))
+            return self._send_json(404, {"status": "error", "message": "Product image not found."})
 
         # Discord Bot SDK Download
         elif path in ("/api/cbm/dev/sdk/download", "/cbm_discord_sdk.py", "/sdk/discord", "/download/discord-sdk"):
@@ -852,6 +883,17 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             keys = db.list_api_keys(acc_name)
             return self._send_json(200, {"status": "ok", "keys": keys})
 
+        elif path == "/api/cbm/dev/products":
+            acc_name = params.get("account_name") or params.get("account") or params.get("name") or ""
+            pin = params.get("pin") or ""
+            if not acc_name:
+                return self._send_json(400, {"status": "error", "message": "account_name is required."})
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to view products."})
+            products = db.list_products_by_owner(acc_name, include_archived=True)
+            return self._send_json(200, {"status": "ok", "products": products})
+
         # --- Public Scoped REST API v1 (GET Endpoints) ---
         elif path.startswith("/api/v1/"):
             # 1. Live Bank Status Telemetry
@@ -994,6 +1036,34 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         }
                         return self._send_api_v1_json(200, {"status": "ok", "api_version": "v1.0", "member": clean_acc}, key_record=key_rec)
 
+            # 5. Product Details & Order Status
+            elif path.startswith("/api/v1/products/"):
+                sub = path[len("/api/v1/products/"):].strip("/")
+                if sub == "order/status":
+                    order_id = params.get("order_id", "").strip()
+                    if not order_id:
+                        return self._send_json(400, {"status": "error", "message": "order_id parameter required."})
+                    order = db.get_product_order(order_id)
+                    if not order:
+                        return self._send_json(404, {"error": "not_found", "message": f"Order '{order_id}' not found."})
+                    return self._send_json(200, {"status": "ok", "order": order})
+                else:
+                    product_id = sub
+                    prod = db.get_product(product_id)
+                    if not prod or not prod.get("is_active"):
+                        return self._send_json(404, {"error": "not_found", "message": f"Product '{product_id}' not found or inactive."})
+                    half = round(prod["price_gold"] * 0.5, 2)
+                    return self._send_json(200, {
+                        "status": "ok",
+                        "product": prod,
+                        "reserve_split": {
+                            "seller_percent": 50.0,
+                            "seller_gold": half,
+                            "reserve_cushion_percent": 50.0,
+                            "reserve_cushion_gold": half
+                        }
+                    })
+
             return self._send_json(404, {"error": "endpoint_not_found", "message": f"API v1 route '{path}' does not exist."})
 
         # 6. Fallback: Serve existing static file from local directory if present
@@ -1030,6 +1100,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         path = parsed[0].rstrip("/")
 
         # 1. Payload size boundaries (Anti-DoS / OOM protection)
+        max_allowed_len = 5242880 if path == "/api/cbm/dev/products/upload-image" else 65536
         try:
             length = int(self.headers.get("Content-Length", 0))
         except (ValueError, TypeError):
@@ -1038,13 +1109,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         if length < 0:
             return self._send_json(400, {"status": "error", "message": "Negative Content-Length header is not permitted."})
 
-        if length > 65536:  # 64 KB maximum payload
+        if length > max_allowed_len:
             try:
-                if length <= 524288:
+                if length <= 10485760:
                     _ = self.rfile.read(length)
             except Exception:
                 pass
-            return self._send_json(413, {"status": "error", "message": "Payload Too Large: Maximum permitted request payload is 64KB."}, headers={"Connection": "close"})
+            return self._send_json(413, {"status": "error", "message": f"Payload Too Large: Maximum permitted request payload is {max_allowed_len // 1024}KB."}, headers={"Connection": "close"})
 
         raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
         try:
@@ -1072,7 +1143,11 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             "/api/cbm/loan/request",
             "/api/cbm/loan/repay",
             "/api/cbm/election/claim",
-            "/api/cbm/votes/claim"
+            "/api/cbm/votes/claim",
+            "/api/v1/products/order/pay-direct",
+            "/api/v1/products/order/pay-balance",
+            "/api/cbm/dev/products/create",
+            "/api/cbm/dev/products/upload-image"
         }
         if path in sensitive_routes:
             allowed, retry_after = rate_limiter.check_ip_rate_limit(client_ip, limit=30, window_seconds=60.0)
@@ -1994,6 +2069,152 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             else:
                 return self._send_json(400, {"status": "error", "message": msg})
 
+        elif path == "/api/cbm/dev/products/create":
+            acc_name = body.get("account_name", "").strip()
+            pin = body.get("pin", "")
+            name = body.get("name", "").strip()
+            description = body.get("description", "").strip()
+            try:
+                price_gold = float(body.get("price_gold", 0))
+            except (ValueError, TypeError):
+                price_gold = 0.0
+            image_url = body.get("image_url", "").strip()
+            callback_url = body.get("callback_url", "").strip()
+            webhook_url = body.get("webhook_url", "").strip()
+
+            if not acc_name or not name:
+                return self._send_json(400, {"status": "error", "message": "account_name and name are required."})
+
+            if price_gold < 100.0:
+                return self._send_json(400, {"status": "error", "message": "Products must cost at least 100.00 Gold."})
+
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to create products."})
+
+            ok, prod_or_err = db.create_product(
+                owner_account=acc_name,
+                name=name,
+                description=description,
+                price_gold=price_gold,
+                image_url=image_url,
+                callback_url=callback_url,
+                webhook_url=webhook_url
+            )
+            if ok:
+                return self._send_json(200, {
+                    "status": "ok",
+                    "message": "Product created successfully.",
+                    "product": prod_or_err
+                })
+            else:
+                return self._send_json(400, {"status": "error", "message": prod_or_err})
+
+        elif path == "/api/cbm/dev/products/update":
+            acc_name = body.get("account_name", "").strip()
+            pin = body.get("pin", "")
+            product_id = body.get("product_id", "").strip()
+
+            if not acc_name or not product_id:
+                return self._send_json(400, {"status": "error", "message": "account_name and product_id are required."})
+
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to update products."})
+
+            price_gold = None
+            if "price_gold" in body:
+                try:
+                    price_gold = float(body["price_gold"])
+                    if price_gold < 100.0:
+                        return self._send_json(400, {"status": "error", "message": "Products must cost at least 100.00 Gold."})
+                except (ValueError, TypeError):
+                    return self._send_json(400, {"status": "error", "message": "Invalid price_gold."})
+
+            ok, prod_or_err = db.update_product(
+                product_id=product_id,
+                owner_account=acc_name,
+                name=body.get("name"),
+                description=body.get("description"),
+                price_gold=price_gold,
+                image_url=body.get("image_url"),
+                callback_url=body.get("callback_url"),
+                webhook_url=body.get("webhook_url"),
+                is_active=body.get("is_active")
+            )
+            if ok:
+                return self._send_json(200, {
+                    "status": "ok",
+                    "message": "Product updated successfully.",
+                    "product": prod_or_err
+                })
+            else:
+                return self._send_json(400, {"status": "error", "message": prod_or_err})
+
+        elif path == "/api/cbm/dev/products/archive":
+            acc_name = body.get("account_name", "").strip()
+            pin = body.get("pin", "")
+            product_id = body.get("product_id", "").strip()
+
+            if not acc_name or not product_id:
+                return self._send_json(400, {"status": "error", "message": "account_name and product_id are required."})
+
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to archive products."})
+
+            ok, msg = db.archive_product(product_id, acc_name)
+            if ok:
+                return self._send_json(200, {"status": "ok", "message": msg})
+            else:
+                return self._send_json(400, {"status": "error", "message": msg})
+
+        elif path == "/api/cbm/dev/products/upload-image":
+            import base64
+            acc_name = body.get("account_name", "").strip()
+            pin = body.get("pin", "")
+            filename = body.get("filename", "").strip()
+            image_data = body.get("image_data", "").strip()
+
+            if not acc_name or not image_data:
+                return self._send_json(400, {"status": "error", "message": "account_name and image_data are required."})
+
+            if db.has_account_pin(acc_name):
+                if not pin or not db.verify_account_pin(acc_name, str(pin)):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Valid 6-digit PIN required to upload images."})
+
+            if "," in image_data:
+                image_data = image_data.split(",", 1)[1]
+
+            try:
+                raw_bytes = base64.b64decode(image_data)
+            except Exception as e:
+                return self._send_json(400, {"status": "error", "message": f"Invalid base64 image data: {e}"})
+
+            if len(raw_bytes) > 4194304:
+                return self._send_json(400, {"status": "error", "message": "Image exceeds 4MB maximum size."})
+
+            ext = ".png"
+            if filename:
+                clean_ext = os.path.splitext(filename)[1].lower()
+                if clean_ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+                    ext = clean_ext
+
+            img_hash = hashlib.sha256(raw_bytes).hexdigest()[:16]
+            safe_filename = f"prod_{int(time.time())}_{img_hash}{ext}"
+            assets_dir = os.path.join(base_dir, "assets", "products")
+            os.makedirs(assets_dir, exist_ok=True)
+            target_path = os.path.join(assets_dir, safe_filename)
+
+            with open(target_path, "wb") as f:
+                f.write(raw_bytes)
+
+            return self._send_json(200, {
+                "status": "ok",
+                "message": "Product image uploaded successfully.",
+                "image_url": f"/assets/products/{safe_filename}"
+            })
+
         # --- Public Scoped REST API v1 (POST Endpoints) ---
         elif path.startswith("/api/v1/"):
             # 1. Declare In-Game Donation Intent Slip (for Discord !donate command)
@@ -2079,6 +2300,267 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "cbm_username": matched_cbm_user,
                     "total_gold_transacted": round(total_transacted, 2)
                 }, key_record=key_rec)
+
+            # 3. Create Product via API Key (Merchant / Bot integration)
+            elif path == "/api/v1/products/create":
+                ok, key_rec, err = self._authenticate_api_v1("write:products")
+                if not ok:
+                    return self._send_json(err["status"], err["body"], headers=err.get("headers"))
+
+                owner_acc = key_rec["owner_account"]
+                name = body.get("name", "").strip()
+                description = body.get("description", "").strip()
+                try:
+                    price_gold = float(body.get("price_gold", 0))
+                except (ValueError, TypeError):
+                    price_gold = 0.0
+                image_url = body.get("image_url", "").strip()
+                callback_url = body.get("callback_url", "").strip()
+                webhook_url = body.get("webhook_url", "").strip()
+
+                if not name:
+                    return self._send_api_v1_json(400, {"error": "bad_request", "message": "Product name is required."}, key_record=key_rec)
+
+                if price_gold < 100.0:
+                    return self._send_api_v1_json(400, {"error": "bad_request", "message": "Products must cost at least 100.00 Gold."}, key_record=key_rec)
+
+                ok, prod_or_err = db.create_product(
+                    owner_account=owner_acc,
+                    name=name,
+                    description=description,
+                    price_gold=price_gold,
+                    image_url=image_url,
+                    callback_url=callback_url,
+                    webhook_url=webhook_url
+                )
+                if ok:
+                    return self._send_api_v1_json(200, {
+                        "status": "ok",
+                        "api_version": "v1.0",
+                        "product": prod_or_err
+                    }, key_record=key_rec)
+                else:
+                    return self._send_api_v1_json(400, {"error": "bad_request", "message": prod_or_err}, key_record=key_rec)
+
+            # 4. Create Product Order (15-minute checkout slip session)
+            elif path == "/api/v1/products/order/create":
+                product_id = body.get("product_id", "").strip()
+                buyer_name = body.get("buyer_account_name", "").strip() or None
+                return_url = body.get("return_url", "").strip() or None
+
+                if not product_id:
+                    return self._send_json(400, {"status": "error", "message": "product_id is required."})
+
+                order = db.create_product_order(
+                    product_id=product_id,
+                    buyer_account_name=buyer_name,
+                    target_vault_account=VAULT_ACCOUNT,
+                    return_url=return_url
+                )
+                if not order:
+                    return self._send_json(404, {"status": "error", "message": f"Product '{product_id}' not found or is inactive."})
+
+                return self._send_json(200, {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "order": order,
+                    "payment_instructions": {
+                        "target_vault_account": VAULT_ACCOUNT,
+                        "exact_amount_gold": order["price_gold"],
+                        "ttl_minutes": 15,
+                        "expires_at": order["expires_at"]
+                    }
+                })
+
+            # 5. Direct In-Game Credentials Payment
+            elif path == "/api/v1/products/order/pay-direct":
+                order_id = body.get("order_id", "").strip()
+                tt_account = body.get("territorial_account", "").strip()
+                tt_password = body.get("territorial_password", "").strip()
+
+                if not order_id or not tt_account or not tt_password:
+                    return self._send_json(400, {"status": "error", "message": "order_id, territorial_account, and territorial_password are required."})
+
+                order = db.get_product_order(order_id)
+                if not order:
+                    return self._send_json(404, {"status": "error", "message": f"Order '{order_id}' not found."})
+
+                if order.get("status") == "FULFILLED":
+                    return self._send_json(200, {
+                        "status": "ok",
+                        "message": "Order is already fulfilled.",
+                        "order": order,
+                        "verification_token": order.get("verification_token")
+                    })
+
+                if order.get("status") != "PENDING":
+                    return self._send_json(400, {"status": "error", "message": f"Order status is {order.get('status')} and cannot be paid."})
+
+                # Check expiration
+                exp_str = order.get("expires_at", "")
+                if exp_str:
+                    try:
+                        clean_exp = exp_str.replace("T", " ")[:19]
+                        exp_ts = time.mktime(time.strptime(clean_exp, "%Y-%m-%d %H:%M:%S"))
+                        if time.time() > exp_ts:
+                            conn = sqlite3.connect(db.sqlite_path)
+                            c = conn.cursor()
+                            c.execute("UPDATE cbm_product_orders SET status = 'EXPIRED' WHERE order_id = ?", (order_id,))
+                            conn.commit()
+                            conn.close()
+                            return self._send_json(400, {"status": "error", "message": "This order slip has expired. Please create a new order."})
+                    except Exception:
+                        pass
+
+                # Execute gold transfer via TerritorialGoldClient
+                client = TerritorialGoldClient(account_name=tt_account, password=tt_password, timeout=12.0)
+                amount_int = int(round(order["price_gold"]))
+                tx_resp = client.send_gold(target_account_name=VAULT_ACCOUNT, amount=amount_int)
+
+                if tx_resp.get("status") != "ok":
+                    err_msg = tx_resp.get("message") or tx_resp.get("status") or "In-game gold transfer failed."
+                    return self._send_json(400, {"status": "error", "message": f"Territorial.io transfer failed: {err_msg}"})
+
+                # Capture transaction reference & fulfill
+                tx_ref = f"tt_direct_{order_id[:8]}_{int(time.time())}"
+                ok, ful_err = db.fulfill_product_order(order_id=order_id, tx_hash=tx_ref, sender=tt_account)
+                if not ok:
+                    return self._send_json(400, {"status": "error", "message": ful_err})
+
+                updated_order = db.get_product_order(order_id)
+                invalidate_caches()
+                return self._send_json(200, {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "message": "Payment verified and order fulfilled successfully.",
+                    "order": updated_order,
+                    "verification_token": updated_order.get("verification_token")
+                })
+
+            # 6. Pay with CBM Member Balance
+            elif path == "/api/v1/products/order/pay-balance":
+                order_id = body.get("order_id", "").strip()
+                cbm_username = body.get("cbm_username", "").strip()
+                pin = body.get("pin", "")
+                password = body.get("password", "")
+
+                if not order_id or not cbm_username:
+                    return self._send_json(400, {"status": "error", "message": "order_id and cbm_username are required."})
+
+                order = db.get_product_order(order_id)
+                if not order:
+                    return self._send_json(404, {"status": "error", "message": f"Order '{order_id}' not found."})
+
+                if order.get("status") == "FULFILLED":
+                    return self._send_json(200, {
+                        "status": "ok",
+                        "message": "Order is already fulfilled.",
+                        "order": order,
+                        "verification_token": order.get("verification_token")
+                    })
+
+                if order.get("status") != "PENDING":
+                    return self._send_json(400, {"status": "error", "message": f"Order status is {order.get('status')} and cannot be paid."})
+
+                # Verify buyer auth
+                raw_acc = db._get_account_raw(cbm_username)
+                if not raw_acc:
+                    return self._send_json(404, {"status": "not_found", "message": f"CBM Member '{cbm_username}' not found."})
+                canonical_name = raw_acc.get("account_name", cbm_username)
+
+                if db.has_account_pin(canonical_name):
+                    if not pin or not db.verify_account_pin(canonical_name, str(pin)):
+                        rate_limiter.record_auth_failure(canonical_name)
+                        return self._send_json(401, {"status": "unauthorized", "message": "Invalid 6-digit CBM Access PIN."})
+                    rate_limiter.record_auth_success(canonical_name)
+                elif db.has_account_password(canonical_name):
+                    auth_pwd = password or pin
+                    if not auth_pwd or not db.verify_account_password(canonical_name, auth_pwd):
+                        rate_limiter.record_auth_failure(canonical_name)
+                        return self._send_json(401, {"status": "unauthorized", "message": "Invalid password."})
+                    rate_limiter.record_auth_success(canonical_name)
+
+                # Check buyer balance
+                buyer_bal_cents = raw_acc.get("deposited_cents", 0)
+                price_cents = order.get("price_cents", int(round(order.get("price_gold", 0) * 100)))
+                if buyer_bal_cents < price_cents:
+                    return self._send_json(400, {
+                        "status": "error",
+                        "message": f"Insufficient member balance. You have {buyer_bal_cents / 100.0:.2f} Gold, but this product costs {price_cents / 100.0:.2f} Gold."
+                    })
+
+                # Deduct from buyer balance
+                new_buyer_bal = buyer_bal_cents - price_cents
+                now_ts = time.time()
+                tx_hash = f"cbm_bal_{order_id[:8]}_{int(now_ts)}"
+                conn = db.get_write_connection()
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?",
+                    (new_buyer_bal, now_ts, canonical_name)
+                )
+                cur.execute(
+                    """
+                    INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                    VALUES (?, 'PRODUCT_PURCHASE', ?, ?, ?, ?, ?)
+                    """,
+                    (canonical_name, -price_cents, new_buyer_bal, tx_hash, f"Purchased product {order.get('product_id')}", now_ts)
+                )
+                conn.commit()
+                conn.close()
+
+                if db.use_supabase:
+                    try:
+                        db._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{canonical_name}", body={"deposited_cents": new_buyer_bal})
+                        db._sb_request("cbm_ledger", method="POST", body={
+                            "account_name": canonical_name,
+                            "entry_type": "PRODUCT_PURCHASE",
+                            "amount_cents": -price_cents,
+                            "balance_after_cents": new_buyer_bal,
+                            "tx_hash": tx_hash,
+                            "notes": f"Purchased product {order.get('product_id')}"
+                        })
+                    except Exception:
+                        pass
+
+                # Fulfill product order (credits 50% to seller, 50% to reserve cushion)
+                ok, ful_err = db.fulfill_product_order(order_id=order_id, tx_hash=tx_hash, sender=canonical_name)
+                if not ok:
+                    return self._send_json(400, {"status": "error", "message": ful_err})
+
+                updated_order = db.get_product_order(order_id)
+                invalidate_caches()
+                return self._send_json(200, {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "message": "Order paid from CBM member balance and fulfilled successfully.",
+                    "order": updated_order,
+                    "verification_token": updated_order.get("verification_token")
+                })
+
+            # 7. Cryptographic Verification of Product Order Token
+            elif path in ("/api/v1/products/verify", "/api/v1/products/order/verify"):
+                token = body.get("token") or body.get("cbm_token") or ""
+                order_id = body.get("order_id", "").strip()
+
+                if not token or not order_id:
+                    return self._send_json(400, {"status": "error", "valid": False, "message": "token and order_id are required."})
+
+                is_valid, order_or_err = db.verify_product_order_token(token=token, order_id=order_id)
+                if is_valid:
+                    return self._send_json(200, {
+                        "status": "ok",
+                        "api_version": "v1.0",
+                        "valid": True,
+                        "order": order_or_err
+                    })
+                else:
+                    return self._send_json(400, {
+                        "status": "error",
+                        "api_version": "v1.0",
+                        "valid": False,
+                        "message": order_or_err
+                    })
 
             return self._send_json(404, {"error": "endpoint_not_found", "message": f"API v1 route '{path}' does not exist."})
 

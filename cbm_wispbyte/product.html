@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout | Clan Bank Manager</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <style>
+    :root {
+      --bg-dark: #001224;
+      --card-bg: #001c38;
+      --card-border: rgba(0, 112, 186, 0.3);
+      --accent-blue: #0070ba;
+      --accent-hover: #0084dd;
+      --accent-gold: #ffb800;
+      --accent-green: #00cf92;
+      --text-main: #f6f9fc;
+      --text-sub: #a3b8cc;
+      --text-muted: #627b9b;
+      --danger: #ff4d4d;
+      --radius-lg: 16px;
+      --radius-md: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: radial-gradient(circle at 50% 0%, #002244 0%, var(--bg-dark) 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 16px 60px 16px;
+    }
+
+    .checkout-nav {
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-main);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: 0.5px;
+    }
+
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+    }
+
+    .nav-badge {
+      background: rgba(0, 207, 146, 0.15);
+      border: 1px solid rgba(0, 207, 146, 0.4);
+      color: var(--accent-green);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .checkout-card {
+      width: 100%;
+      max-width: 620px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 1px 1px rgba(0, 112, 186, 0.2);
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+
+    .product-hero {
+      display: flex;
+      gap: 20px;
+      padding: 24px;
+      background: linear-gradient(180deg, rgba(0, 34, 68, 0.6) 0%, rgba(0, 28, 56, 0.4) 100%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .product-img-box {
+      width: 120px;
+      height: 120px;
+      min-width: 120px;
+      border-radius: var(--radius-md);
+      background: #001224;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .product-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .product-img-placeholder {
+      font-size: 48px;
+      color: var(--accent-blue);
+      user-select: none;
+    }
+
+    .product-details {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      flex-grow: 1;
+    }
+
+    .product-name {
+      font-size: 20px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+
+    .product-desc {
+      font-size: 13px;
+      color: var(--text-sub);
+      line-height: 1.4;
+      margin-bottom: 12px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .product-price-box {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .price-num {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--accent-gold);
+    }
+
+    .price-unit {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .revenue-split-bar {
+      padding: 12px 24px;
+      background: rgba(0, 18, 36, 0.7);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-sub);
+    }
+
+    .split-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .split-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .tabs-header {
+      display: flex;
+      background: rgba(0, 18, 36, 0.4);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 14px 12px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-sub);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .tab-btn.active {
+      color: #ffffff;
+      border-bottom-color: var(--accent-blue);
+      background: rgba(0, 112, 186, 0.08);
+    }
+
+    .tab-content {
+      padding: 24px;
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .slip-box {
+      background: rgba(0, 18, 36, 0.6);
+      border: 1px dashed rgba(0, 112, 186, 0.4);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .slip-title {
+      font-size: 13px;
+      color: var(--text-sub);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .slip-account {
+      font-size: 28px;
+      font-weight: 800;
+      color: #ffffff;
+      font-family: monospace;
+      letter-spacing: 2px;
+      margin-bottom: 8px;
+      user-select: all;
+    }
+
+    .slip-instruction {
+      font-size: 14px;
+      color: var(--text-sub);
+      margin-bottom: 16px;
+    }
+
+    .slip-instruction b {
+      color: var(--accent-gold);
+    }
+
+    .timer-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .timer-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 184, 0, 0.12);
+      border: 1px solid rgba(255, 184, 0, 0.35);
+      color: var(--accent-gold);
+      font-weight: 700;
+      font-size: 14px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-family: monospace;
+    }
+
+    .poll-pulse {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--accent-blue);
+      border-radius: 50%;
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.9); opacity: 0.4; }
+      50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 10px var(--accent-blue); }
+      100% { transform: scale(0.9); opacity: 0.4; }
+    }
+
+    .form-group {
+      margin-bottom: 18px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-sub);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 12px 14px;
+      background: #001224;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .form-input:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(0, 112, 186, 0.25);
+    }
+
+    .submit-btn {
+      width: 100%;
+      padding: 13px;
+      background: linear-gradient(135deg, var(--accent-blue) 0%, #005a96 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0, 112, 186, 0.35);
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .submit-btn:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--accent-hover) 0%, #0066ab 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(0, 112, 186, 0.45);
+    }
+
+    .submit-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .trust-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 16px;
+    }
+
+    .trust-footer a {
+      color: var(--text-sub);
+      text-decoration: none;
+    }
+
+    .trust-footer a:hover {
+      color: var(--accent-green);
+      text-decoration: underline;
+    }
+
+    .alert {
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 18px;
+      display: none;
+    }
+
+    .alert-error {
+      background: rgba(255, 77, 77, 0.12);
+      border: 1px solid rgba(255, 77, 77, 0.4);
+      color: #ff9999;
+    }
+
+    .alert-success {
+      background: rgba(0, 207, 146, 0.12);
+      border: 1px solid rgba(0, 207, 146, 0.4);
+      color: var(--accent-green);
+    }
+
+    .success-view {
+      padding: 36px 20px;
+      text-align: center;
+      display: none;
+    }
+
+    .checkmark-circle {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: rgba(0, 207, 146, 0.15);
+      border: 2px solid var(--accent-green);
+      color: var(--accent-green);
+      font-size: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 18px auto;
+      box-shadow: 0 0 20px rgba(0, 207, 146, 0.3);
+    }
+
+    .token-box {
+      background: #001224;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--accent-gold);
+      word-break: break-all;
+      margin: 16px 0;
+      user-select: all;
+    }
+
+    @media (max-width: 520px) {
+      .product-hero {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+      }
+      .product-img-box {
+        width: 100px;
+        height: 100px;
+      }
+      .revenue-split-bar {
+        flex-direction: column;
+        gap: 6px;
+        align-items: flex-start;
+      }
+      .tab-btn span.tab-text {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="checkout-nav">
+    <a href="/bank" class="brand-link">
+      <img src="/cbm-logo.png" alt="CBM Shield" class="brand-logo" onerror="this.style.display='none'">
+      <span>CLAN BANK MANAGER</span>
+    </a>
+    <div class="nav-badge">
+      <span>&#128274;</span>
+      <span>Secured Payment Gateway</span>
+    </div>
+  </header>
+
+  <main class="checkout-card" id="main-card">
+    <!-- Product Header Hero -->
+    <div class="product-hero" id="product-hero">
+      <div class="product-img-box" id="product-img-box">
+        <div class="product-img-placeholder">&#128230;</div>
+      </div>
+      <div class="product-details">
+        <div>
+          <h1 class="product-name" id="prod-name">Loading Product...</h1>
+          <p class="product-desc" id="prod-desc">Fetching authoritative item metadata...</p>
+        </div>
+        <div class="product-price-box">
+          <span class="price-num" id="prod-price">--.--</span>
+          <span class="price-unit">GOLD</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 50/50 Revenue Transparency Bar -->
+    <div class="revenue-split-bar">
+      <div class="split-item">
+        <span class="split-dot" style="background:#0070ba;"></span>
+        <span>50% Merchant Revenue: <b id="split-merchant">--.-- Gold</b></span>
+      </div>
+      <div class="split-item">
+        <span class="split-dot" style="background:#00cf92;"></span>
+        <span>50% Reserve Cushion: <b id="split-cushion">--.-- Gold</b></span>
+      </div>
+    </div>
+
+    <!-- Alert Banners -->
+    <div style="padding: 16px 24px 0 24px;">
+      <div class="alert alert-error" id="error-alert"></div>
+      <div class="alert alert-success" id="success-alert"></div>
+    </div>
+
+    <!-- FULFILLED SUCCESS VIEW -->
+    <div class="success-view" id="success-view">
+      <div class="checkmark-circle">&#10003;</div>
+      <h2 style="font-size:22px;margin-bottom:8px;color:#ffffff;">Payment Confirmed!</h2>
+      <p style="font-size:14px;color:var(--text-sub);margin-bottom:12px;">
+        Inbound gold transaction verified and 50/50 treasury split executed.
+      </p>
+      <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Verification Token</div>
+      <div class="token-box" id="success-token">--</div>
+      <div style="font-size:13px;color:var(--accent-green);font-weight:600;margin-bottom:18px;" id="redirect-msg">
+        Redirecting to merchant in 3 seconds...
+      </div>
+      <button class="submit-btn" id="manual-redirect-btn" style="max-width:280px;margin:0 auto;">
+        <span>Return to Merchant</span>
+        <span>&rarr;</span>
+      </button>
+    </div>
+
+    <!-- PAYMENT OPTIONS TABS -->
+    <div id="payment-view">
+      <div class="tabs-header">
+        <button class="tab-btn active" data-tab="tab-slip">
+          <span>&#9201;</span>
+          <span class="tab-text">15-Min In-Game Slip</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-direct">
+          <span>&#9889;</span>
+          <span class="tab-text">Direct Credentials</span>
+        </button>
+        <button class="tab-btn" data-tab="tab-balance">
+          <span>&#128179;</span>
+          <span class="tab-text">CBM Balance</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: 15-MINUTE IN-GAME SLIP (RECOMMENDED) -->
+      <div class="tab-content active" id="tab-slip">
+        <div class="slip-box">
+          <div class="slip-title">Target In-Game Vault Account</div>
+          <div class="slip-account" id="slip-vault-account">DdcBC</div>
+          <p class="slip-instruction">
+            Open Territorial.io, navigate to Gold Transfer, and send exactly <b id="slip-amount-text">--.-- Gold</b> to vault account <b id="slip-vault-text">DdcBC</b>.
+          </p>
+          <div class="timer-wrap">
+            <span style="font-size:12px;color:var(--text-muted);">Slip Expiration:</span>
+            <div class="timer-badge" id="slip-timer">15:00</div>
+          </div>
+        </div>
+
+        <div class="poll-pulse">
+          <div class="pulse-dot"></div>
+          <span id="poll-status-text">Autonomous daemon polling vault ledger for inbound transaction...</span>
+        </div>
+
+        <div style="margin-top:20px;">
+          <button class="submit-btn" id="refresh-slip-btn" style="background:rgba(0,112,186,0.15);border:1px solid rgba(0,112,186,0.4);box-shadow:none;">
+            <span>&#8635; Check Payment Status Now</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 2: DIRECT IN-GAME CREDENTIALS -->
+      <div class="tab-content" id="tab-direct">
+        <p style="font-size:13px;color:var(--text-sub);margin-bottom:18px;line-height:1.4;">
+          Authenticate with your Territorial.io credentials to execute an instant, automated transfer. Credentials are used strictly for this single transaction and are never saved.
+        </p>
+
+        <form id="direct-form">
+          <div class="form-group">
+            <label class="form-label" for="tt-account">In-Game Account Name</label>
+            <input type="text" class="form-input" id="tt-account" placeholder="e.g. PlayerOne" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="tt-password">In-Game Password</label>
+            <input type="password" class="form-input" id="tt-password" placeholder="Account Password" required autocomplete="off">
+          </div>
+          <button type="submit" class="submit-btn" id="direct-pay-btn">
+            <span>Pay <span id="direct-btn-amount">--.--</span> Gold Instantly</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- TAB 3: CBM MEMBER BALANCE -->
+      <div class="tab-content" id="tab-balance">
+        <p style="font-size:13px;color:var(--text-sub);margin-bottom:18px;line-height:1.4;">
+          Pay directly using your registered Clan Bank Manager deposited member balance.
+        </p>
+
+        <form id="balance-form">
+          <div class="form-group">
+            <label class="form-label" for="cbm-user">CBM Username</label>
+            <input type="text" class="form-input" id="cbm-user" placeholder="Registered CBM Username" required autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="cbm-pin">6-Digit Access PIN or Password</label>
+            <input type="password" class="form-input" id="cbm-pin" placeholder="6-digit PIN" required autocomplete="current-password">
+          </div>
+          <button type="submit" class="submit-btn" id="balance-pay-btn">
+            <span>Pay <span id="balance-btn-amount">--.--</span> Gold from Balance</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <footer class="trust-footer">
+    <a href="/rulebook.html" target="_blank">&#128220; Rulebook &amp; Spec</a>
+    <span>&bull;</span>
+    <a href="/vault.html" target="_blank">&#128202; Vault Telemetry</a>
+    <span>&bull;</span>
+    <span id="cancel-link-wrap">
+      <a href="#" id="cancel-link" style="color:var(--text-muted);">&#10005; Cancel Order</a>
+    </span>
+  </footer>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var productId = params.get('id') || params.get('product_id');
+      var existingOrderId = params.get('order_id');
+
+      var currentProduct = null;
+      var currentOrder = null;
+      var countdownInterval = null;
+      var pollInterval = null;
+      var isFulfilled = false;
+
+      function formatGold(num) {
+        return Number(num || 0).toLocaleString('en-US', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+      }
+
+      function showError(msg) {
+        var el = document.getElementById('error-alert');
+        el.textContent = msg;
+        el.style.display = 'block';
+      }
+
+      function hideError() {
+        document.getElementById('error-alert').style.display = 'none';
+      }
+
+      // Tab switcher
+      var tabs = document.querySelectorAll('.tab-btn');
+      tabs.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          tabs.forEach(function (b) { b.classList.remove('active'); });
+          document.querySelectorAll('.tab-content').forEach(function (c) { c.classList.remove('active'); });
+          btn.classList.add('active');
+          var targetId = btn.getAttribute('data-tab');
+          var content = document.getElementById(targetId);
+          if (content) content.classList.add('active');
+        });
+      });
+
+      if (!productId && !existingOrderId) {
+        showError('Missing product ID or order ID parameter.');
+        document.getElementById('prod-name').textContent = 'Invalid Product';
+        document.getElementById('prod-desc').textContent = 'No product specified in checkout URL.';
+        return;
+      }
+
+      // Load product details
+      function loadProduct() {
+        var url = productId
+          ? '/api/v1/products/' + encodeURIComponent(productId)
+          : '/api/v1/products/order/status?order_id=' + encodeURIComponent(existingOrderId);
+
+        fetch(url)
+          .then(function (r) {
+            if (!r.ok) throw new Error('Product not found or unavailable');
+            return r.json();
+          })
+          .then(function (data) {
+            if (data.order && !data.product) {
+              currentOrder = data.order;
+              return fetch('/api/v1/products/' + encodeURIComponent(data.order.product_id))
+                .then(function (r) { return r.json(); })
+                .then(function (pData) {
+                  currentProduct = pData.product || pData;
+                  initCheckout();
+                });
+            } else {
+              currentProduct = data.product || data;
+              initCheckout();
+            }
+          })
+          .catch(function (err) {
+            showError(err.message || 'Failed to load product');
+          });
+      }
+
+      function initCheckout() {
+        var p = currentProduct;
+        document.getElementById('prod-name').textContent = p.name;
+        document.getElementById('prod-desc').textContent = p.description || 'Verified product item.';
+        document.getElementById('prod-price').textContent = formatGold(p.price_gold);
+
+        var half = round2(p.price_gold / 2.0);
+        document.getElementById('split-merchant').textContent = formatGold(half) + ' Gold';
+        document.getElementById('split-cushion').textContent = formatGold(half) + ' Gold';
+        document.getElementById('slip-amount-text').textContent = formatGold(p.price_gold) + ' Gold';
+        document.getElementById('direct-btn-amount').textContent = formatGold(p.price_gold);
+        document.getElementById('balance-btn-amount').textContent = formatGold(p.price_gold);
+
+        if (p.image_url) {
+          var img = document.createElement('img');
+          img.src = p.image_url;
+          img.alt = p.name;
+          img.className = 'product-img';
+          img.onerror = function () {
+            this.parentElement.innerHTML = '<div class="product-img-placeholder">&#128230;</div>';
+          };
+          var box = document.getElementById('product-img-box');
+          box.innerHTML = '';
+          box.appendChild(img);
+        }
+
+        if (p.callback_url) {
+          document.getElementById('cancel-link').href = p.callback_url;
+        }
+
+        // Auto-create or fetch active order for 15-minute slip
+        if (currentOrder) {
+          bindOrder(currentOrder);
+        } else {
+          createOrderSlip();
+        }
+      }
+
+      function round2(num) {
+        return Math.round(Number(num) * 100) / 100;
+      }
+
+      function createOrderSlip() {
+        fetch('/api/v1/products/order/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_id: currentProduct.product_id
+          })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.status !== 'ok') {
+            throw new Error(data.message || 'Unable to generate order slip');
+          }
+          currentOrder = data.order;
+          bindOrder(currentOrder);
+        })
+        .catch(function (err) {
+          showError(err.message || 'Error generating slip');
+        });
+      }
+
+      function bindOrder(order) {
+        document.getElementById('slip-vault-account').textContent = order.target_vault_account || 'DdcBC';
+        document.getElementById('slip-vault-text').textContent = order.target_vault_account || 'DdcBC';
+
+        if (order.status === 'FULFILLED') {
+          handleOrderFulfilled(order);
+          return;
+        }
+
+        startTimer(order.expires_at);
+        startPolling(order.order_id);
+      }
+
+      function startTimer(expiresAtIso) {
+        if (countdownInterval) clearInterval(countdownInterval);
+        var timerEl = document.getElementById('slip-timer');
+
+        function update() {
+          var diff = Math.floor((new Date(expiresAtIso).getTime() - Date.now()) / 1000);
+          if (diff <= 0) {
+            timerEl.textContent = 'EXPIRED';
+            timerEl.style.color = '#ff4d4d';
+            clearInterval(countdownInterval);
+            clearInterval(pollInterval);
+            showError('This 15-minute payment slip has expired. Please refresh to generate a new slip.');
+            return;
+          }
+          var m = Math.floor(diff / 60);
+          var s = diff % 60;
+          timerEl.textContent = (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+        }
+
+        update();
+        countdownInterval = setInterval(update, 1000);
+      }
+
+      function startPolling(orderId) {
+        if (pollInterval) clearInterval(pollInterval);
+        var pollText = document.getElementById('poll-status-text');
+
+        function check() {
+          if (isFulfilled || document.hidden) return;
+          fetch('/api/v1/products/order/status?order_id=' + encodeURIComponent(orderId))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.order && data.order.status === 'FULFILLED') {
+                clearInterval(pollInterval);
+                clearInterval(countdownInterval);
+                handleOrderFulfilled(data.order);
+              }
+            })
+            .catch(function () {});
+        }
+
+        pollInterval = setInterval(check, 4000);
+      }
+
+      function handleOrderFulfilled(order) {
+        isFulfilled = true;
+        hideError();
+        document.getElementById('payment-view').style.display = 'none';
+        var sv = document.getElementById('success-view');
+        sv.style.display = 'block';
+
+        document.getElementById('success-token').textContent = order.verification_token || 'TOKEN_VERIFIED';
+
+        var retUrl = order.return_url || (currentProduct ? currentProduct.callback_url : '');
+        if (retUrl) {
+          var sep = retUrl.indexOf('?') !== -1 ? '&' : '?';
+          var redirectTarget = retUrl + sep + 'cbm_token=' + encodeURIComponent(order.verification_token) + '&order_id=' + encodeURIComponent(order.order_id);
+
+          document.getElementById('manual-redirect-btn').onclick = function () {
+            window.location.href = redirectTarget;
+          };
+
+          var secondsLeft = 3;
+          var msgEl = document.getElementById('redirect-msg');
+          var countTimer = setInterval(function () {
+            secondsLeft--;
+            if (secondsLeft <= 0) {
+              clearInterval(countTimer);
+              window.location.href = redirectTarget;
+            } else {
+              msgEl.textContent = 'Redirecting to merchant in ' + secondsLeft + ' seconds...';
+            }
+          }, 1000);
+        } else {
+          document.getElementById('redirect-msg').textContent = 'Order complete! You may return to the merchant site.';
+          document.getElementById('manual-redirect-btn').style.display = 'none';
+        }
+      }
+
+      // Check status manually button
+      document.getElementById('refresh-slip-btn').addEventListener('click', function () {
+        if (!currentOrder) return;
+        this.disabled = true;
+        this.textContent = 'Checking...';
+        var self = this;
+        fetch('/api/v1/products/order/status?order_id=' + encodeURIComponent(currentOrder.order_id))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            self.disabled = false;
+            self.textContent = '↺ Check Payment Status Now';
+            if (data.order && data.order.status === 'FULFILLED') {
+              handleOrderFulfilled(data.order);
+            } else {
+              showError('Payment not yet detected on vault ledger. If you just sent gold, please allow a few seconds for the next block to be polled.');
+              setTimeout(hideError, 4000);
+            }
+          })
+          .catch(function (err) {
+            self.disabled = false;
+            self.textContent = '↺ Check Payment Status Now';
+            showError(err.message || 'Check failed');
+          });
+      });
+
+      // Direct payment form
+      document.getElementById('direct-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!currentOrder) return;
+        var btn = document.getElementById('direct-pay-btn');
+        var acc = document.getElementById('tt-account').value.trim();
+        var pwd = document.getElementById('tt-password').value.trim();
+        if (!acc || !pwd) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Executing In-Game Transfer...';
+        hideError();
+
+        fetch('/api/v1/products/order/pay-direct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_id: currentOrder.order_id,
+            territorial_account: acc,
+            territorial_password: pwd
+          })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>Pay ' + formatGold(currentProduct.price_gold) + ' Gold Instantly</span>';
+          if (data.status !== 'ok') {
+            throw new Error(data.message || 'Direct payment failed');
+          }
+          handleOrderFulfilled(data.order);
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>Pay ' + formatGold(currentProduct.price_gold) + ' Gold Instantly</span>';
+          showError(err.message || 'Payment execution error');
+        });
+      });
+
+      // CBM Balance payment form
+      document.getElementById('balance-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (!currentOrder) return;
+        var btn = document.getElementById('balance-pay-btn');
+        var user = document.getElementById('cbm-user').value.trim();
+        var pin = document.getElementById('cbm-pin').value.trim();
+        if (!user || !pin) return;
+
+        btn.disabled = true;
+        btn.textContent = 'Processing Balance Payment...';
+        hideError();
+
+        fetch('/api/v1/products/order/pay-balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_id: currentOrder.order_id,
+            cbm_username: user,
+            pin: pin
+          })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>Pay ' + formatGold(currentProduct.price_gold) + ' Gold from Balance</span>';
+          if (data.status !== 'ok') {
+            throw new Error(data.message || 'Balance payment failed');
+          }
+          handleOrderFulfilled(data.order);
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>Pay ' + formatGold(currentProduct.price_gold) + ' Gold from Balance</span>';
+          showError(err.message || 'Balance payment error');
+        });
+      });
+
+      loadProduct();
+    })();
+  </script>
+</body>
+</html>

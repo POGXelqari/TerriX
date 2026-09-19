@@ -136,6 +136,22 @@ class CBMDepositDaemon:
                         )
                         new_deposits += 1
                         target_user = donor_name
+                    elif hasattr(self.db, "find_and_claim_pending_product_order") and self.db.find_and_claim_pending_product_order(sender, amount_cents, tx_id):
+                        # STEP 1b: Matched an active 15-minute Product Order Slip!
+                        # 50% has been credited to seller, 50% retained in reserve cushion.
+                        prod_order = self.db.get_product_order_by_tx(tx_id) if hasattr(self.db, "get_product_order_by_tx") else None
+                        print(f"[+] Matched Product Order Slip from '{sender}' -> 50% Merchant / 50% Central Bank Reserve Cushion!")
+                        self.db.record_processed_tx(
+                            tx_id=tx_id,
+                            timestamp_ms=ts,
+                            sender=sender,
+                            receiver=receiver,
+                            amount_gold=amount_gold,
+                            fee_gold=fee_gold,
+                            credited_account="PRODUCT_CHECKOUT"
+                        )
+                        new_deposits += 1
+                        target_user = sender
                     else:
                         # STEP 2: The Golden Infallible Rule:
                         # Pure in-game transactions are DEPOSITS unless Web Intent explicitly declared otherwise!

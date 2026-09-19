@@ -21,7 +21,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import threading
-from typing import Dict, Any, Optional, List, Tuple, Set
+from typing import Dict, Any, Optional, List, Tuple, Set, Union
 
 try:
     import urllib3
@@ -437,9 +437,54 @@ class CBMDatabase:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_api_keys_hash ON cbm_api_keys(key_hash);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_api_keys_owner ON cbm_api_keys(owner_account);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_voter ON cbm_admin_votes(voter_account);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_user ON cbm_admin_votes(cbm_username);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_status ON cbm_admin_votes(status);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_quarantine ON cbm_admin_votes(cbm_username, quarantine_until);")
+
+        # Product Marketplace & Payment Gateway Tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id TEXT UNIQUE NOT NULL,
+                owner_account TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT,
+                image_url TEXT,
+                price_gold REAL NOT NULL,
+                price_cents INTEGER NOT NULL,
+                callback_url TEXT NOT NULL,
+                webhook_url TEXT,
+                status TEXT NOT NULL DEFAULT 'ACTIVE',
+                sales_count INTEGER DEFAULT 0,
+                total_revenue_gold REAL DEFAULT 0.0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_product_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id TEXT UNIQUE NOT NULL,
+                product_id TEXT NOT NULL,
+                buyer_cbm_username TEXT,
+                buyer_territorial_account TEXT,
+                price_gold REAL NOT NULL,
+                price_cents INTEGER NOT NULL,
+                owner_share_cents INTEGER NOT NULL,
+                cushion_share_cents INTEGER NOT NULL,
+                payment_method TEXT NOT NULL,
+                tx_hash TEXT,
+                verification_token TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                expires_at REAL NOT NULL,
+                fulfilled_at REAL,
+                created_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_products_owner ON cbm_products(owner_account);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_products_status ON cbm_products(status);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_prod ON cbm_product_orders(product_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_status ON cbm_product_orders(status);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_token ON cbm_product_orders(verification_token);")
         # Automatic zero-pollution purge on startup:
         # Ensures no test user or mock loans ever contaminate live production tables
         try:
@@ -2989,10 +3034,13 @@ class CBMDatabase:
         metrics = self._calculate_treasury_metrics(vault_total_cents)
         self._persist_treasury_metrics(metrics)
 
-    def recompute_treasury(self) -> Dict[str, Any]:
+    def recompute_treasury(self, vault_gold: Optional[float] = None) -> Dict[str, Any]:
         """Re-sums member liabilities, unencumbered capital, loan penalties, and recalculates unencumbered bank reserves."""
-        treasury = self.get_treasury()
-        vault_total = treasury.get("vault_total_gold_cents", 0)
+        if vault_gold is not None:
+            vault_total = int(round(float(vault_gold) * 100))
+        else:
+            treasury = self.get_treasury()
+            vault_total = treasury.get("vault_total_gold_cents", 0)
         metrics = self._calculate_treasury_metrics(vault_total)
         self._persist_treasury_metrics(metrics)
         return metrics
@@ -4276,9 +4324,9 @@ class CBMDatabase:
         balance_gold = round(acc.get("deposited_cents", 0) / 100.0, 2)
         is_leader = (
             owner_account.lower() in ("b8bbq", "[anti-og] leader") or
-            acc.get("account_name", "").lower() == "b8bbq" or
-            "[anti-og] leader" in acc.get("display_name", "").lower() or
-            acc.get("primary_territorial_account", "").lower() == "b8bbq"
+            (acc.get("account_name") or "").lower() == "b8bbq" or
+            "[anti-og] leader" in (acc.get("display_name") or "").lower() or
+            (acc.get("primary_territorial_account") or "").lower() == "b8bbq"
         )
         cost_gold = 0.01 if is_leader else 1.00
         rate_note = (
@@ -4803,5 +4851,647 @@ class CBMDatabase:
                 "verified_at": r[9]
             })
         return votes
+
+    # -------------------------------------------------------------------------
+    # PRODUCT MARKETPLACE & PAYMENT GATEWAY ENGINE
+    # 50% Product Owner Payout / 50% Central Bank Reserve Cushion Split
+    # Minimum product price: 100.00 Gold
+    # -------------------------------------------------------------------------
+    MIN_PRODUCT_PRICE_GOLD = 100.0
+
+    def create_product(
+        self,
+        owner_account: str,
+        name: str,
+        description: str = "",
+        price_gold: float = 100.0,
+        image_url: str = "",
+        callback_url: str = "",
+        webhook_url: str = ""
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Creates a new marketplace product.
+        Enforces:
+        1. Minimum price of 100.00 Gold.
+        2. Valid owner account registered in CBM.
+        """
+        clean_owner = (owner_account or "").strip()
+        acc = self.get_account(clean_owner)
+        if not acc:
+            return False, f"Merchant account '{clean_owner}' not found in CBM."
+
+        clean_name = (name or "").strip()
+        if not clean_name:
+            return False, "Product name cannot be empty."
+
+        try:
+            p_gold = round(float(price_gold), 2)
+        except (ValueError, TypeError):
+            return False, "Invalid product price format."
+
+        if p_gold < self.MIN_PRODUCT_PRICE_GOLD:
+            return False, f"Product price must be at least {self.MIN_PRODUCT_PRICE_GOLD:.2f} Gold (received {p_gold:.2f} Gold)."
+
+        clean_callback = (callback_url or "").strip()
+
+        product_id = f"prod_{secrets.token_hex(6)}"
+        price_cents = int(round(p_gold * 100))
+        now = time.time()
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_products (
+                    product_id, owner_account, name, description, image_url,
+                    price_gold, price_cents, callback_url, webhook_url,
+                    status, sales_count, total_revenue_gold, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 0.0, ?, ?)
+            """, (
+                product_id, clean_owner, clean_name, (description or "").strip(),
+                (image_url or "").strip(), p_gold, price_cents, clean_callback,
+                (webhook_url or "").strip(), now, now
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Failed to persist product: {e}"
+        finally:
+            conn.close()
+
+        prod_record = {
+            "product_id": product_id,
+            "owner_account": clean_owner,
+            "name": clean_name,
+            "description": description or "",
+            "image_url": image_url or "",
+            "price_gold": p_gold,
+            "price_cents": price_cents,
+            "callback_url": clean_callback,
+            "webhook_url": webhook_url or "",
+            "status": "ACTIVE",
+            "sales_count": 0,
+            "total_revenue_gold": 0.0,
+            "created_at": now
+        }
+
+        if self.use_supabase:
+            try:
+                self._sb_request("cbm_products", method="POST", body=prod_record)
+            except Exception as ex:
+                print(f"[!] Supabase product sync notice: {ex}")
+
+        return True, prod_record
+
+    def get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves public product details by product_id."""
+        clean_id = (product_id or "").strip()
+        if not clean_id:
+            return None
+
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT product_id, owner_account, name, description, image_url,
+                   price_gold, price_cents, callback_url, webhook_url,
+                   status, sales_count, total_revenue_gold, created_at
+            FROM cbm_products
+            WHERE product_id = ?
+        """, (clean_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        acc = self.get_account(row[1])
+        display_name = acc.get("display_name") if acc else row[1]
+
+        return {
+            "product_id": row[0],
+            "owner_account": row[1],
+            "owner_display_name": display_name or row[1],
+            "name": row[2],
+            "description": row[3] or "",
+            "image_url": row[4] or "",
+            "price_gold": float(row[5]),
+            "price_cents": int(row[6]),
+            "callback_url": row[7],
+            "webhook_url": row[8] or "",
+            "status": row[9],
+            "sales_count": int(row[10] or 0),
+            "total_revenue_gold": float(row[11] or 0.0),
+            "created_at": float(row[12])
+        }
+
+    def list_products_by_owner(self, owner_account: str, include_archived: bool = True) -> List[Dict[str, Any]]:
+        """Lists all products created by a developer/merchant."""
+        clean_owner = (owner_account or "").strip()
+        if not clean_owner:
+            return []
+
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        if include_archived:
+            cur.execute("""
+                SELECT product_id, owner_account, name, description, image_url,
+                       price_gold, price_cents, callback_url, webhook_url,
+                       status, sales_count, total_revenue_gold, created_at
+                FROM cbm_products
+                WHERE owner_account = ? COLLATE NOCASE
+                ORDER BY created_at DESC
+            """, (clean_owner,))
+        else:
+            cur.execute("""
+                SELECT product_id, owner_account, name, description, image_url,
+                       price_gold, price_cents, callback_url, webhook_url,
+                       status, sales_count, total_revenue_gold, created_at
+                FROM cbm_products
+                WHERE owner_account = ? COLLATE NOCASE AND status = 'ACTIVE'
+                ORDER BY created_at DESC
+            """, (clean_owner,))
+
+        products = []
+        for row in cur.fetchall():
+            products.append({
+                "product_id": row[0],
+                "owner_account": row[1],
+                "name": row[2],
+                "description": row[3] or "",
+                "image_url": row[4] or "",
+                "price_gold": float(row[5]),
+                "price_cents": int(row[6]),
+                "callback_url": row[7],
+                "webhook_url": row[8] or "",
+                "status": row[9],
+                "sales_count": int(row[10] or 0),
+                "total_revenue_gold": float(row[11] or 0.0),
+                "created_at": float(row[12])
+            })
+        return products
+
+    def update_product(
+        self,
+        product_id: str,
+        owner_account: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        image_url: Optional[str] = None,
+        price_gold: Optional[float] = None,
+        callback_url: Optional[str] = None,
+        webhook_url: Optional[str] = None
+    ) -> Tuple[bool, Union[Dict[str, Any], str]]:
+        """Updates product parameters."""
+        prod = self.get_product(product_id)
+        if not prod:
+            return False, f"Product '{product_id}' not found."
+        if prod["owner_account"].lower() != owner_account.strip().lower():
+            return False, "Unauthorized: Only the product owner can modify this product."
+
+        new_name = name.strip() if name is not None and name.strip() else prod["name"]
+        new_desc = description.strip() if description is not None else prod["description"]
+        new_img = image_url.strip() if image_url is not None else prod["image_url"]
+        new_cb = callback_url.strip() if callback_url is not None and callback_url.strip() else prod["callback_url"]
+        new_wh = webhook_url.strip() if webhook_url is not None else prod["webhook_url"]
+
+        if price_gold is not None:
+            if float(price_gold) < self.MIN_PRODUCT_PRICE_GOLD:
+                return False, f"Product price must be at least {self.MIN_PRODUCT_PRICE_GOLD:.2f} Gold."
+            new_price_gold = round(float(price_gold), 2)
+        else:
+            new_price_gold = prod["price_gold"]
+
+        new_price_cents = int(round(new_price_gold * 100))
+        now = time.time()
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                UPDATE cbm_products
+                SET name = ?, description = ?, image_url = ?, price_gold = ?, price_cents = ?,
+                    callback_url = ?, webhook_url = ?, updated_at = ?
+                WHERE product_id = ?
+            """, (new_name, new_desc, new_img, new_price_gold, new_price_cents, new_cb, new_wh, now, product_id))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Failed to update product: {e}"
+        finally:
+            conn.close()
+
+        updated = self.get_product(product_id) or {}
+        if self.use_supabase:
+            try:
+                self._sb_request("cbm_products", method="PATCH", params=f"?product_id=eq.{product_id}", body=updated)
+            except Exception:
+                pass
+
+        return True, updated
+
+    def archive_product(self, product_id: str, owner_account: str) -> Tuple[bool, str]:
+        """Archives/deactivates a product."""
+        prod = self.get_product(product_id)
+        if not prod:
+            return False, f"Product '{product_id}' not found."
+        if prod["owner_account"].lower() != owner_account.strip().lower():
+            return False, "Unauthorized."
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("UPDATE cbm_products SET status = 'ARCHIVED', updated_at = ? WHERE product_id = ?", (time.time(), product_id))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Failed to archive product: {e}"
+        finally:
+            conn.close()
+
+        if self.use_supabase:
+            try:
+                self._sb_request("cbm_products", method="PATCH", params=f"?product_id=eq.{product_id}", body={"status": "ARCHIVED"})
+            except Exception:
+                pass
+
+        return True, "Product archived."
+
+    def create_product_order(
+        self,
+        product_id: str,
+        buyer_cbm_username: Optional[str] = None,
+        buyer_territorial_account: Optional[str] = None,
+        buyer_name: Optional[str] = None,
+        buyer_account_name: Optional[str] = None,
+        payment_method: str = "15MIN_SLIP",
+        target_vault_account: Optional[str] = None,
+        return_url: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Creates a pending product order slip (valid for 15 minutes).
+        Calculates the 50/50 revenue split:
+        - 50% to Product Owner (cbm_accounts.deposited_cents)
+        - 50% to Central Bank Reserve Cushion (reserve_cushion_gold)
+        Generates a cryptographic verification token for merchant confirmation.
+        Returns the order dict on success, or None on failure.
+        """
+        prod = self.get_product(product_id)
+        if not prod or prod.get("status") != "ACTIVE":
+            return None
+
+        now = time.time()
+        expires_at = now + 900.0  # 15 minutes
+        order_id = f"ord_{secrets.token_hex(8)}"
+
+        price_cents = prod["price_cents"]
+        price_gold = prod["price_gold"]
+
+        # 50/50 split in cents
+        owner_share_cents = price_cents // 2
+        cushion_share_cents = price_cents - owner_share_cents
+
+        # Generate cryptographic HMAC-SHA256 verification token
+        secret_key = self.encryption_key if hasattr(self, "encryption_key") and self.encryption_key else b"cbm_product_token_key_fallback"
+        token_payload = f"{order_id}:{product_id}:{price_cents}:{int(now)}".encode("utf-8")
+        verification_token = f"tok_{hmac.new(secret_key, token_payload, hashlib.sha256).hexdigest()[:32]}"
+
+        clean_buyer_cbm = (buyer_cbm_username or buyer_account_name or buyer_name or "").strip() or None
+        clean_buyer_terri = (buyer_territorial_account or "").strip() or None
+        target_vault = (target_vault_account or os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")).strip()
+        cb_url = (return_url or prod.get("callback_url") or "").strip()
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_product_orders (
+                    order_id, product_id, buyer_cbm_username, buyer_territorial_account,
+                    price_gold, price_cents, owner_share_cents, cushion_share_cents,
+                    payment_method, tx_hash, verification_token, status,
+                    expires_at, fulfilled_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'PENDING', ?, NULL, ?)
+            """, (
+                order_id, product_id, clean_buyer_cbm, clean_buyer_terri,
+                price_gold, price_cents, owner_share_cents, cushion_share_cents,
+                payment_method, verification_token, expires_at, now
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
+
+        order_record = {
+            "order_id": order_id,
+            "product_id": product_id,
+            "product_name": prod["name"],
+            "price_gold": price_gold,
+            "price_cents": price_cents,
+            "owner_share_gold": round(owner_share_cents / 100.0, 2),
+            "cushion_share_gold": round(cushion_share_cents / 100.0, 2),
+            "target_vault_account": target_vault,
+            "payment_method": payment_method,
+            "status": "PENDING",
+            "expires_at": expires_at,
+            "remaining_seconds": max(0, int(expires_at - now)),
+            "callback_url": cb_url,
+            "return_url": cb_url,
+            "verification_token": verification_token,
+            "token_secret": verification_token,
+            "created_at": now
+        }
+
+        if self.use_supabase:
+            try:
+                self._sb_request("cbm_product_orders", method="POST", body={
+                    "order_id": order_id,
+                    "product_id": product_id,
+                    "buyer_cbm_username": clean_buyer_cbm,
+                    "buyer_territorial_account": clean_buyer_terri,
+                    "price_gold": price_gold,
+                    "price_cents": price_cents,
+                    "owner_share_cents": owner_share_cents,
+                    "cushion_share_cents": cushion_share_cents,
+                    "payment_method": payment_method,
+                    "verification_token": verification_token,
+                    "status": "PENDING",
+                    "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at))
+                })
+            except Exception as ex:
+                print(f"[!] Supabase product order sync notice: {ex}")
+
+        return order_record
+
+    def get_product_order(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves product order details and current status."""
+        clean_id = (order_id or "").strip()
+        if not clean_id:
+            return None
+
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT o.order_id, o.product_id, o.buyer_cbm_username, o.buyer_territorial_account,
+                   o.price_gold, o.price_cents, o.owner_share_cents, o.cushion_share_cents,
+                   o.payment_method, o.tx_hash, o.verification_token, o.status,
+                   o.expires_at, o.fulfilled_at, o.created_at,
+                   p.name, p.owner_account, p.callback_url
+            FROM cbm_product_orders o
+            LEFT JOIN cbm_products p ON o.product_id = p.product_id
+            WHERE o.order_id = ?
+        """, (clean_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        now = time.time()
+        exp = float(row[12]) if row[12] else 0.0
+        rem = max(0, int(exp - now)) if exp > now else 0
+
+        # Auto-detect expired
+        current_status = row[11]
+        if current_status == "PENDING" and exp > 0 and now > exp:
+            current_status = "EXPIRED"
+
+        cb_url = row[17] or ""
+        v_token = row[10] or ""
+
+        return {
+            "order_id": row[0],
+            "product_id": row[1],
+            "buyer_cbm_username": row[2],
+            "buyer_territorial_account": row[3],
+            "price_gold": float(row[4]),
+            "price_cents": int(row[5]),
+            "owner_share_gold": round(int(row[6]) / 100.0, 2),
+            "cushion_share_gold": round(int(row[7]) / 100.0, 2),
+            "payment_method": row[8],
+            "tx_hash": row[9],
+            "verification_token": v_token,
+            "token_secret": v_token,
+            "status": current_status,
+            "expires_at": exp,
+            "remaining_seconds": rem,
+            "fulfilled_at": float(row[13]) if row[13] else None,
+            "created_at": float(row[14]),
+            "product_name": row[15] or "Product",
+            "owner_account": row[16] or "",
+            "callback_url": cb_url,
+            "return_url": cb_url,
+            "target_vault_account": os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
+        }
+
+    def get_product_order_by_tx(self, tx_hash: str) -> Optional[Dict[str, Any]]:
+        """Retrieves fulfilled product order details by transaction hash."""
+        clean_tx = (tx_hash or "").strip()
+        if not clean_tx:
+            return None
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT order_id FROM cbm_product_orders WHERE tx_hash = ? LIMIT 1", (clean_tx,))
+        row = cur.fetchone()
+        return self.get_product_order(row[0]) if row else None
+
+    def fulfill_product_order(self, order_id: str, tx_hash: str, sender: Optional[str] = None) -> Tuple[bool, str]:
+        """
+        Fulfills a product order once payment is verified:
+        - 50% credited to Product Owner (cbm_accounts.deposited_cents)
+        - 50% retained in Central Bank Reserve Cushion (reserve_cushion_gold)
+        - Records double-entry ledger entry PRODUCT_SALE_REVENUE
+        - Increments product sales stats
+        """
+        order = self.get_product_order(order_id)
+        if not order:
+            return False, f"Order '{order_id}' not found."
+        if order["status"] == "FULFILLED":
+            return True, "Order already fulfilled."
+
+        owner_account = order["owner_account"]
+        owner_share_cents = int(order["price_cents"] * 0.5)
+        now = time.time()
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+            # 1. Update order status
+            cur.execute("""
+                UPDATE cbm_product_orders
+                SET status = 'FULFILLED', tx_hash = ?, fulfilled_at = ?
+                WHERE order_id = ?
+            """, (tx_hash, now, order_id))
+
+            # 2. Credit 50% share to product owner
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
+            acc_row = cur.fetchone()
+            current_bal = acc_row[0] if acc_row else 0
+            new_bal = current_bal + owner_share_cents
+
+            cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_bal, now, owner_account))
+
+            # 3. Double-entry ledger entry
+            notes = f"Product Sale: 50% revenue share for '{order['product_name']}' (Order {order_id})"
+            cur.execute("""
+                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                VALUES (?, 'PRODUCT_SALE_REVENUE', ?, ?, ?, ?, ?)
+            """, (owner_account, owner_share_cents, new_bal, tx_hash, notes, now))
+
+            # 4. Update product statistics
+            cur.execute("""
+                UPDATE cbm_products
+                SET sales_count = sales_count + 1,
+                    total_revenue_gold = total_revenue_gold + ?,
+                    updated_at = ?
+                WHERE product_id = ?
+            """, (order["price_gold"], now, order["product_id"]))
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Failed to fulfill order: {e}"
+        finally:
+            conn.close()
+
+        # Dual-write to Supabase
+        if self.use_supabase:
+            try:
+                self._sb_request("cbm_product_orders", method="PATCH", params=f"?order_id=eq.{order_id}", body={
+                    "status": "FULFILLED",
+                    "tx_hash": tx_hash,
+                    "fulfilled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+                })
+                self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{owner_account}", body={"deposited_cents": new_bal})
+                self._sb_request("cbm_ledger", method="POST", body={
+                    "account_name": owner_account,
+                    "entry_type": "PRODUCT_SALE_REVENUE",
+                    "amount_cents": owner_share_cents,
+                    "balance_after_cents": new_bal,
+                    "tx_hash": tx_hash,
+                    "notes": notes
+                })
+            except Exception as ex:
+                print(f"[!] Supabase order fulfillment sync notice: {ex}")
+
+        # Recalculate treasury: since 100% came into vault and only 50% was given to owner,
+        # vault_excess and reserve_cushion_gold automatically increase by the remaining 50%!
+        self.recompute_treasury()
+
+        return True, ""
+
+    def find_and_claim_pending_product_order(
+        self,
+        sender: Optional[str] = None,
+        amount_cents: Optional[int] = None,
+        tx_id: Optional[str] = None,
+        amount_gold: Optional[float] = None,
+        tx_hash: Optional[str] = None,
+        sender_account: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Model 3 In-Game Payment Matching for Product Slips:
+        Finds an active 15-minute product order slip matching the exact amount.
+        If matched and tx provided, marks as FULFILLED, executes 50/50 split, and returns order dict.
+        """
+        now = time.time()
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+
+        clean_sender = (sender or sender_account or "").strip()
+        actual_cents = amount_cents if amount_cents is not None else (int(round(float(amount_gold) * 100)) if amount_gold is not None else 0)
+        actual_tx = (tx_id or tx_hash or "").strip()
+
+        row = None
+        # Priority 1: Match on sender account if declared
+        if clean_sender:
+            cur.execute("""
+                SELECT order_id FROM cbm_product_orders
+                WHERE status = 'PENDING' AND expires_at >= ? AND price_cents = ?
+                  AND (buyer_territorial_account = ? COLLATE NOCASE OR buyer_cbm_username = ? COLLATE NOCASE)
+                ORDER BY created_at ASC
+                LIMIT 1
+            """, (now, actual_cents, clean_sender, clean_sender))
+            row = cur.fetchone()
+
+        # Priority 2: Match by exact price_cents on any active pending slip
+        if not row:
+            cur.execute("""
+                SELECT order_id FROM cbm_product_orders
+                WHERE status = 'PENDING' AND expires_at >= ? AND price_cents = ?
+                ORDER BY created_at ASC
+                LIMIT 1
+            """, (now, actual_cents))
+            row = cur.fetchone()
+
+        if row:
+            order_id = row[0]
+            if actual_tx:
+                ok, _ = self.fulfill_product_order(order_id, actual_tx, sender=clean_sender)
+                if ok:
+                    return self.get_product_order(order_id)
+            else:
+                return self.get_product_order(order_id)
+
+        return None
+
+    def verify_product_order_token(
+        self,
+        token_or_order_id: str = "",
+        order_id_or_token: str = "",
+        token: Optional[str] = None,
+        order_id: Optional[str] = None
+    ) -> Tuple[bool, Union[Dict[str, Any], str]]:
+        """
+        Validates a product order verification token for third-party merchants.
+        Accepts flexible positional or keyword arguments.
+        Returns: (True, order_dict) on success, or (False, error_message) on failure.
+        """
+        t = (token or "").strip()
+        oid = (order_id or "").strip()
+
+        if not t and not oid:
+            p1 = (token_or_order_id or "").strip()
+            p2 = (order_id_or_token or "").strip()
+            if p1.startswith("tok_") or len(p1) > len(p2):
+                t, oid = p1, p2
+            elif p2.startswith("tok_"):
+                t, oid = p2, p1
+            elif p1.startswith("ord_"):
+                oid, t = p1, p2
+            elif p2.startswith("ord_"):
+                oid, t = p2, p1
+            else:
+                t, oid = p1, p2
+        elif not t:
+            p1 = (token_or_order_id or "").strip()
+            p2 = (order_id_or_token or "").strip()
+            t = p1 if p1 != oid else p2
+        elif not oid:
+            p1 = (token_or_order_id or "").strip()
+            p2 = (order_id_or_token or "").strip()
+            oid = p1 if p1 != t else p2
+
+        order = self.get_product_order(oid)
+        if not order:
+            return False, f"Order '{oid}' not found."
+
+        expected_token = order.get("verification_token")
+        if not expected_token or not hmac.compare_digest(expected_token, t.strip()):
+            return False, "Invalid verification token."
+
+        if order.get("status") != "FULFILLED":
+            return False, f"Order is not fulfilled (status: {order.get('status')})."
+
+        return True, {
+            "order_id": order["order_id"],
+            "product_id": order["product_id"],
+            "product_name": order.get("product_name", "Product"),
+            "price_gold": order["price_gold"],
+            "buyer_territorial_account": order.get("buyer_territorial_account"),
+            "buyer_cbm_username": order.get("buyer_cbm_username"),
+            "status": "FULFILLED",
+            "fulfilled_at": order.get("fulfilled_at"),
+            "created_at": order.get("created_at")
+        }
+
+
 
 

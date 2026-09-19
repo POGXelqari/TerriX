@@ -772,6 +772,22 @@
         <span class="method-badge badge-get">GET</span> /api/v1/donors/leaderboard
       </a>
 
+      <div class="sidebar-section-title">Products & Marketplace</div>
+      <a class="sidebar-nav-item" href="#products-desk">📦 My Products</a>
+      <a class="sidebar-nav-item" href="#ep-products-create">
+        <span class="method-badge badge-post">POST</span> /api/v1/products/create
+      </a>
+      <a class="sidebar-nav-item" href="#ep-products-get">
+        <span class="method-badge badge-get">GET</span> /api/v1/products/{id}
+      </a>
+      <a class="sidebar-nav-item" href="#ep-products-order">
+        <span class="method-badge badge-post">POST</span> /api/v1/products/order/create
+      </a>
+      <a class="sidebar-nav-item" href="#ep-products-verify">
+        <span class="method-badge badge-post">POST</span> /api/v1/products/verify
+      </a>
+      <a class="sidebar-nav-item" href="#widgets-guide">🔌 Embed Widget Guide</a>
+
       <div class="sidebar-section-title">SDKs & Extensions</div>
       <a class="sidebar-nav-item" href="#discord-sdk">🤖 Discord Bot SDK</a>
       <a class="sidebar-nav-item" href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" style="color: #60a5fa; font-weight: 600; display: flex; align-items: center; gap: 6px;">
@@ -830,6 +846,48 @@
               <tr>
                 <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
                   Log into CBM to load your developer credentials.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Products & Marketplace Desk -->
+      <div class="glass-card" id="products-desk">
+        <div class="desk-header">
+          <div>
+            <h2 class="desk-title">Marketplace Products</h2>
+            <p style="font-size: 13px; color: var(--text-dim); margin-top: 4px;">
+              Create products with automated checkout slips, direct credential payments, or CBM member balances.
+            </p>
+          </div>
+          <button class="btn-pill btn-glow" onclick="openProductModal()">+ Create New Product</button>
+        </div>
+
+        <div style="background: rgba(0, 112, 224, 0.08); border: 1px solid rgba(0, 112, 224, 0.25); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 18px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div>
+            ⚖️ <strong>Pricing &amp; Split Covenant:</strong> Minimum price is <strong>100.00 Gold</strong>. Exactly <strong>50%</strong> of every purchase credits directly to you, and <strong>50%</strong> allocates into central bank reserves.
+          </div>
+          <button class="btn-pill btn-ghost" onclick="refreshProductsTable()" style="padding: 4px 10px; font-size: 11px;">↻ Refresh</button>
+        </div>
+
+        <div class="keys-table-wrap">
+          <table class="keys-table">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Product Name &amp; ID</th>
+                <th>Price (Gold)</th>
+                <th>50/50 Revenue Split</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="products-tbody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                  Log into CBM to load your marketplace products.
                 </td>
               </tr>
             </tbody>
@@ -992,6 +1050,117 @@ async def balance(interaction: discord.Interaction, player_name: str):
     await interaction.response.send_message(embed=embed)</div>
       </div>
 
+      <!-- Endpoint: Create Product -->
+      <div class="glass-card endpoint-doc" id="ep-products-create">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/v1/products/create</span>
+        </div>
+        <p class="endpoint-desc">
+          Creates a marketplace product. Minimum price is 100.00 Gold. Exactly 50% of revenue is credited to the seller, and 50% allocates to Central Bank reserves.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>name</code></td><td>string</td><td>Product title (required)</td></tr>
+            <tr><td><code>price_gold</code></td><td>number</td><td>Price in Gold (&ge; 100.00 required)</td></tr>
+            <tr><td><code>description</code></td><td>string</td><td>Product details / item benefits</td></tr>
+            <tr><td><code>image_url</code></td><td>string</td><td>Public image URL or uploaded asset path</td></tr>
+            <tr><td><code>callback_url</code></td><td>string</td><td>Return URL for redirect upon successful payment</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/products/create', JSON.stringify({name: 'VIP Clan Pass', price_gold: 150.0, description: 'Exclusive access to clan events.'}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Get Product -->
+      <div class="glass-card endpoint-doc" id="ep-products-get">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/products/{product_id}</span>
+        </div>
+        <p class="endpoint-desc">
+          Public endpoint to fetch active product metadata, thumbnail, pricing, and 50/50 reserve split details.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Parameter</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>product_id</code></td><td>string</td><td>Unique product ID (in path)</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/products/prod_example', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Create Order -->
+      <div class="glass-card endpoint-doc" id="ep-products-order">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/v1/products/order/create</span>
+        </div>
+        <p class="endpoint-desc">
+          Initializes a checkout order session. Generates an active 15-minute slip for in-game vault transfer or balance payment.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>product_id</code></td><td>string</td><td>Target product ID (required)</td></tr>
+            <tr><td><code>buyer_account_name</code></td><td>string</td><td>Optional buyer name</td></tr>
+            <tr><td><code>return_url</code></td><td>string</td><td>Optional redirect URL override</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/products/order/create', JSON.stringify({product_id: 'prod_example'}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Verify Order Token -->
+      <div class="glass-card endpoint-doc" id="ep-products-verify">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/v1/products/verify</span>
+        </div>
+        <p class="endpoint-desc">
+          Cryptographically validates the order HMAC-SHA256 verification token sent to your callback URL upon payment fulfillment.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>token</code></td><td>string</td><td>Verification token received in redirect / webhook</td></tr>
+            <tr><td><code>order_id</code></td><td>string</td><td>Order identifier (required)</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/products/verify', JSON.stringify({order_id: 'ord_example', token: 'token_example'}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Guide: Embed Widget Guide -->
+      <div class="glass-card" id="widgets-guide">
+        <h3 style="font-size: 17px; font-weight: 700; margin-bottom: 8px; color: #ffffff;">🔌 Embeddable Product Widget Guide</h3>
+        <p style="font-size: 13.5px; color: var(--text-dim); margin-bottom: 16px;">
+          Embed your products on any third-party website using either pure JavaScript DOM injection or a responsive iframe card.
+        </p>
+        <div style="margin-bottom: 14px;">
+          <div style="font-size: 12px; font-weight: 700; color: #60a5fa; text-transform: uppercase; margin-bottom: 4px;">Option A: Pure JavaScript Tag (Recommended)</div>
+          <div class="code-box">&lt;script src="https://cbm.wispbyte.org/widget.js" data-product-id="YOUR_PRODUCT_ID"&gt;&lt;/script&gt;</div>
+        </div>
+        <div>
+          <div style="font-size: 12px; font-weight: 700; color: #60a5fa; text-transform: uppercase; margin-bottom: 4px;">Option B: Responsive Iframe Embed</div>
+          <div class="code-box">&lt;iframe src="https://cbm.wispbyte.org/widget.html?id=YOUR_PRODUCT_ID" width="340" height="440" frameborder="0" style="border-radius:14px;overflow:hidden;"&gt;&lt;/iframe&gt;</div>
+        </div>
+      </div>
+
     </section>
 
     <!-- Right Interactive Playground Pane -->
@@ -1087,6 +1256,100 @@ async def balance(interaction: discord.Interaction, player_name: str):
           <button type="submit" class="btn-pill btn-glow" id="btn-modal-submit">Issue Key →</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Product Creation Modal -->
+  <div class="modal-overlay" id="product-modal">
+    <div class="modal-card" style="max-width: 560px;">
+      <form id="product-create-form" onsubmit="event.preventDefault(); submitProductCreation();">
+        <h3 class="modal-title">Create Marketplace Product</h3>
+        <p class="modal-subtitle">Configure an item or service for automated in-game gold checkout.</p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Account Name</label>
+            <input type="text" id="prod-modal-acc" class="input-field" placeholder="Owner Account" autocomplete="username" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Access PIN (if set)</label>
+            <input type="password" id="prod-modal-pin" class="input-field" placeholder="6-digit PIN" maxlength="6" autocomplete="current-password">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Product Name</label>
+          <input type="text" id="prod-modal-name" class="input-field" placeholder="e.g. Premium Clan Pass" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Price in Gold (Minimum 100.00 Gold)</label>
+          <input type="number" step="0.01" min="100.00" id="prod-modal-price" class="input-field" placeholder="100.00" required>
+          <div style="font-size: 11px; color: var(--gold); margin-top: -6px; margin-bottom: 8px;">
+            ℹ️ Covenant Rule: Products must cost at least 100 Gold. 50% credits to you, 50% to reserve cushion.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea id="prod-modal-desc" class="input-field" rows="2" placeholder="Briefly describe what the buyer receives..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Product Image (URL or Upload)</label>
+          <input type="text" id="prod-modal-img-url" class="input-field" placeholder="https://example.com/item.png or /assets/products/..." style="margin-bottom: 6px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="file" id="prod-modal-img-file" accept="image/png,image/jpeg,image/webp,image/gif" style="font-size: 12px; color: var(--text-dim);">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Callback / Return URL (Optional)</label>
+          <input type="url" id="prod-modal-callback" class="input-field" placeholder="https://yourwebsite.com/checkout/complete">
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-pill btn-ghost" onclick="closeProductModal()">Cancel</button>
+          <button type="submit" class="btn-pill btn-glow" id="btn-prod-modal-submit">Create Product (Min 100 Gold) →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Widget Embed Code Modal -->
+  <div class="modal-overlay" id="widget-embed-modal">
+    <div class="modal-card" style="max-width: 620px;">
+      <h3 class="modal-title" id="embed-modal-title">Product Embed &amp; Checkout</h3>
+      <p class="modal-subtitle" id="embed-modal-sub">Copy the embed snippets to integrate this product into your website.</p>
+
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+          <label class="form-label" style="margin-bottom: 0;">1. Pure JavaScript Embed Tag</label>
+          <button type="button" class="btn-pill btn-ghost" style="padding: 2px 8px; font-size: 11px;" onclick="copySnippet('embed-snippet-js')">Copy JS Tag</button>
+        </div>
+        <div class="code-box" id="embed-snippet-js" style="max-height: 80px;"></div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+          <label class="form-label" style="margin-bottom: 0;">2. Responsive Iframe Card</label>
+          <button type="button" class="btn-pill btn-ghost" style="padding: 2px 8px; font-size: 11px;" onclick="copySnippet('embed-snippet-iframe')">Copy Iframe</button>
+        </div>
+        <div class="code-box" id="embed-snippet-iframe" style="max-height: 80px;"></div>
+      </div>
+
+      <div style="margin-bottom: 18px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+          <label class="form-label" style="margin-bottom: 0;">3. Direct Checkout Page URL</label>
+          <button type="button" class="btn-pill btn-ghost" style="padding: 2px 8px; font-size: 11px;" onclick="copySnippet('embed-snippet-url')">Copy URL</button>
+        </div>
+        <div class="code-box" id="embed-snippet-url" style="max-height: 60px;"></div>
+      </div>
+
+      <div class="modal-actions">
+        <a id="embed-modal-preview-btn" href="#" target="_blank" class="btn-pill btn-glow" style="text-decoration: none;">Open Checkout Page ↗</a>
+        <button type="button" class="btn-pill btn-ghost" onclick="closeWidgetModal()">Close</button>
+      </div>
     </div>
   </div>
 
@@ -1349,12 +1612,267 @@ async def balance(interaction: discord.Interaction, player_name: str):
       }
     }
 
+    async function loadProductsTable(acc, pin) {
+      if (!acc) return;
+      const tbody = document.getElementById('products-tbody');
+      const pinVal = pin !== undefined ? pin : (sessionStorage.getItem('cbm_pin') || '');
+      try {
+        const res = await fetch(`/api/cbm/dev/products?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pinVal)}`);
+        const data = await res.json();
+
+        if (res.status === 401) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 28px 16px;">
+                <div style="max-width: 320px; margin: 0 auto;">
+                  <div style="font-size: 14px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">🔒 Security PIN Required</div>
+                  <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 14px;">Enter your 6-digit PIN to view and manage products for <strong>${escapeHtml(acc)}</strong>.</p>
+                  <form onsubmit="event.preventDefault(); unlockProductsWithPin('${escapeHtml(acc)}');" style="display: flex; gap: 8px; justify-content: center;">
+                    <input type="password" id="unlock-prod-pin" class="input-field" maxlength="6" placeholder="6-digit PIN" style="margin-bottom: 0; text-align: center; letter-spacing: 3px; font-weight: 700; width: 140px;" autocomplete="current-password" autofocus>
+                    <button type="submit" class="btn-pill btn-glow" style="padding: 6px 16px;">Unlock →</button>
+                  </form>
+                  <div id="unlock-prod-pin-err" style="color: var(--danger); font-size: 11px; margin-top: 8px; display: none;"></div>
+                </div>
+              </td>
+            </tr>
+          `;
+          return;
+        }
+
+        if (res.ok && data.status === 'ok') {
+          if (pinVal) sessionStorage.setItem('cbm_pin', pinVal);
+          if (!data.products || data.products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 24px; color: var(--text-muted);">No products created yet. Click "+ Create New Product" above to add your first item.</td></tr>';
+            return;
+          }
+          tbody.innerHTML = data.products.map(p => {
+            const sellerGold = (p.price_gold * 0.5).toFixed(2);
+            const cushionGold = (p.price_gold * 0.5).toFixed(2);
+            const thumbHtml = p.image_url 
+              ? `<img src="${escapeHtml(p.image_url)}" style="width: 38px; height: 38px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border);" onerror="this.onerror=null;this.parentElement.innerHTML='📦';">`
+              : `<span style="font-size: 20px;">📦</span>`;
+            return `
+              <tr>
+                <td style="width: 50px; text-align: center;">${thumbHtml}</td>
+                <td>
+                  <strong>${escapeHtml(p.name)}</strong>
+                  <div style="font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); margin-top: 2px;">${escapeHtml(p.product_id)}</div>
+                </td>
+                <td><strong style="color: var(--gold);">${p.price_gold.toFixed(2)} Gold</strong></td>
+                <td>
+                  <span style="font-size: 12px; color: #60a5fa;">Seller: ${sellerGold} G</span>
+                  <span style="font-size: 12px; color: var(--text-muted);"> | </span>
+                  <span style="font-size: 12px; color: var(--emerald);">Cushion: ${cushionGold} G</span>
+                </td>
+                <td>
+                  ${p.is_active ? '<span class="env-tag env-live">ACTIVE</span>' : '<span style="color: var(--text-muted);">ARCHIVED</span>'}
+                </td>
+                <td>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <button class="btn-pill btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="openWidgetModal('${escapeHtml(p.product_id)}', '${escapeHtml(p.name)}')">Embed Widget</button>
+                    <a href="/product.html?id=${encodeURIComponent(p.product_id)}" target="_blank" class="btn-pill btn-ghost" style="padding: 3px 8px; font-size: 11px; text-decoration: none;">Checkout ↗</a>
+                    ${p.is_active ? `<button class="btn-pill btn-ghost" style="padding: 3px 8px; font-size: 11px; color: var(--danger);" onclick="archiveProduct('${escapeHtml(p.product_id)}', '${escapeHtml(acc)}')">Archive</button>` : ''}
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        } else {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 20px;">${escapeHtml(data.message || 'Failed to load products.')}</td></tr>`;
+        }
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 20px;">Network error loading products.</td></tr>`;
+      }
+    }
+
+    async function unlockProductsWithPin(acc) {
+      const pinEl = document.getElementById('unlock-prod-pin');
+      const errEl = document.getElementById('unlock-prod-pin-err');
+      const pin = (pinEl ? pinEl.value : '').trim();
+      if (!pin) {
+        if (errEl) { errEl.innerText = 'Please enter your 6-digit PIN.'; errEl.style.display = 'block'; }
+        return;
+      }
+      try {
+        const res = await fetch(`/api/cbm/dev/products?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pin)}`);
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          sessionStorage.setItem('cbm_pin', pin);
+          loadProductsTable(acc, pin);
+          loadKeysTable(acc, pin);
+        } else {
+          if (errEl) {
+            errEl.innerText = data.message || 'Invalid PIN.';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (e) {
+        if (errEl) {
+          errEl.innerText = 'Network error connecting to CBM server.';
+          errEl.style.display = 'block';
+        }
+      }
+    }
+
+    function refreshProductsTable() {
+      const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
+      const pin = sessionStorage.getItem('cbm_pin') || '';
+      if (acc) loadProductsTable(acc, pin);
+    }
+
+    function openProductModal() {
+      const stored = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
+      if (stored) document.getElementById('prod-modal-acc').value = stored;
+      const storedPin = sessionStorage.getItem('cbm_pin') || '';
+      if (storedPin) document.getElementById('prod-modal-pin').value = storedPin;
+      document.getElementById('product-modal').classList.add('open');
+    }
+
+    function closeProductModal() {
+      document.getElementById('product-modal').classList.remove('open');
+    }
+
+    async function submitProductCreation() {
+      const acc = document.getElementById('prod-modal-acc').value.trim();
+      const pin = document.getElementById('prod-modal-pin').value.trim();
+      const name = document.getElementById('prod-modal-name').value.trim();
+      const price = parseFloat(document.getElementById('prod-modal-price').value);
+      const desc = document.getElementById('prod-modal-desc').value.trim();
+      let imgUrl = document.getElementById('prod-modal-img-url').value.trim();
+      const callback = document.getElementById('prod-modal-callback').value.trim();
+      const fileInput = document.getElementById('prod-modal-img-file');
+      const submitBtn = document.getElementById('btn-prod-modal-submit');
+
+      if (!acc || !name || isNaN(price)) {
+        return alert('Please fill in required fields.');
+      }
+      if (price < 100.0) {
+        return alert('Products must cost at least 100.00 Gold.');
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Creating Product...';
+
+      try {
+        if (fileInput && fileInput.files && fileInput.files.length > 0) {
+          const file = fileInput.files[0];
+          submitBtn.innerText = 'Uploading Image...';
+          const base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+
+          const upRes = await fetch('/api/cbm/dev/products/upload-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              account_name: acc,
+              pin: pin,
+              filename: file.name,
+              image_data: base64Data
+            })
+          });
+          const upData = await upRes.json();
+          if (upRes.ok && upData.status === 'ok') {
+            imgUrl = upData.image_url;
+          } else {
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Create Product (Min 100 Gold) →';
+            return alert('Image upload failed: ' + (upData.message || 'Error'));
+          }
+        }
+
+        submitBtn.innerText = 'Saving Product...';
+        const res = await fetch('/api/cbm/dev/products/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account_name: acc,
+            pin: pin,
+            name: name,
+            description: desc,
+            price_gold: price,
+            image_url: imgUrl,
+            callback_url: callback
+          })
+        });
+        const data = await res.json();
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Create Product (Min 100 Gold) →';
+
+        if (res.ok && data.status === 'ok') {
+          alert('Product created successfully!');
+          closeProductModal();
+          if (pin) sessionStorage.setItem('cbm_pin', pin);
+          loadProductsTable(acc, pin);
+        } else {
+          alert('Error: ' + (data.message || 'Failed to create product.'));
+        }
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Create Product (Min 100 Gold) →';
+        alert('Network error: ' + err);
+      }
+    }
+
+    function openWidgetModal(productId, productName) {
+      const origin = window.location.origin;
+      document.getElementById('embed-modal-title').innerText = `Embed Widget: ${productName}`;
+      document.getElementById('embed-modal-sub').innerText = `Product ID: ${productId}`;
+
+      document.getElementById('embed-snippet-js').innerText = `<script src="${origin}/widget.js" data-product-id="${productId}"><\/script>`;
+      document.getElementById('embed-snippet-iframe').innerText = `<iframe src="${origin}/widget.html?id=${productId}" width="340" height="440" frameborder="0" style="border-radius:14px;overflow:hidden;"><\/iframe>`;
+      const checkoutUrl = `${origin}/product.html?id=${productId}`;
+      document.getElementById('embed-snippet-url').innerText = checkoutUrl;
+      document.getElementById('embed-modal-preview-btn').href = checkoutUrl;
+
+      document.getElementById('widget-embed-modal').classList.add('open');
+    }
+
+    function closeWidgetModal() {
+      document.getElementById('widget-embed-modal').classList.remove('open');
+    }
+
+    function copySnippet(elementId) {
+      const el = document.getElementById(elementId);
+      if (el) {
+        navigator.clipboard.writeText(el.innerText).then(() => {
+          alert('Copied snippet to clipboard!');
+        });
+      }
+    }
+
+    async function archiveProduct(productId, acc) {
+      if (!confirm(`Are you sure you want to archive product ${productId}? It will no longer be available for purchase.`)) return;
+      const pin = sessionStorage.getItem('cbm_pin') || prompt('Enter your 6-digit PIN to confirm:') || '';
+      if (!pin) return;
+      try {
+        const res = await fetch('/api/cbm/dev/products/archive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_name: acc, pin: pin, product_id: productId })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          alert(data.message);
+          loadProductsTable(acc, pin);
+        } else {
+          alert('Error: ' + (data.message || 'Failed to archive product.'));
+        }
+      } catch (err) {
+        alert('Network error: ' + err);
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (acc) {
         refreshDeveloperOverview();
         const pin = sessionStorage.getItem('cbm_pin') || '';
         loadKeysTable(acc, pin);
+        loadProductsTable(acc, pin);
       }
     });
   </script>

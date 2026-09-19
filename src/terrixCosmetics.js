@@ -692,7 +692,7 @@
         '    </div>',
         '    <div class="terrix-sidebar-footer">',
         '      <div>TerriX Client v2.4</div>',
-        '      <div style="color: #475569; margin-top: 2px;">CBM Zero-Jargon Enclave</div>',
+        '      <div style="color: #475569; margin-top: 2px;">Clan Bank Network</div>',
         '    </div>',
         '  </div>',
         '  <!-- Main Content Area -->',

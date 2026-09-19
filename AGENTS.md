@@ -15,3 +15,6 @@
 4. **Design Philosophy**:
    - Clean, realistic financial telemetry (PayPal dark mode palette).
    - No forced sci-fi or military jargon.
+5. **Zero Prompt Leakage & Clean Code Generation**:
+   - Meta-instructions and prompt constraints (e.g. "Zero Roleplay Jargon", "Realistic") must never be cited or echoed into code, UI copy, or comments.
+   - Output must contain exclusively valid code without conversational filler or prompt metadata.

@@ -1025,11 +1025,13 @@
         if (!node) {
           node = {
             x: 0, y: 0, angle: 0, alpha: 0,
-            lastWarTime: 0, lastPTroops: 0, lastP2Troops: 0, initialized: false
+            lastWarTime: 0, lastPTroops: 0, lastP2Troops: 0,
+            lastTilesCount: cluster.tiles.length, initialized: false
           };
           telemetryNodes[nodeKey] = node;
         }
 
+        // Active combat detection: attack wave moving or border tiles changing
         if (p1ActiveAttackTroops > 0) {
           node.lastPTroops = p1ActiveAttackTroops;
           node.lastWarTime = now;
@@ -1038,8 +1040,12 @@
           node.lastP2Troops = enemyActiveAttackTroops;
           node.lastWarTime = now;
         }
+        if (node.lastTilesCount !== cluster.tiles.length) {
+          node.lastTilesCount = cluster.tiles.length;
+          node.lastWarTime = now;
+        }
 
-        // War front is active ONLY if an attack wave is moving or occurred within the last 15 seconds
+        // War front is active ONLY if an attack wave occurred/impacted or border moved within the last 15 seconds
         var isWarActive = (now - node.lastWarTime < 15000);
         var targetAlpha = isWarActive ? 1.0 : 0.0;
 

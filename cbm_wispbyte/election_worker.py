@@ -81,14 +81,15 @@ class CBMElectionWorker:
     def process_pending_vote_claims(self, limit: int = 20) -> List[Dict[str, Any]]:
         """
         Sweeps and processes pending vote sponsorship claims.
-        Enforces 1:1 reimbursement and the strict 15% reserve cap.
+        Enforces voter identity verification, 1:1 reimbursement, 15% reserve cap,
+        and promotional audit quarantine holding.
         """
         conn = self.db._get_sqlite_conn()
         cur = conn.cursor()
         cur.execute("""
             SELECT claim_id, cbm_username, voter_account, votes_count, gold_spent, reward_gold, reward_cents
             FROM cbm_admin_votes
-            WHERE status = 'PENDING'
+            WHERE status IN ('PENDING', 'PENDING_REVIEW')
             ORDER BY created_at ASC
             LIMIT ?
         """, (limit,))
@@ -97,8 +98,29 @@ class CBMElectionWorker:
         results = []
         for row in pending:
             claim_id, cbm_username, voter_acc, votes, spent, reward, cents = row
-            # Attempt atomic settlement
-            ok, msg, details = self.db.settle_admin_vote_claim(claim_id, verified=True)
+            # 1. Audit Voter Identity Binding
+            verified_accounts = [a.strip().upper() for a in self.db.get_verified_destination_accounts(cbm_username)]
+            if voter_acc.strip().upper() not in verified_accounts:
+                ok, msg, details = self.db.settle_admin_vote_claim(
+                    claim_id,
+                    verified=False,
+                    rejection_reason=f"Audit failed: voter account '{voter_acc}' is not verified or linked to CBM account '{cbm_username}'."
+                )
+                results.append({
+                    "claim_id": claim_id,
+                    "success": False,
+                    "message": msg,
+                    "details": details
+                })
+                logger.warning(f"[Admin Election] Rejected claim {claim_id}: {msg}")
+                continue
+
+            # 2. Settle with 24-hour promotional holding quarantine
+            ok, msg, details = self.db.settle_admin_vote_claim(
+                claim_id,
+                verified=True,
+                quarantine_hours=24.0
+            )
             results.append({
                 "claim_id": claim_id,
                 "success": ok,
@@ -106,7 +128,7 @@ class CBMElectionWorker:
                 "details": details
             })
             if ok:
-                logger.info(f"[Admin Election] Settled claim {claim_id} for {cbm_username}: {reward:.2f} Gold credited.")
+                logger.info(f"[Admin Election] Audited and settled claim {claim_id} for {cbm_username}: {reward:.2f} Gold credited (24h quarantine applied).")
             else:
                 logger.warning(f"[Admin Election] Settlement failed for {claim_id}: {msg}")
 

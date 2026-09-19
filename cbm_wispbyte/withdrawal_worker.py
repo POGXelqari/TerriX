@@ -85,11 +85,15 @@ class CBMWithdrawalWorker:
             return False, "Withdrawal suspended: Account access is downgraded to 'restricted' due to an outstanding overdue loan. Settle remaining debt to restore account access."
 
         amount_cents = amount_gold * 100
-        available_cents = acc.get("deposited_cents", 0)
+        total_cents = acc.get("deposited_cents", 0) or 0
+        withdrawable_cents = self.db.get_withdrawable_balance_cents(account_name) if hasattr(self.db, "get_withdrawable_balance_cents") else total_cents
 
         # Bank covers the 0.01 Gold game fee! Zero fees charged to member.
-        if available_cents < amount_cents:
-            return False, f"Insufficient balance. Available: {available_cents / 100.0:.2f} Gold, Requested: {amount_gold} Gold."
+        if withdrawable_cents < amount_cents:
+            if total_cents >= amount_cents:
+                quarantined_gold = (total_cents - withdrawable_cents) / 100.0
+                return False, f"Withdrawal restricted: {quarantined_gold:.2f} Gold is currently held under promotional audit quarantine. Withdrawable balance: {withdrawable_cents / 100.0:.2f} Gold."
+            return False, f"Insufficient balance. Available: {withdrawable_cents / 100.0:.2f} Gold, Requested: {amount_gold} Gold."
 
         # Verify vault client availability
         if not self.client or not self.vault_password:
@@ -126,7 +130,7 @@ class CBMWithdrawalWorker:
         # Execute immediate disbursement via Territorial.io API
         ok, res = self.execute_withdrawal(w_id)
         if ok:
-            new_bal = res.get("new_balance_gold", (available_cents - amount_cents) / 100.0)
+            new_bal = res.get("new_balance_gold", (total_cents - amount_cents) / 100.0)
             tx = res.get("tx_id", str(w_id))
             return True, f"Disbursed {amount_gold} Gold directly to '{target_account}' in Territorial.io successfully. Transaction ID: {tx}. Remaining balance: {new_bal:.2f} Gold (0 fees - game fee covered by Clan Bank)."
         else:

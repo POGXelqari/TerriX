@@ -779,6 +779,19 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "votes": votes
             })
 
+        # 4g. Pending Election Claims Audit API (Officer / Admin review)
+        elif path in ("/api/cbm/election/pending", "/api/cbm/admin/election/pending"):
+            try:
+                limit = int(params.get("limit", 50))
+            except (ValueError, TypeError):
+                limit = 50
+            pending = db.get_pending_admin_votes(limit=limit)
+            return self._send_json(200, {
+                "status": "ok",
+                "pending_claims": pending,
+                "count": len(pending)
+            })
+
         # 5. Payment Methods API
         elif path == "/api/cbm/payment-methods":
             acc_name = (params.get("cbm_username") or params.get("name") or params.get("account") or "").strip()
@@ -1408,15 +1421,20 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
             is_locked, rem_lockout = rate_limiter.is_account_locked(acc_name)
             if is_locked:
-                return self._send_json(429, {"status": "locked", "message": f"Account temporarily locked due to 5 consecutive failed authentication attempts. Please retry in {int(rem_lockout)} seconds."})
+                return self._send_json(429, {
+                    "status": "locked",
+                    "message": f"Account temporarily locked due to 5 consecutive failed authentication attempts. Please retry in {int(rem_lockout)} seconds."
+                }, headers={"Retry-After": str(max(1, int(rem_lockout)))})
 
             if not db.has_account_pin(acc_name):
                 return self._send_json(400, {"status": "error", "message": "No Access PIN configured for this account. Set a PIN first."})
 
             valid = db.verify_account_pin(acc_name, pin)
             if valid:
+                rate_limiter.record_auth_success(acc_name)
                 return self._send_json(200, {"status": "ok", "message": "PIN verified successfully."})
             else:
+                rate_limiter.record_auth_failure(acc_name)
                 return self._send_json(401, {"status": "unauthorized", "message": "Invalid 6-digit CBM Access PIN."})
 
         # 1. Withdrawal submission (Closed-loop & PIN protected)
@@ -1510,13 +1528,6 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if votes_count <= 0:
                 return self._send_json(400, {"status": "error", "message": "Votes count must be at least 1."})
 
-            gold_spent = body.get("gold_spent")
-            if gold_spent is not None:
-                try:
-                    gold_spent = float(gold_spent)
-                except (ValueError, TypeError):
-                    gold_spent = None
-
             if db.has_account_pin(canonical_name):
                 if pin and not db.verify_account_pin(canonical_name, pin):
                     rate_limiter.record_auth_failure(canonical_name)
@@ -1524,12 +1535,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 if pin:
                     rate_limiter.record_auth_success(canonical_name)
 
+            # Auto-settle is disabled by default: untrusted client claims enter audit queue
             ok, msg, details = db.submit_admin_vote_claim(
                 cbm_username=canonical_name,
                 voter_account=voter_account,
                 votes_count=votes_count,
-                gold_spent=gold_spent,
-                auto_settle=True
+                auto_settle=False
             )
 
             if ok:
@@ -1538,6 +1549,55 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "status": "ok",
                     "message": msg,
                     "claim": details
+                })
+            else:
+                return self._send_json(400, {
+                    "status": "error",
+                    "message": msg
+                })
+
+        # 1c-2. Admin Election Settlement API (Officer / Administrator review)
+        elif path in ("/api/cbm/election/settle", "/api/cbm/admin/election/settle"):
+            admin_user = (body.get("admin_username") or body.get("operator") or body.get("account_name") or "").strip()
+            pin = body.get("pin")
+            pwd = body.get("password")
+            claim_id = (body.get("claim_id") or "").strip()
+            verified = bool(body.get("verified", True))
+            rejection_reason = body.get("rejection_reason")
+            try:
+                quarantine_hours = float(body.get("quarantine_hours", 24.0))
+            except (ValueError, TypeError):
+                quarantine_hours = 24.0
+
+            if not admin_user or not claim_id:
+                return self._send_json(400, {"status": "error", "message": "Missing required fields: admin_username and claim_id."})
+
+            admin_acc = db.get_account(admin_user)
+            if not admin_acc or admin_acc.get("role") not in ("admin", "officer", "council"):
+                return self._send_json(403, {"status": "forbidden", "message": "Only Clan Bank officers and administrators can settle election claims."})
+
+            if db.has_account_pin(admin_user):
+                if not pin or not db.verify_account_pin(admin_user, pin):
+                    rate_limiter.record_auth_failure(admin_user)
+                    return self._send_json(401, {"status": "unauthorized", "message": "Invalid officer CBM Access PIN."})
+                rate_limiter.record_auth_success(admin_user)
+            elif pwd:
+                if not db.verify_account_password(admin_user, pwd):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Invalid administrator password."})
+
+            ok, msg, details = db.settle_admin_vote_claim(
+                claim_id=claim_id,
+                verified=verified,
+                rejection_reason=rejection_reason,
+                quarantine_hours=quarantine_hours
+            )
+
+            if ok:
+                invalidate_caches()
+                return self._send_json(200, {
+                    "status": "ok",
+                    "message": msg,
+                    "details": details
                 })
             else:
                 return self._send_json(400, {

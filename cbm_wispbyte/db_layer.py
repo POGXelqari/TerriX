@@ -413,11 +413,19 @@ class CBMDatabase:
                 reward_gold REAL NOT NULL,
                 reward_cents INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'PENDING',
+                quarantine_until REAL DEFAULT 0.0,
                 rejection_reason TEXT,
                 verified_at REAL,
                 created_at REAL NOT NULL
             )
         """)
+        for col_def in [
+            "quarantine_until REAL DEFAULT 0.0"
+        ]:
+            try:
+                cur.execute(f"ALTER TABLE cbm_admin_votes ADD COLUMN {col_def}")
+            except Exception:
+                pass
         # High-concurrency composite indexes to eliminate full-table scans
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ledger_acc_created ON cbm_ledger(account_name, created_at DESC);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_processed_txs_sender ON cbm_processed_txs(sender);")
@@ -429,6 +437,7 @@ class CBMDatabase:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_voter ON cbm_admin_votes(voter_account);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_user ON cbm_admin_votes(cbm_username);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_status ON cbm_admin_votes(status);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_admin_votes_quarantine ON cbm_admin_votes(cbm_username, quarantine_until);")
         # Automatic zero-pollution purge on startup:
         # Ensures no test user or mock loans ever contaminate live production tables
         try:
@@ -4332,7 +4341,7 @@ class CBMDatabase:
                 COALESCE(SUM(reward_cents), 0),
                 COUNT(*)
             FROM cbm_admin_votes
-            WHERE status = 'PENDING'
+            WHERE status IN ('PENDING', 'PENDING_REVIEW')
         """)
         row_p = cur.fetchone()
         pending_votes = row_p[0] if row_p else 0
@@ -4367,6 +4376,27 @@ class CBMDatabase:
                 "reward_gold": round(r[4], 2)
             })
 
+        # Recent 10 Disbursements or Submissions
+        cur.execute("""
+            SELECT claim_id, cbm_username, voter_account, votes_count, reward_gold, status, verified_at, created_at
+            FROM cbm_admin_votes
+            WHERE status IN ('REWARDED', 'PENDING', 'PENDING_REVIEW')
+            ORDER BY created_at DESC
+            LIMIT 10
+        """)
+        recent_disbursements = []
+        for r in cur.fetchall():
+            recent_disbursements.append({
+                "claim_id": r[0],
+                "cbm_username": r[1],
+                "voter_account": r[2],
+                "votes_count": r[3],
+                "reward_gold": round(r[4], 2),
+                "status": r[5],
+                "verified_at": r[6],
+                "created_at": r[7]
+            })
+
         target_vault = os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
 
         return {
@@ -4381,7 +4411,8 @@ class CBMDatabase:
             "cap_reached": available_budget_cents <= 0,
             "total_votes_sponsored": total_votes,
             "pending_votes_count": pending_votes,
-            "top_backers": backers
+            "top_backers": backers,
+            "recent_disbursements": recent_disbursements
         }
 
     def submit_admin_vote_claim(
@@ -4390,14 +4421,16 @@ class CBMDatabase:
         voter_account: str,
         votes_count: int,
         gold_spent: Optional[float] = None,
-        auto_settle: bool = True
+        auto_settle: bool = False
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Submits an Admin Election vote reward claim for purchasing votes for vault account DdcBC.
         Enforces:
-        1. 1:1 reward rate (1.00 Gold spent = 1.00 CBM Gold reward).
-        2. Strict 15% budget cap on unencumbered central bank reserves.
-        3. Double-entry accounting: credits member balance, debits unencumbered reserves.
+        1. Strict voter identity binding (voter account must be verified/linked to cbm_username).
+        2. Server-side cost calculation (ft Gold buys ft - 1 votes, so N votes strictly costs N + 1.00 Gold).
+        3. Atomic write-locked 15% budget cap validation on unencumbered central bank reserves.
+        4. Anti-replay and daily volume rate limits per voter account.
+        5. Asynchronous audit verification by default.
         """
         acc = self.get_account(cbm_username)
         if not acc:
@@ -4406,55 +4439,108 @@ class CBMDatabase:
         if votes_count <= 0:
             return False, "Votes count must be at least 1.", {}
 
-        # In Territorial.io, ft Gold buys ft - 1 votes (so votes + 1 Gold)
-        if gold_spent is None or gold_spent <= 0:
-            gold_spent = float(votes_count + 1)
+        if votes_count > 5000:
+            return False, "Votes count exceeds maximum single claim limit (5,000 votes).", {}
 
-        gold_spent = round(float(gold_spent), 2)
-        # 1:1 Reward policy approved by user
-        reward_gold = gold_spent
-        reward_cents = int(round(reward_gold * 100))
-
-        # Check 15% Reserve Budget Cap
-        summary = self.get_admin_election_summary()
-        available_budget_gold = summary.get("available_budget_gold", 0.0)
-        available_budget_cents = int(round(available_budget_gold * 100))
-
-        if reward_cents > available_budget_cents:
+        # 1. Strict Voter Identity Binding
+        verified_accounts = [a.strip().upper() for a in self.get_verified_destination_accounts(cbm_username)]
+        if voter_account.strip().upper() not in verified_accounts:
             return False, (
-                f"Campaign reserve cap reached. Current available budget is {available_budget_gold:.2f} Gold "
-                f"(maximum 15% of bank reserves: {summary.get('max_campaign_budget_gold', 0.0):.2f} Gold). "
-                f"Claim of {reward_gold:.2f} Gold exceeds remaining cap."
+                f"Voter account '{voter_account}' is not linked or verified to CBM account '{cbm_username}'. "
+                f"Link this account under Clan Bank Payment Methods before submitting vote claims."
             ), {}
+
+        # 2. Server-Side Cost Calculation: Eliminate client parameter tampering
+        # In Territorial.io, purchasing N votes strictly costs N + 1.00 Gold (1.00 base fee + 1.00/vote).
+        calculated_gold_spent = round(float(votes_count + 1), 2)
+        reward_gold = calculated_gold_spent
+        reward_cents = int(round(reward_gold * 100))
 
         target_vault = os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
         now = time.time()
         claim_id = f"av_{voter_account.lower().strip()}_{votes_count}_{int(now)}"
 
-        conn = sqlite3.connect(self.sqlite_path)
+        # 3. Atomic Write Lock: Budget Cap & Anti-Abuse Verification
+        conn = self.get_write_connection()
         cur = conn.cursor()
-        # Prevent identical duplicate claims within 5 minutes
-        cur.execute("""
-            SELECT id FROM cbm_admin_votes
-            WHERE voter_account = ? AND votes_count = ? AND status IN ('PENDING', 'REWARDED')
-              AND created_at > ?
-        """, (voter_account.strip(), votes_count, now - 300))
-        if cur.fetchone():
-            conn.close()
-            return False, f"Duplicate claim detected for voter '{voter_account}' and {votes_count} votes.", {}
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
 
-        cur.execute("""
-            INSERT INTO cbm_admin_votes (
-                claim_id, cbm_username, voter_account, target_account,
-                votes_count, gold_spent, reward_gold, reward_cents,
-                status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
-        """, (
-            claim_id, cbm_username, voter_account.strip(), target_vault,
-            votes_count, gold_spent, reward_gold, reward_cents, now
-        ))
-        conn.commit()
-        conn.close()
+            # 3a. Disallow multiple unsettled pending claims for the same voter
+            cur.execute("""
+                SELECT claim_id FROM cbm_admin_votes
+                WHERE voter_account = ? COLLATE NOCASE AND status IN ('PENDING', 'PENDING_REVIEW')
+            """, (voter_account.strip(),))
+            active_pending = cur.fetchone()
+            if active_pending:
+                conn.rollback()
+                return False, f"Voter account '{voter_account}' already has an active pending claim ({active_pending[0]}). Await audit verification before submitting new claims.", {}
+
+            # 3b. Anti-replay: Prevent duplicate identical volume claims within 24 hours
+            cur.execute("""
+                SELECT claim_id FROM cbm_admin_votes
+                WHERE voter_account = ? COLLATE NOCASE AND votes_count = ? AND status = 'REWARDED'
+                  AND created_at > ?
+            """, (voter_account.strip(), votes_count, now - 86400))
+            dup = cur.fetchone()
+            if dup:
+                conn.rollback()
+                return False, f"Duplicate claim detected: identical vote volume ({votes_count} votes) for voter '{voter_account}' was already rewarded within the last 24 hours.", {}
+
+            # 3c. Rate limit: Max 10 claims or 5,000 votes per voter per 24 hours
+            cur.execute("""
+                SELECT COUNT(*), COALESCE(SUM(votes_count), 0) FROM cbm_admin_votes
+                WHERE voter_account = ? COLLATE NOCASE AND created_at > ?
+            """, (voter_account.strip(), now - 86400))
+            row_daily = cur.fetchone()
+            daily_claims = row_daily[0] if row_daily else 0
+            daily_votes = row_daily[1] if row_daily else 0
+            if daily_claims >= 10 or (daily_votes + votes_count) > 5000:
+                conn.rollback()
+                return False, f"Daily sponsorship limit reached for voter '{voter_account}' (max 10 claims or 5,000 votes / 24h).", {}
+
+            # 3d. Check 15% Reserve Budget Cap under exclusive write lock
+            cur.execute("SELECT bank_reserves_cents FROM cbm_treasury WHERE id = 1")
+            t_row = cur.fetchone()
+            reserves_cents = t_row[0] if t_row else 0
+            max_budget_cents = int(round(0.15 * reserves_cents))
+
+            cur.execute("""
+                SELECT COALESCE(SUM(reward_cents), 0)
+                FROM cbm_admin_votes
+                WHERE status IN ('REWARDED', 'PENDING', 'PENDING_REVIEW')
+            """)
+            allocated_cents = cur.fetchone()[0] or 0
+            available_budget_cents = max(0, max_budget_cents - allocated_cents)
+
+            if reward_cents > available_budget_cents:
+                conn.rollback()
+                available_budget_gold = available_budget_cents / 100.0
+                max_budget_gold = max_budget_cents / 100.0
+                return False, (
+                    f"Campaign reserve cap reached. Current available budget is {available_budget_gold:.2f} Gold "
+                    f"(maximum 15% of bank reserves: {max_budget_gold:.2f} Gold). "
+                    f"Claim of {reward_gold:.2f} Gold exceeds remaining cap."
+                ), {}
+
+            initial_status = "PENDING"
+            cur.execute("""
+                INSERT INTO cbm_admin_votes (
+                    claim_id, cbm_username, voter_account, target_account,
+                    votes_count, gold_spent, reward_gold, reward_cents,
+                    status, quarantine_until, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?)
+            """, (
+                claim_id, cbm_username, voter_account.strip(), target_vault,
+                votes_count, calculated_gold_spent, reward_gold, reward_cents,
+                initial_status, now
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Failed to record claim: {e}", {}
+        finally:
+            conn.close()
 
         if self.use_supabase:
             try:
@@ -4464,7 +4550,7 @@ class CBMDatabase:
                     "voter_account": voter_account.strip(),
                     "target_account": target_vault,
                     "votes_count": votes_count,
-                    "gold_spent": gold_spent,
+                    "gold_spent": calculated_gold_spent,
                     "reward_gold": reward_gold,
                     "reward_cents": reward_cents,
                     "status": "PENDING"
@@ -4488,80 +4574,88 @@ class CBMDatabase:
         self,
         claim_id: str,
         verified: bool = True,
-        rejection_reason: Optional[str] = None
+        rejection_reason: Optional[str] = None,
+        quarantine_hours: float = 24.0
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Settles a pending Admin Election claim.
         If verified=True:
         - Credits member balance
+        - Applies promotional quarantine holding period (quarantine_hours) to safeguard bank vault liquidity
         - Debits unencumbered bank reserves (satisfying 15% budget cap)
         - Records double-entry audit entry in cbm_ledger
         - Recalculates treasury
         """
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM cbm_admin_votes WHERE claim_id = ?", (claim_id,))
-        row = cur.fetchone()
-        if not row:
-            conn.close()
-            return False, f"Admin vote claim '{claim_id}' not found.", {}
-
-        col_names = [d[0] for d in cur.description]
-        claim = dict(zip(col_names, row))
-
-        if claim.get("status") == "REWARDED":
-            conn.close()
-            return False, f"Claim '{claim_id}' has already been settled and rewarded.", {}
-
         now = time.time()
-        cbm_username = claim["cbm_username"]
-        reward_gold = float(claim["reward_gold"])
-        reward_cents = int(claim["reward_cents"])
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+            cur.execute("SELECT * FROM cbm_admin_votes WHERE claim_id = ?", (claim_id,))
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                return False, f"Admin vote claim '{claim_id}' not found.", {}
 
-        if not verified:
-            reason = rejection_reason or "Verification failed or rejected by administrator."
+            col_names = [d[0] for d in cur.description]
+            claim = dict(zip(col_names, row))
+
+            if claim.get("status") == "REWARDED":
+                conn.rollback()
+                return False, f"Claim '{claim_id}' has already been settled and rewarded.", {}
+
+            cbm_username = claim["cbm_username"]
+            reward_gold = float(claim["reward_gold"])
+            reward_cents = int(claim["reward_cents"])
+
+            if not verified:
+                reason = rejection_reason or "Verification failed or rejected by administrator."
+                cur.execute("""
+                    UPDATE cbm_admin_votes
+                    SET status = 'REJECTED', rejection_reason = ?, verified_at = ?
+                    WHERE claim_id = ?
+                """, (reason, now, claim_id))
+                conn.commit()
+                if self.use_supabase:
+                    try:
+                        self._sb_request("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
+                            "status": "REJECTED",
+                            "rejection_reason": reason
+                        })
+                    except Exception:
+                        pass
+                return True, f"Claim '{claim_id}' rejected: {reason}", {"claim_id": claim_id, "status": "REJECTED"}
+
+            # Double check account exists
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (cbm_username,))
+            acc_row = cur.fetchone()
+            if not acc_row:
+                conn.rollback()
+                return False, f"Member account '{cbm_username}' not found.", {}
+
+            current_balance_cents = acc_row[0] or 0
+            new_balance_cents = current_balance_cents + reward_cents
+            tx_hash = f"tx_adminvote_{claim_id}"
+            notes = f"Admin Election Reward: 1:1 reimbursement for {claim['votes_count']} votes ({reward_gold:.2f} Gold) cast for {claim['target_account']}"
+            quarantine_until = now + (quarantine_hours * 3600.0)
+
+            # Atomic settlement in SQLite
+            cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance_cents, now, cbm_username))
+            cur.execute("""
+                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                VALUES (?, 'ADMIN_VOTE_REWARD', ?, ?, ?, ?, ?)
+            """, (cbm_username, reward_cents, new_balance_cents, tx_hash, notes, now))
             cur.execute("""
                 UPDATE cbm_admin_votes
-                SET status = 'REJECTED', rejection_reason = ?, verified_at = ?
+                SET status = 'REWARDED', verified_at = ?, quarantine_until = ?
                 WHERE claim_id = ?
-            """, (reason, now, claim_id))
+            """, (now, quarantine_until, claim_id))
             conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Failed to settle claim: {e}", {}
+        finally:
             conn.close()
-            if self.use_supabase:
-                try:
-                    self._sb_request("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
-                        "status": "REJECTED",
-                        "rejection_reason": reason
-                    })
-                except Exception:
-                    pass
-            return True, f"Claim '{claim_id}' rejected: {reason}", {"claim_id": claim_id, "status": "REJECTED"}
-
-        # Double check account exists
-        cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (cbm_username,))
-        acc_row = cur.fetchone()
-        if not acc_row:
-            conn.close()
-            return False, f"Member account '{cbm_username}' not found.", {}
-
-        current_balance_cents = acc_row[0] or 0
-        new_balance_cents = current_balance_cents + reward_cents
-        tx_hash = f"tx_adminvote_{claim_id}"
-        notes = f"Admin Election Reward: 1:1 reimbursement for {claim['votes_count']} votes ({reward_gold:.2f} Gold) cast for {claim['target_account']}"
-
-        # Atomic settlement in SQLite
-        cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance_cents, now, cbm_username))
-        cur.execute("""
-            INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
-            VALUES (?, 'ADMIN_VOTE_REWARD', ?, ?, ?, ?, ?)
-        """, (cbm_username, reward_cents, new_balance_cents, tx_hash, notes, now))
-        cur.execute("""
-            UPDATE cbm_admin_votes
-            SET status = 'REWARDED', verified_at = ?
-            WHERE claim_id = ?
-        """, (now, claim_id))
-        conn.commit()
-        conn.close()
 
         # Dual-Write to Supabase
         if self.use_supabase:
@@ -4576,7 +4670,8 @@ class CBMDatabase:
                     "notes": notes
                 })
                 self._sb_request("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
-                    "status": "REWARDED"
+                    "status": "REWARDED",
+                    "quarantine_until": quarantine_until
                 })
             except Exception as ex:
                 print(f"[!] Supabase admin vote reward sync notice: {ex}")
@@ -4594,22 +4689,76 @@ class CBMDatabase:
             "reward_gold": reward_gold,
             "new_balance_gold": round(new_balance_cents / 100.0, 2),
             "status": "REWARDED",
+            "quarantine_until": quarantine_until,
+            "quarantine_hours": quarantine_hours,
             "tx_hash": tx_hash
         }
+
+    def get_withdrawable_balance_cents(self, account_name: str) -> int:
+        """
+        Calculates withdrawable balance in cents, subtracting promotional/quarantined credits
+        (e.g., admin election vote sponsorship rewards held in audit quarantine).
+        """
+        acc = self.get_account(account_name)
+        if not acc:
+            return 0
+        total_cents = int(acc.get("deposited_cents", 0) or 0)
+
+        now = time.time()
+        conn = self._get_sqlite_conn(row_factory=False)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COALESCE(SUM(reward_cents), 0)
+            FROM cbm_admin_votes
+            WHERE cbm_username = ? AND status = 'REWARDED' AND quarantine_until > ?
+        """, (account_name, now))
+        row = cur.fetchone()
+        quarantined_cents = int(row[0]) if row and row[0] is not None else 0
+
+        return max(0, total_cents - quarantined_cents)
+
+    def get_pending_admin_votes(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Returns list of pending vote claims awaiting review/audit."""
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT claim_id, cbm_username, voter_account, target_account, votes_count, gold_spent, reward_gold, status, created_at
+            FROM cbm_admin_votes
+            WHERE status IN ('PENDING', 'PENDING_REVIEW')
+            ORDER BY created_at ASC
+            LIMIT ?
+        """, (limit,))
+        pending = []
+        for r in cur.fetchall():
+            pending.append({
+                "claim_id": r[0],
+                "cbm_username": r[1],
+                "voter_account": r[2],
+                "target_account": r[3],
+                "votes_count": r[4],
+                "gold_spent": r[5],
+                "reward_gold": r[6],
+                "status": r[7],
+                "created_at": r[8]
+            })
+        return pending
 
     def list_member_admin_votes(self, cbm_username: str) -> List[Dict[str, Any]]:
         """Returns history of Admin Election vote claims for a specific member."""
         conn = self._get_sqlite_conn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT claim_id, voter_account, target_account, votes_count, gold_spent, reward_gold, status, created_at, verified_at
+            SELECT claim_id, voter_account, target_account, votes_count, gold_spent, reward_gold, status, quarantine_until, created_at, verified_at
             FROM cbm_admin_votes
             WHERE cbm_username = ?
             ORDER BY created_at DESC
             LIMIT 50
         """, (cbm_username,))
         votes = []
+        now = time.time()
         for r in cur.fetchall():
+            q_until = r[7] or 0.0
+            is_quarantined = (r[6] == "REWARDED") and (q_until > now)
             votes.append({
                 "claim_id": r[0],
                 "voter_account": r[1],
@@ -4618,8 +4767,10 @@ class CBMDatabase:
                 "gold_spent": r[4],
                 "reward_gold": r[5],
                 "status": r[6],
-                "created_at": r[7],
-                "verified_at": r[8]
+                "quarantine_until": q_until,
+                "is_quarantined": is_quarantined,
+                "created_at": r[8],
+                "verified_at": r[9]
             })
         return votes
 

@@ -593,7 +593,7 @@
           <span class="status-tag settled" id="capIndicator">CAP HEALTHY</span>
         </div>
         <p style="color: var(--text-dim); font-size: 0.88rem; margin-bottom: 18px;">
-          Cast your vote for candidate <strong>DdcBC</strong> in Territorial.io, then submit your claim below for instant 1:1 Gold credit to your CBM account.
+          Cast your vote for candidate <strong>DdcBC</strong> in Territorial.io, then submit your claim below for 1:1 Gold reimbursement. Claims are audited against verified payment methods, with a 24-hour promotional holding period on disbursed rewards to protect clan vault liquidity.
         </p>
 
         <form id="voteClaimForm" onsubmit="handleClaimSubmit(event)">
@@ -891,7 +891,12 @@
       if (recent.length === 0) {
         recentBody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 18px;">No recent disbursements.</td></tr>`;
       } else {
-        recentBody.innerHTML = recent.map(r => `
+        recentBody.innerHTML = recent.map(r => {
+          let statusClass = "settled";
+          if (r.status === "PENDING" || r.status === "PENDING_REVIEW") statusClass = "pending";
+          else if (r.status === "REJECTED") statusClass = "failed";
+
+          return `
           <tr>
             <td>
               <span style="font-weight: 600; color: #fff;">${escapeHtml(r.voter_account)}</span>
@@ -902,10 +907,11 @@
               +${Number(r.reward_gold).toFixed(2)} G
             </td>
             <td style="text-align: right;">
-              <span class="status-tag settled">${r.status}</span>
+              <span class="status-tag ${statusClass}">${escapeHtml(r.status)}</span>
             </td>
           </tr>
-        `).join("");
+        `;
+        }).join("");
       }
     }
 
@@ -914,7 +920,7 @@
       const btn = document.getElementById("btnClaimSubmit");
       const originalText = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = `<span>Validating & Reconciling...</span>`;
+      btn.innerHTML = `<span>Validating & Submitting...</span>`;
 
       const cbmUsername = document.getElementById("cbmUsername").value.trim();
       const voterAccount = document.getElementById("voterAccount").value.trim();
@@ -937,7 +943,12 @@
 
         const data = await res.json();
         if (res.ok && data.status === "ok") {
-          showToast(`✓ Claim Settled! ${data.claim.reward_gold.toFixed(2)} Gold credited to ${cbmUsername}.`, "success");
+          const claim = data.claim || {};
+          if (claim.status === "REWARDED") {
+            showToast(`✓ Claim Settled! ${Number(claim.reward_gold || 0).toFixed(2)} Gold credited to ${cbmUsername}.`, "success");
+          } else {
+            showToast(`✓ Claim Submitted! ${Number(claim.reward_gold || 0).toFixed(2)} Gold pending verification audit.`, "success");
+          }
           document.getElementById("votesCount").value = "10";
           updateCalculationBreakdown();
           fetchCampaignSummary();

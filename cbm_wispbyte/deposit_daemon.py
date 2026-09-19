@@ -37,7 +37,8 @@ class CBMDepositDaemon:
             try:
                 from election_worker import get_election_worker
                 self.election_worker = get_election_worker(db=self.db)
-            except Exception:
+            except Exception as ew_err:
+                print(f"[!] Deposit daemon election worker init notice: {ew_err}")
                 self.election_worker = None
         self.running = False
         self._ssl_ctx = ssl.create_default_context()
@@ -192,6 +193,13 @@ class CBMDepositDaemon:
                         print(f"[!] Daemon withdrawal processing notice: {w_err}")
 
                 # Sweep and process any queued member admin election vote claims
+                if not self.election_worker:
+                    try:
+                        from election_worker import get_election_worker
+                        self.election_worker = get_election_worker(db=self.db)
+                    except Exception:
+                        pass
+
                 if self.election_worker:
                     try:
                         e_res = self.election_worker.process_pending_vote_claims()

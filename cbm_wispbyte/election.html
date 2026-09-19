@@ -589,11 +589,11 @@
       <!-- Left Column: Claim Submission Card -->
       <div class="panel-card">
         <div class="panel-header">
-          <div class="panel-title">🗳️ Claim Election Sponsorship</div>
+          <div class="panel-title">🗳️ Generate Election Vote Slip</div>
           <span class="status-tag settled" id="capIndicator">CAP HEALTHY</span>
         </div>
         <p style="color: var(--text-dim); font-size: 0.88rem; margin-bottom: 18px;">
-          Cast your vote for candidate <strong>DdcBC</strong> in Territorial.io, then submit your claim below for 1:1 Gold reimbursement. Claims are audited against verified payment methods, with a 24-hour promotional holding period on disbursed rewards to protect clan vault liquidity.
+          Generate a 15-minute verification slip below, then cast your vote for candidate <strong>DdcBC</strong> in Territorial.io Admin Elections. The Clan Bank daemon continuously tracks in-game votes and automatically credits 1:1 Gold reimbursements from bank reserves.
         </p>
 
         <form id="voteClaimForm" onsubmit="handleClaimSubmit(event)">
@@ -642,7 +642,7 @@
           </div>
 
           <button type="submit" class="btn-submit" id="btnClaimSubmit">
-            <span>Submit Sponsorship Claim</span>
+            <span>Generate 15-Minute Vote Slip</span>
           </button>
         </form>
       </div>
@@ -893,8 +893,17 @@
       } else {
         recentBody.innerHTML = recent.map(r => {
           let statusClass = "settled";
-          if (r.status === "PENDING" || r.status === "PENDING_REVIEW") statusClass = "pending";
-          else if (r.status === "REJECTED") statusClass = "failed";
+          let statusText = escapeHtml(r.status);
+          if (r.status === "PENDING" || r.status === "PENDING_REVIEW") {
+            statusClass = "pending";
+            if (r.remaining_seconds !== undefined && r.remaining_seconds > 0) {
+              const m = Math.floor(r.remaining_seconds / 60);
+              const s = r.remaining_seconds % 60;
+              statusText = `PENDING (${m}:${s.toString().padStart(2, '0')})`;
+            }
+          } else if (r.status === "REJECTED" || r.status === "EXPIRED") {
+            statusClass = "failed";
+          }
 
           return `
           <tr>
@@ -907,7 +916,7 @@
               +${Number(r.reward_gold).toFixed(2)} G
             </td>
             <td style="text-align: right;">
-              <span class="status-tag ${statusClass}">${escapeHtml(r.status)}</span>
+              <span class="status-tag ${statusClass}">${statusText}</span>
             </td>
           </tr>
         `;
@@ -920,7 +929,7 @@
       const btn = document.getElementById("btnClaimSubmit");
       const originalText = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = `<span>Validating & Submitting...</span>`;
+      btn.innerHTML = `<span>Generating Verification Slip...</span>`;
 
       const cbmUsername = document.getElementById("cbmUsername").value.trim();
       const voterAccount = document.getElementById("voterAccount").value.trim();
@@ -945,9 +954,9 @@
         if (res.ok && data.status === "ok") {
           const claim = data.claim || {};
           if (claim.status === "REWARDED") {
-            showToast(`✓ Claim Settled! ${Number(claim.reward_gold || 0).toFixed(2)} Gold credited to ${cbmUsername}.`, "success");
+            showToast(`✓ Slip Settled! ${Number(claim.reward_gold || 0).toFixed(2)} Gold credited to ${cbmUsername}.`, "success");
           } else {
-            showToast(`✓ Claim Submitted! ${Number(claim.reward_gold || 0).toFixed(2)} Gold pending verification audit.`, "success");
+            showToast(`✓ 15-Minute Slip Active! Cast your in-game vote for candidate DdcBC. The bank daemon will detect your points and credit +${Number(claim.reward_gold || 0).toFixed(2)} Gold.`, "success");
           }
           document.getElementById("votesCount").value = "10";
           updateCalculationBreakdown();

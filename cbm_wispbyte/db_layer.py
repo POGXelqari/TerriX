@@ -420,7 +420,9 @@ class CBMDatabase:
             )
         """)
         for col_def in [
-            "quarantine_until REAL DEFAULT 0.0"
+            "quarantine_until REAL DEFAULT 0.0",
+            "expires_at REAL DEFAULT 0.0",
+            "baseline_admin_points INTEGER DEFAULT 0"
         ]:
             try:
                 cur.execute(f"ALTER TABLE cbm_admin_votes ADD COLUMN {col_def}")
@@ -4378,14 +4380,18 @@ class CBMDatabase:
 
         # Recent 10 Disbursements or Submissions
         cur.execute("""
-            SELECT claim_id, cbm_username, voter_account, votes_count, reward_gold, status, verified_at, created_at
+            SELECT claim_id, cbm_username, voter_account, votes_count, reward_gold, status, verified_at, created_at,
+                   COALESCE(expires_at, 0.0)
             FROM cbm_admin_votes
             WHERE status IN ('REWARDED', 'PENDING', 'PENDING_REVIEW')
             ORDER BY created_at DESC
             LIMIT 10
         """)
+        now = time.time()
         recent_disbursements = []
         for r in cur.fetchall():
+            exp = float(r[8]) if r[8] else 0.0
+            rem = max(0, int(exp - now)) if exp > now else 0
             recent_disbursements.append({
                 "claim_id": r[0],
                 "cbm_username": r[1],
@@ -4394,7 +4400,9 @@ class CBMDatabase:
                 "reward_gold": round(r[4], 2),
                 "status": r[5],
                 "verified_at": r[6],
-                "created_at": r[7]
+                "created_at": r[7],
+                "expires_at": exp,
+                "remaining_seconds": rem
             })
 
         target_vault = os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
@@ -4466,6 +4474,14 @@ class CBMDatabase:
         try:
             cur.execute("BEGIN IMMEDIATE;")
 
+            # Auto-expire outdated pending slips for this voter
+            cur.execute("""
+                UPDATE cbm_admin_votes
+                SET status = 'EXPIRED', rejection_reason = '15-minute verification window expired.'
+                WHERE voter_account = ? COLLATE NOCASE AND status IN ('PENDING', 'PENDING_REVIEW')
+                  AND expires_at > 0 AND expires_at < ?
+            """, (voter_account.strip(), now))
+
             # 3a. Disallow multiple unsettled pending claims for the same voter
             cur.execute("""
                 SELECT claim_id FROM cbm_admin_votes
@@ -4474,7 +4490,7 @@ class CBMDatabase:
             active_pending = cur.fetchone()
             if active_pending:
                 conn.rollback()
-                return False, f"Voter account '{voter_account}' already has an active pending claim ({active_pending[0]}). Await audit verification before submitting new claims.", {}
+                return False, f"Voter account '{voter_account}' already has an active pending slip ({active_pending[0]}). Await audit verification before submitting new claims.", {}
 
             # 3b. Anti-replay: Prevent duplicate identical volume claims within 24 hours
             cur.execute("""
@@ -4523,17 +4539,28 @@ class CBMDatabase:
                     f"Claim of {reward_gold:.2f} Gold exceeds remaining cap."
                 ), {}
 
+            # Telemetry baseline for candidate points
+            baseline_points = 0
+            try:
+                from election_worker import get_election_worker
+                ew = get_election_worker(db=self)
+                t = ew.get_vault_election_telemetry()
+                baseline_points = int(t.get("admin_points") or 0)
+            except Exception:
+                pass
+
+            expires_at = now + 900.0  # 15-minute verification slip window
             initial_status = "PENDING"
             cur.execute("""
                 INSERT INTO cbm_admin_votes (
                     claim_id, cbm_username, voter_account, target_account,
                     votes_count, gold_spent, reward_gold, reward_cents,
-                    status, quarantine_until, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?)
+                    status, quarantine_until, created_at, expires_at, baseline_admin_points
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?)
             """, (
                 claim_id, cbm_username, voter_account.strip(), target_vault,
                 votes_count, calculated_gold_spent, reward_gold, reward_cents,
-                initial_status, now
+                initial_status, now, expires_at, baseline_points
             ))
             conn.commit()
         except Exception as e:
@@ -4561,13 +4588,16 @@ class CBMDatabase:
         if auto_settle:
             return self.settle_admin_vote_claim(claim_id)
 
-        return True, f"Admin vote claim #{claim_id} submitted and pending verification.", {
+        return True, f"Admin vote slip #{claim_id} generated. Cast your vote for {target_vault} in-game within 15 minutes for 1:1 reimbursement.", {
             "claim_id": claim_id,
             "cbm_username": cbm_username,
             "voter_account": voter_account,
             "votes_count": votes_count,
             "reward_gold": reward_gold,
-            "status": "PENDING"
+            "status": "PENDING",
+            "expires_at": expires_at,
+            "remaining_seconds": 900,
+            "baseline_admin_points": baseline_points
         }
 
     def settle_admin_vote_claim(

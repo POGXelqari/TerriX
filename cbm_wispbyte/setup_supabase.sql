@@ -311,6 +311,9 @@ CREATE TABLE IF NOT EXISTS public.cbm_admin_votes (
     reward_gold NUMERIC(12, 2) NOT NULL,
     reward_cents BIGINT NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING',
+    quarantine_until TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ,
+    baseline_admin_points INTEGER DEFAULT 0,
     rejection_reason TEXT,
     verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()

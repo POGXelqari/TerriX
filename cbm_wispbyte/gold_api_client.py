@@ -194,6 +194,9 @@ class TerritorialGoldClient:
                         })
         except Exception as e:
             print(f"[!] Error fetching transaction log: {e}")
+        return txs
+
+GoldApiClient = TerritorialGoldClient
 
 def extract_profile_metadata(account_data: Dict[str, Any]) -> Tuple[str, str, str]:
     """

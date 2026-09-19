@@ -894,6 +894,7 @@
     if (!bQz || typeof bQz.mk !== 'number' || bQz.mk <= 0) return staticAttackMap;
 
     var totalTiles = mapW * mapW;
+    var hasMq = window.bQ && window.bQ.lj && typeof window.bQ.lj.mq === 'function';
 
     for (var i = 0; i < bQz.mk; i++) {
       var attackerId = bQz.mo[i] >> 3;
@@ -906,8 +907,14 @@
       // Extract target defender from path waypoints (scanning from destination backwards to origin)
       for (var c = path.length - 1; c >= 0; c--) {
         var rawWaypoint = path[c];
-        var byteOffset = (rawWaypoint < totalTiles) ? (rawWaypoint * 4) : rawWaypoint;
-        var owner = tm.fR(byteOffset);
+        var owner = -1;
+        if (hasMq) {
+          try { owner = window.bQ.lj.mq(rawWaypoint); } catch(e) {}
+        }
+        if (typeof owner !== 'number' || owner < 0 || owner >= ku) {
+          var byteOffset = (rawWaypoint < totalTiles) ? (rawWaypoint * 4) : rawWaypoint;
+          owner = tm.fR(byteOffset);
+        }
         if (typeof owner === 'number' && owner >= 0 && owner < ku && owner !== attackerId) {
           targetPlayer = owner;
           break;
@@ -1012,7 +1019,7 @@
         if (fX && fX[p1] !== 0 && fX[p1] === fX[enemyId]) continue;
 
         var cluster = warClusters[enemyId];
-        if (!cluster || cluster.tiles.length < 2) continue;
+        if (!cluster || cluster.tiles.length < 1) continue;
 
         // O(1) lookup of active attack troops deployed between p1 and enemyId
         var p1ActiveAttackTroops = getActiveAttackTroopsFromMap(activeAttackMap, p1, enemyId);

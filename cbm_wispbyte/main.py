@@ -75,6 +75,13 @@ def load_static_cache():
     """Pre-loads, digests, and gzip-compresses static assets into RAM at startup."""
     global _STATIC_CACHE
     base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Automatically ensure assets/products directory exists on startup
+    try:
+        os.makedirs(os.path.join(base_dir, "assets", "products"), exist_ok=True)
+    except Exception as e:
+        print(f"[!] Notice: Could not initialize assets/products directory: {e}")
+
     assets = [
         ("cbm.html", "text/html; charset=utf-8"),
         ("login.html", "text/html; charset=utf-8"),

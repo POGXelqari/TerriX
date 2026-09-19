@@ -730,11 +730,11 @@
     }
 
     // Resolve live game engine references safely from window global scope
-    var g = window.game || window.aE || null;
-    var pd = context.playerData || window.playerData || window.ah || null;
+    var g = context.game || window.aE || window.game || null;
+    var pd = context.playerData || window.ah || window.playerData || null;
 
     // 1. Must be in match (gState === 1 active, 2 post-match)
-    var gState = g ? ((typeof g.gameState === 'number') ? g.gameState : ((typeof g.a2G === 'number') ? g.a2G : 0)) : 0;
+    var gState = g ? ((typeof g.a2G === 'number') ? g.a2G : ((typeof g.gameState === 'number') ? g.gameState : 0)) : 0;
     if (gState === 0) {
       state.currentMatchDeducted = false;
       return;
@@ -983,28 +983,28 @@
 
         // 4-neighbor lookups (RIGHT, DOWN, LEFT, UP) with n > p1 filter for 50% CPU reduction
         var nRight = tm.fR(h7 + 4);
-        if (nRight > p1 && nRight < ku && (!pd.nU || pd.nU[nRight] !== 0) && (!pd.a5a || pd.a5a[nRight] !== 2)) {
+        if (nRight !== p1 && nRight >= 0 && nRight < ku && (!pd.nU || pd.nU[nRight] !== 0) && (!pd.a5a || pd.a5a[nRight] !== 2)) {
           if (!warClusters[nRight]) warClusters[nRight] = { tiles: [], dx: 0, dy: 0 };
           warClusters[nRight].tiles.push(h7);
           warClusters[nRight].dx += 1;
         }
 
         var nDown = tm.fR(h7 + step);
-        if (nDown > p1 && nDown < ku && (!pd.nU || pd.nU[nDown] !== 0) && (!pd.a5a || pd.a5a[nDown] !== 2)) {
+        if (nDown !== p1 && nDown >= 0 && nDown < ku && (!pd.nU || pd.nU[nDown] !== 0) && (!pd.a5a || pd.a5a[nDown] !== 2)) {
           if (!warClusters[nDown]) warClusters[nDown] = { tiles: [], dx: 0, dy: 0 };
           warClusters[nDown].tiles.push(h7);
           warClusters[nDown].dy += 1;
         }
 
         var nLeft = tm.fR(h7 - 4);
-        if (nLeft > p1 && nLeft < ku && (!pd.nU || pd.nU[nLeft] !== 0) && (!pd.a5a || pd.a5a[nLeft] !== 2)) {
+        if (nLeft !== p1 && nLeft >= 0 && nLeft < ku && (!pd.nU || pd.nU[nLeft] !== 0) && (!pd.a5a || pd.a5a[nLeft] !== 2)) {
           if (!warClusters[nLeft]) warClusters[nLeft] = { tiles: [], dx: 0, dy: 0 };
           warClusters[nLeft].tiles.push(h7);
           warClusters[nLeft].dx -= 1;
         }
 
         var nUp = tm.fR(h7 - step);
-        if (nUp > p1 && nUp < ku && (!pd.nU || pd.nU[nUp] !== 0) && (!pd.a5a || pd.a5a[nUp] !== 2)) {
+        if (nUp !== p1 && nUp >= 0 && nUp < ku && (!pd.nU || pd.nU[nUp] !== 0) && (!pd.a5a || pd.a5a[nUp] !== 2)) {
           if (!warClusters[nUp]) warClusters[nUp] = { tiles: [], dx: 0, dy: 0 };
           warClusters[nUp].tiles.push(h7);
           warClusters[nUp].dy -= 1;
@@ -1014,6 +1014,7 @@
       var p2Keys = Object.keys(warClusters);
       for (var k = 0; k < p2Keys.length; k++) {
         var enemyId = parseInt(p2Keys[k], 10);
+        if (enemyId <= p1) continue; // Single-pass deduplicated pairing (p1 < enemyId)
 
         // Teammate / Peace check: Skip teammate borders completely
         if (fX && fX[p1] !== 0 && fX[p1] === fX[enemyId]) continue;

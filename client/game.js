@@ -3674,20 +3674,18 @@ function a4V() {
 		}
 	}, window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
 		if (window.__TERRIX_ENGINE__ && 0 < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length)
-			for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) try {
-				window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i]({
+			for (var engineCtx = {
 					ws: ws,
 					a0O: a0O,
 					im: im,
 					offsetX: ox,
 					offsetY: oy,
-					localPlayer: "undefined" != typeof localPlayer ? localPlayer : null,
-					playerData: "undefined" != typeof playerData ? playerData : null,
-					tileMap: "undefined" != typeof tileMap ? tileMap : null,
-					dialogManager: "undefined" != typeof dialogManager ? dialogManager : null,
-					gameClock: "undefined" != typeof gameClock ? gameClock : null,
-					clanPanel: "undefined" != typeof clanPanel ? clanPanel : null
-				})
+					game: void 0 !== aE ? aE : "undefined" != typeof game ? game : null,
+					playerData: void 0 !== ah ? ah : "undefined" != typeof playerData ? playerData : null,
+					tileMap: void 0 !== ad ? ad : "undefined" != typeof tileMap ? tileMap : null,
+					gameClock: void 0 !== au ? au : "undefined" != typeof gameClock ? gameClock : null
+				}, i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) try {
+				window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i](engineCtx)
 			} catch (e) {
 				console.error("[TerriX Engine Hook Error]", e)
 			}

@@ -24,17 +24,16 @@ export default definePatch(({ replaceCode }) => {
     };
     window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
       if (window.__TERRIX_ENGINE__ && window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length > 0) {
+        var engineCtx = {
+          ws: ws, a0O: a0O, im: im, offsetX: ox, offsetY: oy,
+          game: typeof aE !== 'undefined' ? aE : (typeof game !== 'undefined' ? game : null),
+          playerData: typeof ah !== 'undefined' ? ah : (typeof playerData !== 'undefined' ? playerData : null),
+          tileMap: typeof ad !== 'undefined' ? ad : (typeof tileMap !== 'undefined' ? tileMap : null),
+          gameClock: typeof au !== 'undefined' ? au : (typeof gameClock !== 'undefined' ? gameClock : null)
+        };
         for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) {
           try {
-            window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i]({
-              ws: ws, a0O: a0O, im: im, offsetX: ox, offsetY: oy,
-              localPlayer: typeof localPlayer !== 'undefined' ? localPlayer : null,
-              playerData: typeof playerData !== 'undefined' ? playerData : null,
-              tileMap: typeof tileMap !== 'undefined' ? tileMap : null,
-              dialogManager: typeof dialogManager !== 'undefined' ? dialogManager : null,
-              gameClock: typeof gameClock !== 'undefined' ? gameClock : null,
-              clanPanel: typeof clanPanel !== 'undefined' ? clanPanel : null
-            });
+            window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i](engineCtx);
           } catch(e) { console.error("[TerriX Engine Hook Error]", e); }
         }
       }

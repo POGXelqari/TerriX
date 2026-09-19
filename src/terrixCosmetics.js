@@ -30,6 +30,12 @@
   // State Management
   var state = {
     modalOpen: false,
+    activeTab: 'shop', // 'shop' | 'settings'
+    fabPosition: { x: null, y: null },
+    settings: {
+      showPatterns: true,
+      showFrontlineTroops: true
+    },
     ownedPatterns: {},
     equippedPattern: null,
     trial: {
@@ -64,6 +70,24 @@
         }
       }
 
+      // Settings persistence
+      var storedSettings = localStorage.getItem('terrix_settings');
+      if (storedSettings) {
+        var parsedSettings = JSON.parse(storedSettings);
+        if (typeof parsedSettings.showPatterns === 'boolean') {
+          state.settings.showPatterns = parsedSettings.showPatterns;
+        }
+        if (typeof parsedSettings.showFrontlineTroops === 'boolean') {
+          state.settings.showFrontlineTroops = parsedSettings.showFrontlineTroops;
+        }
+      }
+
+      // FAB position persistence
+      var storedFab = localStorage.getItem('terrix_fab_pos');
+      if (storedFab) {
+        state.fabPosition = JSON.parse(storedFab);
+      }
+
       // Default auto-equip Hello Kitty if owned or trial active
       if (!state.equippedPattern) {
         if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
@@ -88,6 +112,11 @@
       if (currentAcc) {
         var trialKey = 'terrix_cbm_trial_' + currentAcc.toLowerCase();
         localStorage.setItem(trialKey, JSON.stringify(state.trial));
+      }
+
+      localStorage.setItem('terrix_settings', JSON.stringify(state.settings));
+      if (state.fabPosition && state.fabPosition.x !== null && state.fabPosition.y !== null) {
+        localStorage.setItem('terrix_fab_pos', JSON.stringify(state.fabPosition));
       }
     } catch(e) {
       console.warn('[TerriX Cosmetics] Storage save error:', e);
@@ -365,35 +394,89 @@
 
   // Stylesheet configuration
   var SHOP_CSS = [
-    ".terrix-top-btn { position: absolute; top: 10px; right: 120px; z-index: 9999; background: #1f1f1f; color: #f1c40f; border: 1px solid #333; padding: 6px 14px; border-radius: 4px; font-family: sans-serif; font-size: 13px; font-weight: bold; cursor: pointer; transition: all 0.15s; }",
-    ".terrix-top-btn:hover { background: #2a2a2a; border-color: #f1c40f; color: #fff; }",
-    ".terrix-modal-backdrop { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); z-index: 10000; display: none; align-items: center; justify-content: center; font-family: sans-serif; }",
-    ".terrix-modal-box { background: #181818; border: 1px solid #333; border-radius: 8px; width: 560px; max-width: 95vw; max-height: 90vh; overflow-y: auto; color: #eee; box-shadow: 0 10px 30px rgba(0,0,0,0.8); }",
-    ".terrix-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid #282828; }",
-    ".terrix-modal-header h2 { margin: 0; font-size: 17px; color: #f1c40f; }",
-    ".terrix-close-btn { background: none; border: none; color: #888; font-size: 20px; cursor: pointer; }",
-    ".terrix-close-btn:hover { color: #fff; }",
-    ".terrix-modal-body { padding: 20px; }",
-    ".terrix-perk-banner { background: #222010; border: 1px solid #6b5b15; border-radius: 6px; padding: 12px; margin-bottom: 20px; }",
-    ".terrix-perk-banner h4 { margin: 0 0 6px 0; color: #f1c40f; font-size: 14px; }",
-    ".terrix-perk-banner p { margin: 0 0 10px 0; font-size: 12px; color: #bbb; line-height: 1.4; }",
-    ".terrix-item-card { background: #202020; border: 1px solid #333; border-radius: 6px; padding: 16px; display: flex; gap: 16px; margin-bottom: 20px; }",
-    ".terrix-preview-canvas { width: 120px; height: 120px; border: 1px solid #444; border-radius: 4px; background: #000; flex-shrink: 0; }",
+    "/* Animated 3D Moveable Circle Button (FAB) */",
+    ".terrix-fab { position: fixed; width: 52px; height: 52px; border-radius: 50%; z-index: 99999; cursor: grab; user-select: none; touch-action: none; background: radial-gradient(circle at 35% 30%, #1e2c45 0%, #0e1626 65%, #080d16 100%); border: 1.5px solid rgba(255, 215, 0, 0.45); box-shadow: 0 10px 26px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(255, 215, 0, 0.25), inset 0 1px 2px rgba(255, 255, 255, 0.25); display: flex; align-items: center; justify-content: center; transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-color 0.2s ease; will-change: transform, left, top; }",
+    ".terrix-fab:hover { transform: scale(1.08) translateY(-2px); border-color: rgba(255, 215, 0, 0.8); box-shadow: 0 14px 32px rgba(0, 0, 0, 0.85), 0 4px 14px rgba(255, 215, 0, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.35); }",
+    ".terrix-fab.terrix-fab-dragging { cursor: grabbing !important; transform: scale(0.95); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.8), 0 1px 4px rgba(255, 215, 0, 0.2); }",
+    ".terrix-fab-inner { width: 100%; height: 100%; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }",
+    ".terrix-fab-icon { width: 34px; height: 34px; border-radius: 50%; pointer-events: none; object-fit: cover; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6)); transition: transform 0.35s ease; }",
+    ".terrix-fab:hover .terrix-fab-icon { transform: rotate(18deg) scale(1.05); }",
+    ".terrix-fab-badge { position: absolute; bottom: 0px; right: 0px; width: 12px; height: 12px; background: #10b981; border: 2px solid #080d16; border-radius: 50%; pointer-events: none; box-shadow: 0 0 6px rgba(16, 185, 129, 0.6); }",
+    "",
+    "/* Glassmorphic Blur Overlay */",
+    ".terrix-modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(4, 8, 16, 0.72); backdrop-filter: blur(16px) saturate(180%); -webkit-backdrop-filter: blur(16px) saturate(180%); z-index: 100000; display: none; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif; box-sizing: border-box; padding: 16px; }",
+    ".terrix-modal-backdrop.active { opacity: 1; display: flex; }",
+    "",
+    "/* Floating 3D Modal Box */",
+    ".terrix-modal-container { background: linear-gradient(168deg, #0e1626 0%, #090e18 55%, #05080f 100%); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; width: 760px; max-width: 95vw; height: 520px; max-height: 90vh; display: flex; flex-direction: row; position: relative; overflow: hidden; box-shadow: 0 28px 70px rgba(0, 0, 0, 0.85), 0 0 1px 1px rgba(255, 255, 255, 0.08), 0 0 36px rgba(0, 112, 224, 0.08); transform: translateY(0) scale(1); animation: txModalIn 0.24s cubic-bezier(0.16, 1, 0.3, 1); }",
+    "@keyframes txModalIn { from { opacity: 0; transform: scale(0.96) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }",
+    "",
+    "/* Close button */",
+    ".terrix-close-btn { position: absolute; top: 14px; right: 16px; width: 32px; height: 32px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 255, 255, 0.04); color: #94a3b8; font-size: 22px; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.15s ease; z-index: 20; }",
+    ".terrix-close-btn:hover { background: rgba(255, 255, 255, 0.12); color: #ffffff; border-color: rgba(255, 255, 255, 0.2); transform: scale(1.05); }",
+    "",
+    "/* Sidebar Menu */",
+    ".terrix-sidebar { width: 230px; flex-shrink: 0; background: rgba(8, 13, 22, 0.95); border-right: 1px solid rgba(255, 255, 255, 0.06); padding: 20px 16px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; }",
+    ".terrix-sidebar-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }",
+    ".terrix-brand-logo { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 1px solid rgba(255, 215, 0, 0.4); }",
+    ".terrix-brand-title { font-size: 15px; font-weight: 700; color: #ffffff; letter-spacing: 0.3px; }",
+    ".terrix-brand-sub { font-size: 11px; color: #8a99ad; font-weight: 400; }",
+    ".terrix-balance-card { background: rgba(19, 29, 49, 0.6); border: 1px solid rgba(255, 215, 0, 0.2); border-radius: 8px; padding: 10px 12px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }",
+    ".terrix-balance-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: #8a99ad; }",
+    ".terrix-balance-val { font-size: 13px; font-weight: 700; color: #ffd700; }",
+    ".terrix-nav-list { display: flex; flex-direction: column; gap: 6px; }",
+    ".terrix-nav-btn { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: #94a3b8; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s ease; text-align: left; width: 100%; box-sizing: border-box; }",
+    ".terrix-nav-btn:hover { background: rgba(255, 255, 255, 0.05); color: #f1f5f9; }",
+    ".terrix-nav-btn.active { background: rgba(0, 112, 224, 0.12); color: #38bdf8; border-color: rgba(0, 112, 224, 0.3); box-shadow: inset 0 0 12px rgba(0, 112, 224, 0.1); }",
+    ".terrix-sidebar-footer { font-size: 10px; color: #64748b; line-height: 1.4; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.04); }",
+    "",
+    "/* Main Content Area */",
+    ".terrix-main-content { flex-grow: 1; padding: 24px 28px; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; }",
+    ".terrix-panel-header { margin-bottom: 18px; }",
+    ".terrix-panel-title { font-size: 18px; font-weight: 700; color: #ffffff; margin: 0 0 4px 0; }",
+    ".terrix-panel-desc { font-size: 12px; color: #8a99ad; margin: 0; }",
+    "",
+    "/* Perk Banner */",
+    ".terrix-perk-banner { background: linear-gradient(135deg, rgba(34, 32, 16, 0.8) 0%, rgba(20, 25, 38, 0.8) 100%); border: 1px solid rgba(255, 215, 0, 0.35); border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }",
+    ".terrix-perk-banner h4 { margin: 0 0 4px 0; color: #ffd700; font-size: 14px; }",
+    ".terrix-perk-banner p { margin: 0 0 10px 0; font-size: 12px; color: #cbd5e1; line-height: 1.4; }",
+    "",
+    "/* Shop Item Card */",
+    ".terrix-item-card { background: rgba(14, 22, 38, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px; display: flex; gap: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); transition: border-color 0.2s; }",
+    ".terrix-preview-canvas { width: 120px; height: 120px; border: 1.5px solid rgba(255, 215, 0, 0.4); border-radius: 8px; background: #060911; flex-shrink: 0; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }",
     ".terrix-item-details { flex-grow: 1; }",
-    ".terrix-item-title { font-size: 16px; font-weight: bold; margin: 0 0 6px 0; color: #fff; }",
-    ".terrix-item-desc { font-size: 12px; color: #aaa; margin: 0 0 12px 0; line-height: 1.4; }",
-    ".terrix-price-tag { font-size: 14px; font-weight: bold; color: #f1c40f; margin-bottom: 14px; }",
+    ".terrix-item-title { font-size: 16px; font-weight: 700; margin: 0 0 6px 0; color: #ffffff; }",
+    ".terrix-item-desc { font-size: 12px; color: #94a3b8; margin: 0 0 12px 0; line-height: 1.4; }",
+    ".terrix-price-tag { font-size: 13px; font-weight: 700; color: #ffd700; margin-bottom: 12px; }",
     ".terrix-btn-group { display: flex; flex-direction: column; gap: 8px; }",
-    ".terrix-action-btn { background: #2b2b2b; color: #fff; border: 1px solid #444; padding: 8px 14px; border-radius: 4px; font-size: 13px; font-weight: bold; cursor: pointer; text-align: center; }",
-    ".terrix-action-btn:hover { background: #383838; border-color: #666; }",
-    ".terrix-action-btn.gold { background: #8a6d1a; border-color: #b89222; color: #fff; }",
-    ".terrix-action-btn.gold:hover { background: #a3811f; }",
-    ".terrix-action-btn.green { background: #1e6b37; border-color: #27914a; }",
-    ".terrix-action-btn.green:hover { background: #237d40; }",
-    ".terrix-manual-section { border-top: 1px solid #282828; padding-top: 14px; margin-top: 10px; font-size: 12px; color: #999; }",
+    ".terrix-action-btn { border-radius: 8px; font-size: 13px; font-weight: 600; padding: 9px 16px; cursor: pointer; transition: all 0.15s ease; border: 1px solid transparent; text-align: center; }",
+    ".terrix-action-btn.gold { background: linear-gradient(135deg, #d4a017 0%, #b8860b 100%); color: #080d16; font-weight: 700; box-shadow: 0 4px 12px rgba(218, 165, 32, 0.3); border: 1px solid #ffd700; }",
+    ".terrix-action-btn.gold:hover { filter: brightness(1.1); transform: translateY(-1px); }",
+    ".terrix-action-btn.green { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; font-weight: 700; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); border: 1px solid #34d399; }",
+    ".terrix-action-btn.green:hover { filter: brightness(1.1); transform: translateY(-1px); }",
+    ".terrix-action-btn.secondary { background: rgba(255, 255, 255, 0.06); color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.1); }",
+    ".terrix-action-btn.secondary:hover { background: rgba(255, 255, 255, 0.1); color: #ffffff; }",
+    ".terrix-manual-section { border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 12px; margin-top: 12px; font-size: 12px; color: #94a3b8; }",
     ".terrix-manual-inputs { display: flex; gap: 8px; margin-top: 8px; }",
-    ".terrix-input { background: #141414; border: 1px solid #333; color: #fff; padding: 6px 10px; border-radius: 4px; flex-grow: 1; font-size: 12px; }",
-    ".terrix-toast { position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%); background: #1f1f1f; border: 1px solid #f1c40f; color: #fff; padding: 10px 20px; border-radius: 6px; font-family: sans-serif; font-size: 13px; z-index: 10001; transition: opacity 0.4s; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }"
+    ".terrix-input { background: #080d16; border: 1px solid rgba(255, 255, 255, 0.12); color: #f1f5f9; padding: 8px 12px; border-radius: 6px; flex-grow: 1; font-size: 12px; outline: none; transition: border-color 0.15s; }",
+    ".terrix-input:focus { border-color: #ffd700; box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.15); }",
+    "",
+    "/* Settings View Components */",
+    ".terrix-settings-list { display: flex; flex-direction: column; gap: 14px; }",
+    ".terrix-setting-card { background: rgba(14, 22, 38, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.25); transition: border-color 0.2s ease, background 0.2s ease; }",
+    ".terrix-setting-card:hover { border-color: rgba(255, 255, 255, 0.14); background: rgba(19, 29, 49, 0.5); }",
+    ".terrix-setting-info { display: flex; flex-direction: column; gap: 4px; max-width: 380px; }",
+    ".terrix-setting-title { font-size: 14px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; }",
+    ".terrix-setting-desc { font-size: 12px; color: #8a99ad; line-height: 1.4; }",
+    "",
+    "/* Fintech/iOS Style Toggle Switch */",
+    ".terrix-switch { position: relative; width: 48px; height: 26px; border-radius: 13px; background: rgba(255, 255, 255, 0.12); cursor: pointer; transition: background 0.25s ease, box-shadow 0.25s ease; border: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0; }",
+    ".terrix-switch.active { background: #0070e0; border-color: #38bdf8; box-shadow: 0 0 12px rgba(0, 112, 224, 0.4); }",
+    ".terrix-switch-thumb { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: #ffffff; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4); transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none; }",
+    ".terrix-switch.active .terrix-switch-thumb { transform: translateX(22px); }",
+    "",
+    "/* In-Game Notification Toast */",
+    ".terrix-toast { position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%); background: #0e1626; border: 1px solid rgba(255, 215, 0, 0.4); color: #f1f5f9; padding: 10px 22px; border-radius: 8px; font-size: 13px; font-weight: 600; z-index: 100001; transition: opacity 0.3s ease, transform 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.7), 0 0 12px rgba(255,215,0,0.15); pointer-events: none; }"
   ].join('\n');
 
   function sanitizePasswordFields() {
@@ -417,6 +500,54 @@
     } catch(e) {}
   }
 
+  // Sidebar Tab Navigation
+  function switchTab(tab) {
+    state.activeTab = tab;
+    var shopNav = document.getElementById('tx-nav-shop');
+    var settingsNav = document.getElementById('tx-nav-settings');
+    var shopPanel = document.getElementById('tx-panel-shop');
+    var settingsPanel = document.getElementById('tx-panel-settings');
+
+    if (shopNav) shopNav.className = 'terrix-nav-btn' + (tab === 'shop' ? ' active' : '');
+    if (settingsNav) settingsNav.className = 'terrix-nav-btn' + (tab === 'settings' ? ' active' : '');
+
+    if (shopPanel) shopPanel.style.display = (tab === 'shop') ? 'flex' : 'none';
+    if (settingsPanel) settingsPanel.style.display = (tab === 'settings') ? 'flex' : 'none';
+
+    if (tab === 'shop') {
+      updateShopUI();
+      renderPreview();
+    } else if (tab === 'settings') {
+      updateSettingsUI();
+    }
+  }
+
+  // Settings UI State Sync
+  function updateSettingsUI() {
+    var patSwitch = document.getElementById('tx-toggle-pattern');
+    if (patSwitch) {
+      patSwitch.className = 'terrix-switch' + (state.settings.showPatterns ? ' active' : '');
+    }
+    var troopsSwitch = document.getElementById('tx-toggle-troops');
+    if (troopsSwitch) {
+      troopsSwitch.className = 'terrix-switch' + (state.settings.showFrontlineTroops ? ' active' : '');
+    }
+  }
+
+  function toggleSettingPattern() {
+    state.settings.showPatterns = !state.settings.showPatterns;
+    savePersistedState();
+    updateSettingsUI();
+    showNotification(state.settings.showPatterns ? 'Territory Pattern Coating Enabled' : 'Territory Pattern Coating Disabled');
+  }
+
+  function toggleSettingTroops() {
+    state.settings.showFrontlineTroops = !state.settings.showFrontlineTroops;
+    savePersistedState();
+    updateSettingsUI();
+    showNotification(state.settings.showFrontlineTroops ? 'Frontline Troops Telemetry Enabled' : 'Frontline Troops Telemetry Disabled');
+  }
+
   // Inject or Re-inject Modal DOM & CSS (Self-Healing on Purge)
   function ensureShopDOM() {
     var docBody = document.body || document.documentElement;
@@ -434,19 +565,95 @@
       (document.head || docBody).appendChild(style);
     }
 
-    // 2. Ensure top button
-    var topBtn = document.getElementById('terrix-top-btn') || document.querySelector('.terrix-top-btn');
-    if (!topBtn || !document.contains(topBtn)) {
-      if (topBtn && topBtn.parentNode) topBtn.parentNode.removeChild(topBtn);
-      topBtn = document.createElement('button');
-      topBtn.id = 'terrix-top-btn';
-      topBtn.className = 'terrix-top-btn';
-      topBtn.innerText = 'Cosmetics (K)';
-      topBtn.onclick = toggleShopModal;
-      docBody.appendChild(topBtn);
+    // 2. Remove deprecated static top-bar button if present
+    var oldTopBtn = document.getElementById('terrix-top-btn') || document.querySelector('.terrix-top-btn');
+    if (oldTopBtn && oldTopBtn.parentNode) {
+      oldTopBtn.parentNode.removeChild(oldTopBtn);
     }
 
-    // 3. Ensure modal
+    // 3. Ensure 3D Moveable Circle Floating Action Button (FAB)
+    var fab = document.getElementById('terrix-fab');
+    if (!fab || !document.contains(fab)) {
+      if (fab && fab.parentNode) fab.parentNode.removeChild(fab);
+      fab = document.createElement('div');
+      fab.id = 'terrix-fab';
+      fab.className = 'terrix-fab';
+      fab.title = 'TerriX Client Controls (K)';
+      fab.innerHTML = '<div class="terrix-fab-inner">' +
+        '<img src="assets/logo_small.png" alt="TerriX" class="terrix-fab-icon" onerror="this.src=\'assets/logo.png\'" />' +
+        '<div class="terrix-fab-badge"></div>' +
+      '</div>';
+
+      // Restore position or set default top-right
+      if (state.fabPosition && state.fabPosition.x !== null && state.fabPosition.y !== null) {
+        var clampedX = Math.max(8, Math.min(window.innerWidth - 62, state.fabPosition.x));
+        var clampedY = Math.max(8, Math.min(window.innerHeight - 62, state.fabPosition.y));
+        fab.style.left = clampedX + 'px';
+        fab.style.top = clampedY + 'px';
+        fab.style.right = 'auto';
+        fab.style.bottom = 'auto';
+      } else {
+        fab.style.top = '16px';
+        fab.style.right = '120px';
+        fab.style.left = 'auto';
+        fab.style.bottom = 'auto';
+      }
+
+      // Drag and click mechanics
+      var isPointerDown = false;
+      var hasMoved = false;
+      var startX = 0, startY = 0;
+      var origLeft = 0, origTop = 0;
+
+      fab.addEventListener('pointerdown', function(e) {
+        isPointerDown = true;
+        hasMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        var rect = fab.getBoundingClientRect();
+        origLeft = rect.left;
+        origTop = rect.top;
+        try { fab.setPointerCapture(e.pointerId); } catch(err) {}
+        fab.classList.add('terrix-fab-dragging');
+      });
+
+      fab.addEventListener('pointermove', function(e) {
+        if (!isPointerDown) return;
+        var dx = e.clientX - startX;
+        var dy = e.clientY - startY;
+        if (Math.hypot(dx, dy) > 4) {
+          hasMoved = true;
+        }
+        if (hasMoved) {
+          var curX = Math.max(8, Math.min(window.innerWidth - 62, origLeft + dx));
+          var curY = Math.max(8, Math.min(window.innerHeight - 62, origTop + dy));
+          fab.style.left = curX + 'px';
+          fab.style.top = curY + 'px';
+          fab.style.right = 'auto';
+          fab.style.bottom = 'auto';
+        }
+      });
+
+      var onPointerRelease = function(e) {
+        if (!isPointerDown) return;
+        isPointerDown = false;
+        fab.classList.remove('terrix-fab-dragging');
+        try { fab.releasePointerCapture(e.pointerId); } catch(err) {}
+        if (hasMoved) {
+          state.fabPosition = { x: fab.offsetLeft, y: fab.offsetTop };
+          savePersistedState();
+        } else {
+          toggleShopModal();
+        }
+      };
+
+      fab.addEventListener('pointerup', onPointerRelease);
+      fab.addEventListener('pointercancel', onPointerRelease);
+
+      docBody.appendChild(fab);
+    }
+
+    // 4. Ensure Floating 3D Modal & Glassmorphic Blur Overlay
     var modal = document.getElementById('terrix-cosmetics-modal');
     if (!modal || !document.contains(modal)) {
       if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
@@ -455,29 +662,88 @@
       modal.id = 'terrix-cosmetics-modal';
 
       modal.innerHTML = [
-        '<div class="terrix-modal-box">',
-        '<div class="terrix-modal-header">',
-        '  <h2>TerriX Cosmetics Shop <span id="tx-user-gold-balance" style="font-size: 13px; color: #f1c40f; margin-left: 12px; font-weight: normal;"></span></h2>',
-        '  <button class="terrix-close-btn" id="tx-close-modal">&times;</button>',
-        '</div>',
-        '  <div class="terrix-modal-body">',
-        '    <!-- Verified CBM Perk Banner -->',
-        '    <div id="tx-cbm-perk-container"></div>',
-        '    <!-- Catalog Item: Hello Kitty -->',
-        '    <div class="terrix-item-card">',
-        '      <canvas class="terrix-preview-canvas" id="tx-preview-canvas" width="120" height="120"></canvas>',
-        '      <div class="terrix-item-details">',
-        '        <div class="terrix-item-title">Hello Kitty Territory Pattern</div>',
-        '        <div class="terrix-item-desc">Seamless repeating territory pattern coating your empire during matches after the spawn timer completes.</div>',
-        '        <div class="terrix-price-tag">Price: 500 Gold &rarr; Clan Vault (DdcBC)</div>',
-        '        <div class="terrix-btn-group" id="tx-action-buttons">',
-        '          <!-- Action buttons injected dynamically -->',
+        '<div class="terrix-modal-container" id="terrix-modal-container">',
+        '  <button class="terrix-close-btn" id="tx-close-modal" title="Close (Esc)">&times;</button>',
+        '  <!-- Sidebar Navigation Rail -->',
+        '  <div class="terrix-sidebar">',
+        '    <div>',
+        '      <div class="terrix-sidebar-brand">',
+        '        <img src="assets/logo_small.png" alt="TerriX" class="terrix-brand-logo" onerror="this.src=\'assets/logo.png\'" />',
+        '        <div>',
+        '          <div class="terrix-brand-title">TerriX Client</div>',
+        '          <div class="terrix-brand-sub">Controls & Telemetry</div>',
         '        </div>',
-        '        <div class="terrix-manual-section">',
-        '          <div>Alternative: Transfer 500 Gold to <b>DdcBC</b> in-game, then verify below:</div>',
-        '          <div class="terrix-manual-inputs">',
-        '            <input type="text" class="terrix-input" id="tx-manual-account" placeholder="Your account name" />',
-        '            <button class="terrix-action-btn" id="tx-verify-btn">Verify Transfer</button>',
+        '      </div>',
+        '      <div class="terrix-balance-card">',
+        '        <div style="font-size: 16px;">🪙</div>',
+        '        <div>',
+        '          <div class="terrix-balance-lbl">Vault Balance</div>',
+        '          <div class="terrix-balance-val" id="tx-user-gold-balance">0.00 Gold</div>',
+        '        </div>',
+        '      </div>',
+        '      <div class="terrix-nav-list">',
+        '        <button class="terrix-nav-btn active" id="tx-nav-shop">',
+        '          <span style="font-size: 15px;">💎</span> Cosmetics Shop',
+        '        </button>',
+        '        <button class="terrix-nav-btn" id="tx-nav-settings">',
+        '          <span style="font-size: 15px;">⚙️</span> Settings',
+        '        </button>',
+        '      </div>',
+        '    </div>',
+        '    <div class="terrix-sidebar-footer">',
+        '      <div>TerriX Client v2.4</div>',
+        '      <div style="color: #475569; margin-top: 2px;">CBM Zero-Jargon Enclave</div>',
+        '    </div>',
+        '  </div>',
+        '  <!-- Main Content Area -->',
+        '  <div class="terrix-main-content">',
+        '    <!-- Shop Panel -->',
+        '    <div id="tx-panel-shop" style="display: flex; flex-direction: column;">',
+        '      <div class="terrix-panel-header">',
+        '        <h2 class="terrix-panel-title">Cosmetics Shop</h2>',
+        '        <p class="terrix-panel-desc">Equip high-fidelity territory patterns and perks.</p>',
+        '      </div>',
+        '      <div id="tx-cbm-perk-container"></div>',
+        '      <div class="terrix-item-card">',
+        '        <canvas class="terrix-preview-canvas" id="tx-preview-canvas" width="120" height="120"></canvas>',
+        '        <div class="terrix-item-details">',
+        '          <div class="terrix-item-title">Hello Kitty Territory Pattern</div>',
+        '          <div class="terrix-item-desc">Seamless texture coating your territory during matches after the spawn countdown.</div>',
+        '          <div class="terrix-price-tag">Price: 500 Gold &rarr; Clan Vault (DdcBC)</div>',
+        '          <div class="terrix-btn-group" id="tx-action-buttons"></div>',
+        '          <div class="terrix-manual-section">',
+        '            <div>Manual Transfer: Send 500 Gold to <b>DdcBC</b> in-game, then verify:</div>',
+        '            <div class="terrix-manual-inputs">',
+        '              <input type="text" class="terrix-input" id="tx-manual-account" placeholder="Your account name" />',
+        '              <button class="terrix-action-btn secondary" id="tx-verify-btn">Verify Transfer</button>',
+        '            </div>',
+        '          </div>',
+        '        </div>',
+        '      </div>',
+        '    </div>',
+        '    <!-- Settings Panel -->',
+        '    <div id="tx-panel-settings" style="display: none; flex-direction: column;">',
+        '      <div class="terrix-panel-header">',
+        '        <h2 class="terrix-panel-title">Client Settings</h2>',
+        '        <p class="terrix-panel-desc">Configure match telemetry overlays and visual coatings.</p>',
+        '      </div>',
+        '      <div class="terrix-settings-list">',
+        '        <div class="terrix-setting-card">',
+        '          <div class="terrix-setting-info">',
+        '            <div class="terrix-setting-title"><span>🎨</span> Territory Pattern Coating</div>',
+        '            <div class="terrix-setting-desc">Render equipped custom patterns over your territory in real-time during live matches.</div>',
+        '          </div>',
+        '          <div class="terrix-switch" id="tx-toggle-pattern">',
+        '            <div class="terrix-switch-thumb"></div>',
+        '          </div>',
+        '        </div>',
+        '        <div class="terrix-setting-card">',
+        '          <div class="terrix-setting-info">',
+        '            <div class="terrix-setting-title"><span>🛡️</span> Frontline Troops Telemetry</div>',
+        '            <div class="terrix-setting-desc">Display rotating combat troop telemetry numbers along active border war zones.</div>',
+        '          </div>',
+        '          <div class="terrix-switch" id="tx-toggle-troops">',
+        '            <div class="terrix-switch-thumb"></div>',
         '          </div>',
         '        </div>',
         '      </div>',
@@ -494,21 +760,43 @@
         if (e.target === modal) toggleShopModal();
       };
 
+      var navShop = document.getElementById('tx-nav-shop');
+      if (navShop) {
+        navShop.onclick = function() { switchTab('shop'); };
+      }
+      var navSettings = document.getElementById('tx-nav-settings');
+      if (navSettings) {
+        navSettings.onclick = function() { switchTab('settings'); };
+      }
+
+      var togglePattern = document.getElementById('tx-toggle-pattern');
+      if (togglePattern) {
+        togglePattern.onclick = toggleSettingPattern;
+      }
+      var toggleTroops = document.getElementById('tx-toggle-troops');
+      if (toggleTroops) {
+        toggleTroops.onclick = toggleSettingTroops;
+      }
+
       var verifyBtn = document.getElementById('tx-verify-btn');
       if (verifyBtn) verifyBtn.onclick = verifyManualPayment;
 
       if (state.modalOpen) {
         modal.style.display = 'flex';
-        updateShopUI();
-        renderPreview();
+        modal.classList.add('active');
+        switchTab(state.activeTab || 'shop');
       }
     }
 
-    // 4. Bind keyboard shortcut once on window
+    // 5. Bind keyboard shortcuts
     if (!window.__TERRIX_COSMETICS_KEY_BOUND__) {
       window.__TERRIX_COSMETICS_KEY_BOUND__ = true;
       window.addEventListener('keydown', function(e) {
-        if (e.key === 'k' || e.key === 'K') {
+        if (e.key === 'Escape') {
+          if (state.modalOpen) {
+            toggleShopModal();
+          }
+        } else if (e.key === 'k' || e.key === 'K') {
           var activeTag = (document.activeElement && document.activeElement.tagName) || '';
           if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
             toggleShopModal();
@@ -541,9 +829,9 @@
             for (var j = 0; j < m.removedNodes.length; j++) {
               var n = m.removedNodes[j];
               if (n.id === 'terrix-cosmetics-modal' ||
-                  n.id === 'terrix-top-btn' ||
+                  n.id === 'terrix-fab' ||
                   n.id === 'terrix-cosmetics-styles' ||
-                  (n.classList && n.classList.contains('terrix-top-btn'))) {
+                  (n.classList && n.classList.contains('terrix-fab'))) {
                 scheduleDomRepair();
                 return;
               }
@@ -579,18 +867,26 @@
     var modal = document.getElementById('terrix-cosmetics-modal');
     if (!modal) return;
     state.modalOpen = !state.modalOpen;
-    modal.style.display = state.modalOpen ? 'flex' : 'none';
 
     if (state.modalOpen) {
+      modal.style.display = 'flex';
+      setTimeout(function() {
+        modal.classList.add('active');
+      }, 10);
       var accInput = document.getElementById('tx-manual-account');
       if (accInput && !accInput.value) {
         accInput.value = localStorage.getItem('d105') || '';
       }
       verifyCbmDonorStatus();
-      updateShopUI();
-      renderPreview();
+      switchTab(state.activeTab || 'shop');
+    } else {
+      modal.classList.remove('active');
+      setTimeout(function() {
+        if (!state.modalOpen) modal.style.display = 'none';
+      }, 200);
     }
   }
+
 
   // Update dynamic buttons and perk banner in modal
   function updateShopUI() {
@@ -601,7 +897,7 @@
         goldVal = window.__TERRIX_ENGINE__.getAccountGold();
       }
       var formattedGold = (goldVal * 0.01).toFixed(2);
-      goldDisplayEl.innerText = '(Gold Balance: ' + formattedGold + ')';
+      goldDisplayEl.innerText = formattedGold + ' Gold';
     }
 
     var perkContainer = document.getElementById('tx-cbm-perk-container');
@@ -643,18 +939,18 @@
     if (isOwned) {
       if (isEquipped) {
         buttonsHtml = '<button class="terrix-action-btn green" id="tx-equip-btn">Equipped &check;</button>' +
-                      '<button class="terrix-action-btn" id="tx-unequip-btn">Unequip</button>';
+                      '<button class="terrix-action-btn secondary" id="tx-unequip-btn">Unequip</button>';
       } else {
         buttonsHtml = '<button class="terrix-action-btn gold" id="tx-equip-btn">Equip Hello Kitty Pattern</button>';
       }
     } else if (trial.active && trial.matchesRemaining > 0) {
       if (isEquipped) {
         buttonsHtml = '<button class="terrix-action-btn green" id="tx-equip-btn">Trial Equipped (' + trial.matchesRemaining + ' matches left)</button>' +
-                      '<button class="terrix-action-btn" id="tx-unequip-btn">Unequip</button>' +
+                      '<button class="terrix-action-btn secondary" id="tx-unequip-btn">Unequip</button>' +
                       '<button class="terrix-action-btn gold" id="tx-buy-btn">Buy with 500 Gold (Permanent Unlock)</button>';
       } else {
         buttonsHtml = '<button class="terrix-action-btn gold" id="tx-equip-btn">Equip Trial (' + trial.matchesRemaining + ' left)</button>' +
-                      '<button class="terrix-action-btn" id="tx-buy-btn">Buy with 500 Gold (One-Click)</button>';
+                      '<button class="terrix-action-btn gold" id="tx-buy-btn">Buy with 500 Gold (One-Click)</button>';
       }
     } else {
       buttonsHtml = '<button class="terrix-action-btn gold" id="tx-buy-btn">Buy with 500 Gold (One-Click)</button>';
@@ -695,14 +991,14 @@
 
     if (state.patternImage && state.patternImage.complete) {
       ctx.fillStyle = ctx.createPattern(state.patternImage, 'repeat');
-      ctx.fillRect(10, 10, 100, 100);
-      ctx.strokeStyle = '#f1c40f';
+      ctx.fillRect(8, 8, 104, 104);
+      ctx.strokeStyle = '#ffd700';
       ctx.lineWidth = 2;
-      ctx.strokeRect(10, 10, 100, 100);
+      ctx.strokeRect(8, 8, 104, 104);
     } else {
-      ctx.fillStyle = '#222';
-      ctx.fillRect(10, 10, 100, 100);
-      ctx.fillStyle = '#888';
+      ctx.fillStyle = '#080d16';
+      ctx.fillRect(8, 8, 104, 104);
+      ctx.fillStyle = '#8a99ad';
       ctx.font = '11px sans-serif';
       ctx.fillText('Loading...', 35, 65);
     }
@@ -722,9 +1018,9 @@
 
   function onEngineRenderFrame(context) {
     if (++renderFrameCheckCounter % 60 === 0) {
-      var curTopBtn = document.getElementById('terrix-top-btn');
+      var curFab = document.getElementById('terrix-fab');
       var curModal = document.getElementById('terrix-cosmetics-modal');
-      if (!curTopBtn || !curModal || !document.contains(curTopBtn) || !document.contains(curModal)) {
+      if (!curFab || !curModal || !document.contains(curFab) || !document.contains(curModal)) {
         ensureShopDOM();
       }
     }
@@ -743,10 +1039,14 @@
     var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
     var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
 
-    // 2. ALWAYS render Dual-Sided Border-Facing Rotating Frontline Troop Telemetry (independent of equipped cosmetics)
-    renderFrontlineTelemetry(context, g, pd, ox, oy);
+    // 2. Dual-Sided Border-Facing Rotating Frontline Troop Telemetry (gated by settings)
+    if (state.settings.showFrontlineTroops) {
+      renderFrontlineTelemetry(context, g, pd, ox, oy);
+    }
 
-    // 3. Cosmetic Pattern UI & Masking Engine (only runs if Hello Kitty pattern is equipped)
+    // 3. Cosmetic Pattern UI & Masking Engine (gated by settings and Hello Kitty pattern)
+    if (!state.settings.showPatterns) return;
+
     if (!state.equippedPattern) {
       if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
         state.equippedPattern = 'hello_kitty';

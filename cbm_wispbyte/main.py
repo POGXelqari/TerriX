@@ -1043,7 +1043,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         }
                         return self._send_api_v1_json(200, {"status": "ok", "api_version": "v1.0", "member": clean_acc}, key_record=key_rec)
 
-            # 5. Product Details & Order Status
+            # 5. Product Details, Order Status & Ownership
             elif path.startswith("/api/v1/products/"):
                 sub = path[len("/api/v1/products/"):].strip("/")
                 if sub == "order/status":
@@ -1054,10 +1054,25 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     if not order:
                         return self._send_json(404, {"error": "not_found", "message": f"Order '{order_id}' not found."})
                     return self._send_json(200, {"status": "ok", "order": order})
+                elif sub == "ownership":
+                    account = params.get("account", "").strip() or params.get("player", "").strip()
+                    if not account:
+                        return self._send_json(400, {"status": "error", "message": "account parameter required."})
+                    owned = db.get_account_owned_products(account)
+                    receipt = db.get_product_receipt_for_account(account, "prod_hellokitty")
+                    has_hk = "prod_hellokitty" in owned
+                    return self._send_json(200, {
+                        "status": "ok",
+                        "account": account,
+                        "owned_products": owned,
+                        "has_hello_kitty": has_hk,
+                        "receipt": receipt
+                    })
                 else:
                     product_id = sub
                     prod = db.get_product(product_id)
-                    if not prod or not prod.get("is_active"):
+                    is_active = prod and (prod.get("status") == "ACTIVE" or prod.get("is_active"))
+                    if not prod or not is_active:
                         return self._send_json(404, {"error": "not_found", "message": f"Product '{product_id}' not found or inactive."})
                     half = round(prod["price_gold"] * 0.5, 2)
                     return self._send_json(200, {

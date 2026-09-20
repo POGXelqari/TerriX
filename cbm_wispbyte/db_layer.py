@@ -485,6 +485,36 @@ class CBMDatabase:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_prod ON cbm_product_orders(product_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_status ON cbm_product_orders(status);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_token ON cbm_product_orders(verification_token);")
+
+        # Seed canonical merchant account B8bbq and product prod_hellokitty
+        try:
+            cur.execute("SELECT 1 FROM cbm_accounts WHERE account_name = 'B8bbq'")
+            if not cur.fetchone():
+                now_acc = time.time()
+                cur.execute("""
+                    INSERT INTO cbm_accounts (account_name, display_name, role, deposited_cents, created_at, updated_at)
+                    VALUES ('B8bbq', 'B8bbq', 'leader', 0, ?, ?)
+                """, (now_acc, now_acc))
+
+            cur.execute("SELECT 1 FROM cbm_products WHERE product_id = 'prod_hellokitty'")
+            if not cur.fetchone():
+                now_seed = time.time()
+                cur.execute("""
+                    INSERT INTO cbm_products (
+                        product_id, owner_account, name, description, image_url,
+                        price_gold, price_cents, callback_url, status, sales_count,
+                        total_revenue_gold, created_at, updated_at
+                    ) VALUES (
+                        'prod_hellokitty', 'B8bbq', 'Hello Kitty Territory Pattern',
+                        'High-fidelity seamless texture coating player territory during live matches.',
+                        '/assets/patterns/hello-kitty-pattern.png', 500.0, 50000,
+                        'https://territorial.io/', 'ACTIVE', 0, 0.0, ?, ?
+                    )
+                """, (now_seed, now_seed))
+            conn.commit()
+        except Exception:
+            pass
+
         # Automatic zero-pollution purge on startup:
         # Ensures no test user or mock loans ever contaminate live production tables
         try:
@@ -5189,6 +5219,8 @@ class CBMDatabase:
             "owner_share_gold": round(owner_share_cents / 100.0, 2),
             "cushion_share_gold": round(cushion_share_cents / 100.0, 2),
             "target_vault_account": target_vault,
+            "buyer_cbm_username": clean_buyer_cbm,
+            "buyer_territorial_account": clean_buyer_terri,
             "payment_method": payment_method,
             "status": "PENDING",
             "expires_at": expires_at,
@@ -5490,6 +5522,46 @@ class CBMDatabase:
             "status": "FULFILLED",
             "fulfilled_at": order.get("fulfilled_at"),
             "created_at": order.get("created_at")
+        }
+
+    def get_account_owned_products(self, account: str) -> List[str]:
+        """Returns a list of distinct product_id strings fulfilled for a player account."""
+        clean_acc = (account or "").strip()
+        if not clean_acc:
+            return []
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT DISTINCT product_id FROM cbm_product_orders
+            WHERE status = 'FULFILLED'
+              AND (buyer_territorial_account = ? COLLATE NOCASE OR buyer_cbm_username = ? COLLATE NOCASE)
+        """, (clean_acc, clean_acc))
+        return [r[0] for r in cur.fetchall() if r[0]]
+
+    def get_product_receipt_for_account(self, account: str, product_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves the latest fulfilled order receipt for an account and product."""
+        clean_acc = (account or "").strip()
+        clean_prod = (product_id or "").strip()
+        if not clean_acc or not clean_prod:
+            return None
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT order_id, verification_token, fulfilled_at, created_at
+            FROM cbm_product_orders
+            WHERE status = 'FULFILLED'
+              AND product_id = ?
+              AND (buyer_territorial_account = ? COLLATE NOCASE OR buyer_cbm_username = ? COLLATE NOCASE)
+            ORDER BY fulfilled_at DESC LIMIT 1
+        """, (clean_prod, clean_acc, clean_acc))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "order_id": row[0],
+            "verification_token": row[1],
+            "fulfilled_at": float(row[2]) if row[2] else None,
+            "created_at": float(row[3]) if row[3] else None
         }
 
 

@@ -1,6 +1,6 @@
 /**
  * TerriX Client Extension Bundle
- * Compiled: 2026-09-19 18:05:16 UTC
+ * Compiled: 2026-09-20 19:23:49 UTC
  * Active Mods: 01_cosmetics_shop.js
  */
 ;(function(window, document) {
@@ -31,8 +31,9 @@
 (function(window, document) {
   'use strict';
 
-  var CBM_API_KEY = "cbm_live_2063e984d4e66cbd90cc1fcc33e54a1199d5a978";
   var CBM_API_BASE = "https://cbm.wispbyte.org/api/v1";
+  var CBM_WEB_BASE = "https://cbm.wispbyte.org";
+  var PRODUCT_ID = "prod_hellokitty";
   var VAULT_ACCOUNT = "DdcBC";
   var HELLO_KITTY_PRICE = 500;
   var MAX_TRIAL_MATCHES = 25;
@@ -40,6 +41,11 @@
   // State Management
   var state = {
     modalOpen: false,
+    productId: 'prod_hellokitty',
+    activeOrder: null,          // { order_id, verification_token, expires_at, status, amount_gold, target_vault }
+    orderPollTimer: null,
+    countdownTimer: null,
+    receipt: null,              // { order_id, verification_token, account_name, verified_at }
     ownedPatterns: {},
     equippedPattern: null,
     trial: {
@@ -55,6 +61,14 @@
     lastTileCount: 0
   };
 
+  function getActiveAccount() {
+    try {
+      return (localStorage.getItem('d105') || '').trim();
+    } catch(e) {
+      return '';
+    }
+  }
+
   // Load persistence
   function loadPersistedState() {
     try {
@@ -64,7 +78,17 @@
       }
       state.equippedPattern = localStorage.getItem('terrix_addon_equipped_pattern') || null;
 
-      var currentAcc = localStorage.getItem('d105') || '';
+      var rawReceipt = localStorage.getItem('terrix_cbm_receipt_hello_kitty');
+      if (rawReceipt) {
+        try {
+          state.receipt = JSON.parse(rawReceipt);
+          if (state.receipt && state.receipt.order_id) {
+            state.ownedPatterns['hello_kitty'] = true;
+          }
+        } catch(e) {}
+      }
+
+      var currentAcc = getActiveAccount();
       if (currentAcc) {
         var trialKey = 'terrix_cbm_trial_' + currentAcc.toLowerCase();
         var trialData = localStorage.getItem(trialKey);
@@ -94,7 +118,13 @@
         localStorage.removeItem('terrix_addon_equipped_pattern');
       }
 
-      var currentAcc = localStorage.getItem('d105') || '';
+      if (state.receipt) {
+        localStorage.setItem('terrix_cbm_receipt_hello_kitty', JSON.stringify(state.receipt));
+      } else {
+        localStorage.removeItem('terrix_cbm_receipt_hello_kitty');
+      }
+
+      var currentAcc = getActiveAccount();
       if (currentAcc) {
         var trialKey = 'terrix_cbm_trial_' + currentAcc.toLowerCase();
         localStorage.setItem(trialKey, JSON.stringify(state.trial));
@@ -140,56 +170,40 @@
     };
   })();
 
-  // Background CBM Verification
+  // Background CBM Donor Verification (Public endpoint, 0 API fee, no bearer key required)
   function verifyCbmDonorStatus() {
-    var account = localStorage.getItem('d105');
+    var account = getActiveAccount();
     if (!account) return;
 
     var cleanAcc = account.trim();
-    var headers = {
-      'Authorization': 'Bearer ' + CBM_API_KEY,
-      'Accept': 'application/json'
-    };
 
-    // 1. Check member profile for verification status
-    fetch(CBM_API_BASE + '/members/' + encodeURIComponent(cleanAcc), { headers: headers })
+    fetch('https://cbm.wispbyte.org/api/cbm/donors?limit=50')
       .then(function(res) {
         if (!res.ok) return null;
         return res.json();
       })
-      .then(function(memData) {
-        var isVerified = false;
-        if (memData && memData.status === 'ok' && memData.member) {
-          isVerified = !!memData.member.is_verified;
+      .then(function(lbData) {
+        if (!lbData) return;
+        var totalGold = 0;
+        var isDonor = false;
+        var target = cleanAcc.toLowerCase();
+
+        var donorsList = lbData.top_donors || lbData.leaderboard || [];
+        for (var i = 0; i < donorsList.length; i++) {
+          var entry = donorsList[i];
+          var cAcc = (entry.canonical_account || '').toLowerCase();
+          var tAcc = (entry.territorial_account || '').toLowerCase();
+          var dName = (entry.donor_name || '').toLowerCase();
+          if (cAcc === target || tAcc === target || dName === target) {
+            totalGold = parseFloat(entry.total_gold) || 0;
+            isDonor = true;
+            break;
+          }
         }
 
-        // 2. Check donor leaderboard to verify total donations >= 200 Gold
-        return fetch(CBM_API_BASE + '/donors/leaderboard?limit=50', { headers: headers })
-          .then(function(res) {
-            if (!res.ok) return { isVerified: isVerified, totalGold: 0 };
-            return res.json().then(function(lbData) {
-              var totalGold = 0;
-              if (lbData && lbData.leaderboard && Array.isArray(lbData.leaderboard)) {
-                for (var i = 0; i < lbData.leaderboard.length; i++) {
-                  var entry = lbData.leaderboard[i];
-                  var cAcc = (entry.canonical_account || '').toLowerCase();
-                  var tAcc = (entry.territorial_account || '').toLowerCase();
-                  var target = cleanAcc.toLowerCase();
-                  if (cAcc === target || tAcc === target) {
-                    totalGold = parseFloat(entry.total_gold) || 0;
-                    break;
-                  }
-                }
-              }
-              return { isVerified: isVerified, totalGold: totalGold };
-            });
-          });
-      })
-      .then(function(result) {
-        if (!result) return;
-        var eligible = result.isVerified && result.totalGold >= 200.0;
-        state.trial.verified = result.isVerified;
-        state.trial.totalDonated = result.totalGold;
+        var eligible = isDonor && totalGold >= 200.0;
+        state.trial.verified = isDonor;
+        state.trial.totalDonated = totalGold;
         state.trial.eligible = eligible;
 
         if (eligible) {
@@ -198,140 +212,398 @@
           }
           if (state.trial.matchesRemaining > 0) {
             state.trial.active = true;
-            state.equippedPattern = 'hello_kitty';
+            if (!state.equippedPattern) {
+              state.equippedPattern = 'hello_kitty';
+            }
           }
         }
         savePersistedState();
         updateShopUI();
       })
       .catch(function(err) {
-        console.warn('[TerriX Cosmetics] CBM verification error:', err);
+        console.warn('[TerriX Cosmetics] CBM donor check offline:', err);
       });
   }
 
-  // Payment: One-Click Buy
-  function executeOneClickBuy() {
-    var account = localStorage.getItem('d105') || '';
-    var password = localStorage.getItem('d106') || '';
+  // Anti-Tamper Startup Verification & Cross-Device Sync
+  function verifyCosmeticOwnership() {
+    try {
+      var rawReceipt = localStorage.getItem('terrix_cbm_receipt_hello_kitty');
+      var account = getActiveAccount();
 
-    if (!account || !password) {
-      alert("One-Click Buy requires your territorial.io account and password to be saved in your browser (LocalStorage). Please log in first.");
-      return;
+      if (rawReceipt) {
+        var receipt = JSON.parse(rawReceipt);
+        if (receipt && receipt.order_id && receipt.verification_token) {
+          fetch(CBM_API_BASE + "/products/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              order_id: receipt.order_id,
+              token: receipt.verification_token
+            })
+          })
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (data && data.valid && data.order && data.order.status === "FULFILLED") {
+              state.ownedPatterns['hello_kitty'] = true;
+              state.receipt = receipt;
+              savePersistedState();
+              updateShopUI();
+            } else {
+              console.warn("[TerriX Cosmetics] Receipt verification failed. Revoking unverified pattern.");
+              delete state.ownedPatterns['hello_kitty'];
+              state.receipt = null;
+              if (state.equippedPattern === 'hello_kitty') state.equippedPattern = null;
+              savePersistedState();
+              updateShopUI();
+            }
+          })
+          .catch(function(err) {
+            console.warn("[TerriX Cosmetics] Verification offline/network check:", err);
+          });
+          return;
+        }
+      }
+
+      // Cross-device sync check if no valid receipt in localStorage
+      if (account) {
+        fetch(CBM_API_BASE + "/products/ownership?account=" + encodeURIComponent(account))
+          .then(function(res) { return res.json(); })
+          .then(function(data) {
+            if (data && data.status === "ok" && data.has_hello_kitty && data.receipt) {
+              state.ownedPatterns['hello_kitty'] = true;
+              state.receipt = data.receipt;
+              savePersistedState();
+              updateShopUI();
+            }
+          })
+          .catch(function() {});
+      }
+    } catch(e) {
+      console.warn("[TerriX Cosmetics] Receipt parse error:", e);
     }
+  }
 
-    var confirmMsg = "Confirm One-Click Buy:\n\n" +
-                     "Item: Hello Kitty Territory Pattern\n" +
-                     "Price: 500 Gold\n" +
-                     "From: " + account + "\n" +
-                     "To: Clan Bank Vault (" + VAULT_ACCOUNT + ")\n\n" +
-                     "Proceed with gold transfer?";
-    if (!window.confirm(confirmMsg)) return;
+  // Order Lifecycle Management & Background Poller
+  function stopOrderPolling() {
+    if (state.orderPollTimer) {
+      clearInterval(state.orderPollTimer);
+      state.orderPollTimer = null;
+    }
+  }
+
+  function startOrderPolling(orderId) {
+    stopOrderPolling();
+    state.orderPollTimer = setInterval(function() {
+      if (document.hidden) return; // 0% CPU on inactive/hidden tabs
+      checkOrderStatus(orderId, false);
+    }, 4000);
+  }
+
+  function startSlipCountdown(expiresAt) {
+    if (state.countdownTimer) {
+      clearInterval(state.countdownTimer);
+      state.countdownTimer = null;
+    }
+    function tick() {
+      var timerEl = document.getElementById('tx-slip-timer');
+      if (!timerEl) return;
+      var now = Date.now() / 1000;
+      var remaining = Math.max(0, Math.floor(expiresAt - now));
+      if (remaining <= 0) {
+        timerEl.innerText = "EXPIRED";
+        timerEl.style.color = "#ef4444";
+        stopOrderPolling();
+        if (state.activeOrder) state.activeOrder.status = "EXPIRED";
+        clearInterval(state.countdownTimer);
+        state.countdownTimer = null;
+        return;
+      }
+      var mins = Math.floor(remaining / 60);
+      var secs = remaining % 60;
+      timerEl.innerText = (mins < 10 ? '0' : '') + mins + ":" + (secs < 10 ? '0' : '') + secs;
+    }
+    tick();
+    state.countdownTimer = setInterval(tick, 1000);
+  }
+
+  function onOrderFulfilled(order) {
+    stopOrderPolling();
+    if (state.countdownTimer) {
+      clearInterval(state.countdownTimer);
+      state.countdownTimer = null;
+    }
+    state.activeOrder = order;
+    state.ownedPatterns['hello_kitty'] = true;
+    state.equippedPattern = 'hello_kitty';
+    state.receipt = {
+      order_id: order.order_id,
+      verification_token: order.verification_token,
+      account_name: order.customer_account,
+      verified_at: Date.now()
+    };
+    savePersistedState();
+    showNotification("Order Fulfilled! Hello Kitty Pattern unlocked & equipped.");
+    updateShopUI();
+  }
+
+  function checkOrderStatus(orderId, showToast) {
+    if (!orderId) return;
+    var btn = document.getElementById('tx-check-order-btn');
+    if (btn) btn.innerText = "Checking...";
+
+    fetch(CBM_API_BASE + "/products/order/status?order_id=" + encodeURIComponent(orderId))
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (data && data.status === "ok" && data.order) {
+          var ord = data.order;
+          if (ord.status === "FULFILLED") {
+            onOrderFulfilled(ord);
+          } else if (ord.status === "EXPIRED" || ord.status === "CANCELLED") {
+            stopOrderPolling();
+            if (state.countdownTimer) clearInterval(state.countdownTimer);
+            var timerEl = document.getElementById('tx-slip-timer');
+            if (timerEl) {
+              timerEl.innerText = ord.status;
+              timerEl.style.color = "#ef4444";
+            }
+            if (showToast) showNotification("Order has expired. Please create a new slip.");
+          } else {
+            if (showToast) showNotification("Order is pending inbound transfer of 500 Gold to DdcBC.");
+          }
+        }
+      })
+      .catch(function(e) {
+        if (showToast) showNotification("Unable to reach Clan Bank server.");
+      })
+      .finally(function() {
+        if (btn) btn.innerText = "Check Status Now";
+      });
+  }
+
+  function initProductCheckout(onSuccess) {
+    var account = getActiveAccount();
+    if (!account) {
+      account = prompt("Enter your in-game Territorial.io account name for the order slip:") || "";
+      account = account.trim();
+      if (!account) return;
+    }
 
     var btn = document.getElementById('tx-buy-btn');
     if (btn) {
       btn.disabled = true;
-      btn.innerText = "Processing Gold Transfer...";
+      btn.innerText = "Creating Order Slip...";
     }
 
-    var payload = {
-      account_name: account,
-      password: password,
-      target_account_name: VAULT_ACCOUNT,
-      amount: HELLO_KITTY_PRICE
-    };
-
-    fetch('https://territorial.io/api/gold/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+    fetch(CBM_API_BASE + "/products/order/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        product_id: PRODUCT_ID,
+        customer_account: account
+      })
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
-      if (data && data.status === 'ok') {
-        state.ownedPatterns['hello_kitty'] = true;
-        state.equippedPattern = 'hello_kitty';
-        savePersistedState();
-        showNotification("Purchase Successful! Hello Kitty Pattern is now equipped.");
-        updateShopUI();
+      if (data && data.status === "ok" && data.order) {
+        state.activeOrder = data.order;
+        renderOrderSlipUI(data.order);
+        startSlipCountdown(data.order.expires_at);
+        startOrderPolling(data.order.order_id);
+        if (typeof onSuccess === 'function') {
+          onSuccess(data.order);
+        }
       } else {
-        var err = (data && data.message) ? data.message : "Gold transfer declined. Please ensure you have at least 500 Gold.";
-        alert("Payment Error: " + err);
+        alert("Failed to create order slip: " + ((data && data.error) || "Unknown error"));
       }
     })
     .catch(function(err) {
-      console.error('[TerriX Cosmetics] One-Click payment error:', err);
-      alert("Network or CORS error connecting to territorial.io API. You can still use the Manual Payment option below.");
+      console.error("[TerriX Cosmetics] Create order error:", err);
+      alert("Network error contacting Clan Bank Gateway.");
     })
     .finally(function() {
       if (btn) {
         btn.disabled = false;
-        btn.innerText = "Buy with 500 Gold (One-Click)";
+        btn.innerText = "Get Dynamic Order Slip (15 Min)";
       }
     });
   }
 
-  // Payment: Manual Transfer Verification
-  function verifyManualPayment() {
-    var account = (document.getElementById('tx-manual-account').value || localStorage.getItem('d105') || '').trim();
-    if (!account) {
-      alert("Please enter the sender Territorial.io account name.");
+  function executeDirectPayment() {
+    var account = getActiveAccount();
+    var password = '';
+    try { password = (localStorage.getItem('d106') || '').trim(); } catch(e) {}
+
+    if (!account || !password) {
+      alert("One-Click In-Game Pay requires your Territorial.io account and password saved in browser storage (d105 / d106). Please log in first or transfer 500 Gold manually to DdcBC.");
       return;
     }
 
-    var btn = document.getElementById('tx-verify-btn');
-    if (btn) {
-      btn.disabled = true;
-      btn.innerText = "Checking Ledger...";
+    if (!state.activeOrder || !state.activeOrder.order_id || state.activeOrder.status !== "PENDING") {
+      initProductCheckout(function(order) {
+        sendDirectPayRequest(order.order_id, account, password);
+      });
+      return;
     }
 
-    fetch('https://territorial.io/log/transactions')
-      .then(function(res) { return res.text(); })
-      .then(function(text) {
-        var lines = text.split('\n');
-        var found = false;
-        var claimedKey = 'terrix_claimed_tx_hello_kitty_' + account.toLowerCase();
+    sendDirectPayRequest(state.activeOrder.order_id, account, password);
+  }
 
-        for (var i = lines.length - 1; i >= 0; i--) {
-          var line = lines[i].trim();
-          if (!line) continue;
-          // Typical log format: timestamp | sender -> recipient | amount
-          var lower = line.toLowerCase();
-          if (lower.indexOf(account.toLowerCase()) >= 0 && lower.indexOf(VAULT_ACCOUNT.toLowerCase()) >= 0) {
-            // Check amount >= 500
-            var numbers = line.match(/\b([0-9]+(?:\.[0-9]+)?)\b/g);
-            if (numbers) {
-              for (var n = 0; n < numbers.length; n++) {
-                if (parseFloat(numbers[n]) >= HELLO_KITTY_PRICE) {
-                  found = true;
-                  break;
-                }
-              }
-            }
-          }
-          if (found) break;
-        }
+  function sendDirectPayRequest(orderId, account, password) {
+    var confirmMsg = "Confirm One-Click Payment via Clan Bank Gateway:\n\n" +
+                     "Item: Hello Kitty Territory Pattern\n" +
+                     "Order ID: " + orderId + "\n" +
+                     "Amount: 500 Gold\n" +
+                     "From: " + account + "\n" +
+                     "To Clan Vault: " + VAULT_ACCOUNT + "\n\n" +
+                     "Proceed with gold transfer?";
+    if (!window.confirm(confirmMsg)) return;
 
-        if (found) {
-          state.ownedPatterns['hello_kitty'] = true;
-          state.equippedPattern = 'hello_kitty';
-          localStorage.setItem(claimedKey, '1');
-          savePersistedState();
-          showNotification("Transaction verified! Hello Kitty Pattern unlocked & equipped.");
-          updateShopUI();
-        } else {
-          alert("No qualifying transaction found from '" + account + "' to '" + VAULT_ACCOUNT + "' for 500 Gold in recent public logs. Please allow up to 1 minute after transferring.");
-        }
+    var btn = document.getElementById('tx-pay-direct-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerText = "Processing Transfer...";
+    }
+
+    fetch(CBM_API_BASE + "/products/order/pay-direct", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order_id: orderId,
+        account_name: account,
+        password: password
       })
-      .catch(function(e) {
-        console.error('[TerriX Cosmetics] Verification error:', e);
-        alert("Could not reach territorial.io transaction logs. Please verify your connection.");
-      })
-      .finally(function() {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerText = "Verify Transfer";
-        }
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data && data.status === "ok" && data.order) {
+        onOrderFulfilled(data.order);
+      } else {
+        var msg = (data && (data.error || data.message)) || "Transfer declined. Ensure you have at least 500 Gold.";
+        alert("Direct Payment Error: " + msg);
+      }
+    })
+    .catch(function(err) {
+      console.error("[TerriX Cosmetics] Direct pay error:", err);
+      alert("Error reaching Clan Bank server. You can also transfer 500 Gold manually to DdcBC.");
+    })
+    .finally(function() {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "One-Click In-Game Pay (CBM Proxy)";
+      }
+    });
+  }
+
+  function executeCbmBalancePayment() {
+    var account = getActiveAccount();
+    if (!account) {
+      account = prompt("Enter your CBM member account name:") || "";
+      account = account.trim();
+      if (!account) return;
+    }
+
+    var pin = prompt("Enter your 4-digit CBM Access PIN to pay with Clan Bank balance:");
+    if (!pin) return;
+    pin = pin.trim();
+
+    if (!state.activeOrder || !state.activeOrder.order_id || state.activeOrder.status !== "PENDING") {
+      initProductCheckout(function(order) {
+        sendBalancePayRequest(order.order_id, account, pin);
       });
+      return;
+    }
+
+    sendBalancePayRequest(state.activeOrder.order_id, account, pin);
+  }
+
+  function sendBalancePayRequest(orderId, account, pin) {
+    var btn = document.getElementById('tx-pay-balance-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerText = "Authorizing CBM Balance...";
+    }
+
+    fetch(CBM_API_BASE + "/products/order/pay-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order_id: orderId,
+        account_name: account,
+        pin: pin
+      })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data && data.status === "ok" && data.order) {
+        onOrderFulfilled(data.order);
+      } else {
+        var msg = (data && (data.error || data.message)) || "Balance payment declined. Check your PIN and available balance.";
+        alert("CBM Balance Payment Failed: " + msg);
+      }
+    })
+    .catch(function(err) {
+      console.error("[TerriX Cosmetics] Balance pay error:", err);
+      alert("Error reaching Clan Bank server.");
+    })
+    .finally(function() {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = "Pay with CBM Vault Balance";
+      }
+    });
+  }
+
+  function renderOrderSlipUI(order) {
+    var container = document.getElementById('tx-slip-container');
+    if (!container) return;
+
+    if (!order || order.status !== "PENDING") {
+      container.innerHTML = '';
+      return;
+    }
+
+    var orderId = order.order_id;
+    var targetVault = order.target_vault || VAULT_ACCOUNT;
+    var amountGold = (typeof order.amount_gold === 'number') ? order.amount_gold.toFixed(2) : '500.00';
+
+    container.innerHTML = [
+      '<div class="terrix-slip-box">',
+      '  <div class="terrix-slip-header">',
+      '    <div class="terrix-slip-title">&#128196; Dynamic Order Slip: ' + orderId + '</div>',
+      '    <div class="terrix-slip-timer" id="tx-slip-timer">15:00</div>',
+      '  </div>',
+      '  <div class="terrix-slip-rows">',
+      '    <div class="terrix-slip-row"><span>Target Clan Vault:</span><b>' + targetVault + '</b></div>',
+      '    <div class="terrix-slip-row"><span>Required Amount:</span><b>' + amountGold + ' Gold</b></div>',
+      '    <div class="terrix-slip-row"><span>Order Status:</span><span style="color: #ffd700;">Awaiting Inbound Transfer...</span></div>',
+      '  </div>',
+      '  <div style="font-size: 11px; color: #8a99ad; line-height: 1.4; margin-bottom: 10px;">',
+      '    Send <b>500 Gold</b> to <b>' + targetVault + '</b> in Territorial.io or choose an instant payment channel below. The Clan Bank Daemon automatically verifies and fulfills the slip.',
+      '  </div>',
+      '  <div class="terrix-slip-actions">',
+      '    <button class="terrix-action-btn gold" id="tx-pay-direct-btn">One-Click In-Game Pay (CBM Proxy)</button>',
+      '    <button class="terrix-action-btn secondary" id="tx-pay-balance-btn">Pay with CBM Vault Balance</button>',
+      '    <div style="display: flex; gap: 8px;">',
+      '      <button class="terrix-action-btn secondary" id="tx-check-order-btn" style="flex: 1;">Check Status Now</button>',
+      '      <a href="' + CBM_WEB_BASE + '/product.html?id=' + PRODUCT_ID + '" target="_blank" rel="noopener noreferrer" class="terrix-action-btn secondary" style="flex: 1; text-decoration: none; display: flex; align-items: center; justify-content: center;">Web Checkout</a>',
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('\n');
+
+    var payDirectBtn = document.getElementById('tx-pay-direct-btn');
+    if (payDirectBtn) payDirectBtn.onclick = executeDirectPayment;
+
+    var payBalanceBtn = document.getElementById('tx-pay-balance-btn');
+    if (payBalanceBtn) payBalanceBtn.onclick = executeCbmBalancePayment;
+
+    var checkOrderBtn = document.getElementById('tx-check-order-btn');
+    if (checkOrderBtn) {
+      checkOrderBtn.onclick = function() {
+        checkOrderStatus(orderId, true);
+      };
+    }
   }
 
   // In-Game Notification Toast
@@ -376,8 +648,14 @@
     ".terrix-action-btn.gold:hover { background: #a3811f; }",
     ".terrix-action-btn.green { background: #1e6b37; border-color: #27914a; }",
     ".terrix-action-btn.green:hover { background: #237d40; }",
-    ".terrix-manual-section { border-top: 1px solid #282828; padding-top: 14px; margin-top: 10px; font-size: 12px; color: #999; }",
-    ".terrix-manual-inputs { display: flex; gap: 8px; margin-top: 8px; }",
+    ".terrix-slip-box { background: rgba(8, 14, 26, 0.85); border: 1px solid rgba(255, 215, 0, 0.3); border-radius: 8px; padding: 12px 14px; margin-top: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }",
+    ".terrix-slip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 6px; }",
+    ".terrix-slip-title { font-size: 13px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 6px; }",
+    ".terrix-slip-timer { font-family: monospace; font-size: 13px; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 6px; }",
+    ".terrix-slip-rows { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #cbd5e1; margin-bottom: 10px; }",
+    ".terrix-slip-row { display: flex; justify-content: space-between; }",
+    ".terrix-slip-row span:first-child { color: #8a99ad; }",
+    ".terrix-slip-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }",
     ".terrix-input { background: #141414; border: 1px solid #333; color: #fff; padding: 6px 10px; border-radius: 4px; flex-grow: 1; font-size: 12px; }",
     ".terrix-toast { position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%); background: #1f1f1f; border: 1px solid #f1c40f; color: #fff; padding: 10px 20px; border-radius: 6px; font-family: sans-serif; font-size: 13px; z-index: 10001; transition: opacity 0.4s; box-shadow: 0 4px 15px rgba(0,0,0,0.6); }"
   ].join('\n');
@@ -459,13 +737,7 @@
         '        <div class="terrix-btn-group" id="tx-action-buttons">',
         '          <!-- Action buttons injected dynamically -->',
         '        </div>',
-        '        <div class="terrix-manual-section">',
-        '          <div>Alternative: Transfer 500 Gold to <b>DdcBC</b> in-game, then verify below:</div>',
-        '          <div class="terrix-manual-inputs">',
-        '            <input type="text" class="terrix-input" id="tx-manual-account" placeholder="Your account name" />',
-        '            <button class="terrix-action-btn" id="tx-verify-btn">Verify Transfer</button>',
-        '          </div>',
-        '        </div>',
+        '        <div id="tx-slip-container"></div>',
         '      </div>',
         '    </div>',
         '  </div>',
@@ -480,8 +752,6 @@
         if (e.target === modal) toggleShopModal();
       };
 
-      var verifyBtn = document.getElementById('tx-verify-btn');
-      if (verifyBtn) verifyBtn.onclick = verifyManualPayment;
 
       if (state.modalOpen) {
         modal.style.display = 'flex';
@@ -568,13 +838,15 @@
     modal.style.display = state.modalOpen ? 'flex' : 'none';
 
     if (state.modalOpen) {
-      var accInput = document.getElementById('tx-manual-account');
-      if (accInput && !accInput.value) {
-        accInput.value = localStorage.getItem('d105') || '';
-      }
+      verifyCosmeticOwnership();
       verifyCbmDonorStatus();
+      if (state.activeOrder && state.activeOrder.order_id && state.activeOrder.status === 'PENDING') {
+        startOrderPolling(state.activeOrder.order_id);
+      }
       updateShopUI();
       renderPreview();
+    } else {
+      stopOrderPolling();
     }
   }
 
@@ -592,6 +864,7 @@
 
     var perkContainer = document.getElementById('tx-cbm-perk-container');
     var btnContainer = document.getElementById('tx-action-buttons');
+    var slipContainer = document.getElementById('tx-slip-container');
     if (!perkContainer || !btnContainer) return;
 
     var isOwned = !!state.ownedPatterns['hello_kitty'];
@@ -637,23 +910,49 @@
       } else {
         buttonsHtml = '<button class="terrix-action-btn gold" id="tx-equip-btn">Equip Hello Kitty Pattern</button>';
       }
+      if (slipContainer) {
+        var receiptId = (state.receipt && state.receipt.order_id) ? state.receipt.order_id : 'Verified';
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
+          '<span>&#10004;</span> Verified Purchase &bull; Order ' + receiptId +
+          '</div>';
+      }
     } else if (trial.active && trial.matchesRemaining > 0) {
       if (isEquipped) {
         buttonsHtml = '<button class="terrix-action-btn green" id="tx-equip-btn">Trial Equipped (' + trial.matchesRemaining + ' matches left)</button>' +
                       '<button class="terrix-action-btn" id="tx-unequip-btn">Unequip</button>' +
-                      '<button class="terrix-action-btn gold" id="tx-buy-btn">Buy with 500 Gold (Permanent Unlock)</button>';
+                      '<button class="terrix-action-btn gold" id="tx-buy-btn">Get Dynamic Order Slip (15 Min)</button>';
       } else {
         buttonsHtml = '<button class="terrix-action-btn gold" id="tx-equip-btn">Equip Trial (' + trial.matchesRemaining + ' left)</button>' +
-                      '<button class="terrix-action-btn" id="tx-buy-btn">Buy with 500 Gold (One-Click)</button>';
+                      '<button class="terrix-action-btn gold" id="tx-buy-btn">Get Dynamic Order Slip (15 Min)</button>';
+      }
+      if (state.activeOrder && state.activeOrder.status === "PENDING") {
+        renderOrderSlipUI(state.activeOrder);
+      } else if (slipContainer) {
+        slipContainer.innerHTML = '';
       }
     } else {
-      buttonsHtml = '<button class="terrix-action-btn gold" id="tx-buy-btn">Buy with 500 Gold (One-Click)</button>';
+      buttonsHtml = '<button class="terrix-action-btn gold" id="tx-buy-btn">Get Dynamic Order Slip (15 Min)</button>' +
+                    '<button class="terrix-action-btn" id="tx-pay-direct-btn-direct" style="margin-top: 6px;">One-Click In-Game Pay (CBM Proxy)</button>';
+      if (state.activeOrder && state.activeOrder.status === "PENDING") {
+        renderOrderSlipUI(state.activeOrder);
+      } else if (slipContainer) {
+        slipContainer.innerHTML = '';
+      }
     }
 
     btnContainer.innerHTML = buttonsHtml;
 
     var buyBtn = document.getElementById('tx-buy-btn');
-    if (buyBtn) buyBtn.onclick = executeOneClickBuy;
+    if (buyBtn) {
+      buyBtn.onclick = function() {
+        initProductCheckout();
+      };
+    }
+
+    var directPayQuickBtn = document.getElementById('tx-pay-direct-btn-direct');
+    if (directPayQuickBtn) {
+      directPayQuickBtn.onclick = executeDirectPayment;
+    }
 
     var equipBtn = document.getElementById('tx-equip-btn');
     if (equipBtn) {
@@ -873,7 +1172,10 @@
     }, 100);
 
     // Initial background verification
-    setTimeout(verifyCbmDonorStatus, 1500);
+    setTimeout(function() {
+      verifyCosmeticOwnership();
+      verifyCbmDonorStatus();
+    }, 1500);
   }
 
   if (document.readyState === 'loading') {

@@ -1220,6 +1220,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             terri = body.get("primary_territorial_account", "").strip()
             terri_pwd = body.get("territorial_password", "").strip()
             pin = body.get("pin")
+            inviter_ref = (body.get("referral_code") or body.get("ref") or "").strip()
 
             if not uname or not pwd or not avatar or not terri:
                 return self._send_json(400, {
@@ -1235,7 +1236,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
             # Dynamic profile extraction from Territorial.io
             display_name = uname
-            clan_tag = "ANTI-OG"
+            clan_tag = "None"
             role = "member"
 
             if terri_pwd:
@@ -1295,6 +1296,11 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         )
                     except Exception as e:
                         print(f"[!] link_via_input non-fatal error: {e}")
+                if inviter_ref and inviter_ref.upper() != uname.upper():
+                    try:
+                        db.register_referral(inviter_ref, uname)
+                    except Exception:
+                        pass
                 return self._send_json(200, {"status": "ok", "message": msg, "account": acc})
             else:
                 return self._send_json(400, {"status": "error", "message": msg})
@@ -1559,8 +1565,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 amount_gold = 0
 
-            if amount_gold <= 0:
-                return self._send_json(400, {"status": "error", "message": "Withdrawal amount must be at least 1 Gold."})
+            if amount_gold <= 0 or amount_gold > 1000:
+                return self._send_json(400, {"status": "error", "message": "Withdrawal amount must be between 1 and 1,000 Gold per disbursement."})
 
             # Check account lockout before verifying authentication
             is_locked, rem_lockout = rate_limiter.is_account_locked(canonical_name)
@@ -2585,6 +2591,39 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     })
 
             return self._send_json(404, {"error": "endpoint_not_found", "message": f"API v1 route '{path}' does not exist."})
+
+        # ---- Referral Program Endpoints ----
+        elif path == "/api/cbm/referral/stats":
+            account_name = (body.get("account_name") or "").strip()
+            if not account_name:
+                return self._send_json(400, {"status": "error", "message": "account_name is required."})
+            stats = db.get_referral_stats(account_name) if hasattr(db, "get_referral_stats") else {}
+            # Build invite link
+            import urllib.parse
+            ref_code = account_name
+            invite_link = f"/register?ref={urllib.parse.quote(ref_code)}"
+            return self._send_json(200, {
+                "status": "ok",
+                "account": account_name,
+                "referral_stats": stats,
+                "invite_link": invite_link,
+                "reward_per_qualified_referral_gold": 500,
+                "threshold": {
+                    "invitee_must_donate_gold": 200,
+                    "invitee_must_deposit_gold": 2000
+                }
+            })
+
+        elif path == "/api/cbm/referral/register":
+            inviter_account = (body.get("inviter_account") or body.get("ref") or "").strip()
+            invitee_account = (body.get("invitee_account") or body.get("account_name") or "").strip()
+            if not inviter_account or not invitee_account:
+                return self._send_json(400, {"status": "error", "message": "inviter_account and invitee_account are required."})
+            ok = db.register_referral(inviter_account, invitee_account) if hasattr(db, "register_referral") else False
+            if ok:
+                return self._send_json(200, {"status": "ok", "message": f"Referral link established: {inviter_account} -> {invitee_account}"})
+            else:
+                return self._send_json(409, {"status": "conflict", "message": "Referral already exists, is a self-referral, or invitee is already referred."})
 
         else:
             return self._send_json(404, {"status": "error", "message": "Not found"})

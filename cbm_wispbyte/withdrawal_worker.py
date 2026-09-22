@@ -50,8 +50,8 @@ class CBMWithdrawalWorker:
         Validates internal member balance, closed-loop routing, and PIN authentication,
         then dispatches real-time disbursement directly to the member's in-game account.
         """
-        if amount_gold <= 0:
-            return False, "Amount must be greater than 0 Gold."
+        if amount_gold <= 0 or amount_gold > 1000:
+            return False, "Withdrawal amount must be between 1 and 1,000 Gold."
 
         acc_clean = account_name.strip().upper()
         if acc_clean in ("TREASURY", "WAR_CHEST", "BANK", "VAULT", "RESERVES", "DDCBC"):

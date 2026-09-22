@@ -201,58 +201,63 @@ GoldApiClient = TerritorialGoldClient
 def extract_profile_metadata(account_data: Dict[str, Any]) -> Tuple[str, str, str]:
     """
     Extracts normalized (display_name, clan_tag, role) from Territorial.io /api/account/get account_data.
-    
-    1. Display Name:
-       - Extracted from raw username (e.g. "[NOVA] TeothePogie")
-    2. Clan Tag:
-       - Priority 1: clan_leader_clan (if set, e.g. "PRO")
-       - Priority 2: clan_member_clan_b or clan_member_clan_a (e.g. "NOVA")
-       - Priority 3: Tag extracted from brackets in username (e.g. "[NOVA] TeothePogie" -> "NOVA")
-       - Fallback: "ANTI-OG"
+
+    1. Display Name: Extracted from raw username.
+    2. Clan Tag Priority:
+       - Priority 1: clan_member_clan_a (primary monthly score clan)
+       - Priority 2: Tag extracted via re.search anywhere in username [TAG]
+       - Priority 3: clan_member_clan_b
+       - Priority 4: clan_leader_clan
+       - Fallback: "None"
     3. Role:
-       - "leader": if clan_leader_points > 0 or clan_leader_clan
-       - "officer": if admin_points > 0 or (0 < admin_rank <= 1000)
+       - "leader": if clan_leader_clan is non-empty AND matches the primary clan
+       - "officer": if admin_points > 0 or (0 < admin_rank <= 100)
        - Default: "member"
     """
     if not isinstance(account_data, dict):
-        return "", "ANTI-OG", "member"
+        return "", "None", "member"
 
     import re
     username = str(account_data.get("username") or "").strip()
-    
-    # 1. Clan extraction
-    clan = ""
-    clan_leader_clan = str(account_data.get("clan_leader_clan") or "").strip()
-    clan_b = str(account_data.get("clan_member_clan_b") or "").strip()
-    clan_a = str(account_data.get("clan_member_clan_a") or "").strip()
 
-    if clan_leader_clan:
-        clan = clan_leader_clan
-    elif clan_b:
-        clan = clan_b
-    elif clan_a:
+    clan_a = str(account_data.get("clan_member_clan_a") or "").strip()
+    clan_b = str(account_data.get("clan_member_clan_b") or "").strip()
+    clan_leader_clan = str(account_data.get("clan_leader_clan") or "").strip()
+
+    # 1. Clan extraction with corrected priority
+    clan = ""
+    if clan_a:
         clan = clan_a
     elif username:
-        match = re.match(r"^\[(.*?)\]", username)
+        match = re.search(r"\[([a-zA-Z0-9_\-]{1,7})\]", username)
         if match:
             clan = match.group(1).strip()
-    
+    if not clan and clan_b:
+        clan = clan_b
+    if not clan and clan_leader_clan:
+        clan = clan_leader_clan
     if not clan:
-        clan = "ANTI-OG"
+        clan = "None"
 
-    # 2. Role extraction
+    # 2. Strict role determination
     role = "member"
-    clan_leader_points = account_data.get("clan_leader_points", 0) or 0
     admin_points = account_data.get("admin_points", 0) or 0
     admin_rank = account_data.get("admin_rank", 0) or 0
 
-    if clan_leader_points > 0 or clan_leader_clan:
+    is_actual_leader = bool(clan_leader_clan) and (
+        not clan_a
+        or clan_leader_clan.upper() == clan_a.upper()
+        or clan.upper() == clan_leader_clan.upper()
+    )
+
+    if is_actual_leader:
         role = "leader"
-    elif admin_points > 0 or (0 < admin_rank <= 1000):
+    elif admin_points > 0 or (0 < admin_rank <= 100):
         role = "officer"
-    
+
     display_name = username or ""
     return display_name, clan, role
+
 
 
 if __name__ == "__main__":

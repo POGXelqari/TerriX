@@ -45,6 +45,8 @@ jobs:
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add client/ territorial_latest_raw.* territorial_deobfuscated_latest.* territorial_latest_strings.json
             git commit -m "chore(client): auto-update TerriX client from upstream territorial.io"
+            # Pull with rebase, favouring our changes on any timestamp conflicts
+            git pull --rebase -X ours origin main || git rebase --abort
             git push origin main
           else
             echo "Client is already up-to-date with upstream. No changes to commit."

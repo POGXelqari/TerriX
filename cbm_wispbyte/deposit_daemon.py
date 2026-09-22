@@ -175,6 +175,12 @@ class CBMDepositDaemon:
                         # Credit member balance (Bank covers the 0.01 Gold game fee)
                         self.db.credit_deposit(target_user, amount_cents, tx_id, fee_rebate_cents=1)
                         new_deposits += 1
+                        # Trigger referral qualification check for this depositor
+                        if hasattr(self.db, "check_and_settle_referral"):
+                            try:
+                                self.db.check_and_settle_referral(target_user)
+                            except Exception:
+                                pass
 
                     if self.on_deposit_callback:
                         try:

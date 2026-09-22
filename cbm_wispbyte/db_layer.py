@@ -480,6 +480,26 @@ class CBMDatabase:
                 created_at REAL NOT NULL
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_referrals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inviter_account TEXT NOT NULL,
+                invitee_account TEXT UNIQUE NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                invitee_donated_gold REAL DEFAULT 0.0,
+                invitee_deposited_gold REAL DEFAULT 0.0,
+                reward_gold REAL DEFAULT 500.0,
+                rewarded_at REAL,
+                created_at REAL NOT NULL DEFAULT (strftime('%s','now'))
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_referrals_inviter ON cbm_referrals(inviter_account);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_referrals_invitee ON cbm_referrals(invitee_account);")
+        # Migrate: add referred_by column to cbm_accounts if not present
+        try:
+            cur.execute("ALTER TABLE cbm_accounts ADD COLUMN referred_by TEXT;")
+        except Exception:
+            pass
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_products_owner ON cbm_products(owner_account);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_products_status ON cbm_products(status);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_prod ON cbm_product_orders(product_id);")
@@ -511,6 +531,22 @@ class CBMDatabase:
                         'https://territorial.io/', 'ACTIVE', 0, 0.0, ?, ?
                     )
                 """, (now_seed, now_seed))
+
+            cur.execute("SELECT 1 FROM cbm_products WHERE product_id = 'prod_poland'")
+            if not cur.fetchone():
+                now_seed2 = time.time()
+                cur.execute("""
+                    INSERT INTO cbm_products (
+                        product_id, owner_account, name, description, image_url,
+                        price_gold, price_cents, callback_url, status, sales_count,
+                        total_revenue_gold, created_at, updated_at
+                    ) VALUES (
+                        'prod_poland', 'B8bbq', 'Poland Flag Territory Pattern',
+                        'Official Polish national coat of arms territory pattern for TerriX Client.',
+                        '/assets/products/poland-pattern.avif', 1000.0, 100000,
+                        'https://territorial.io/', 'ACTIVE', 0, 0.0, ?, ?
+                    )
+                """, (now_seed2, now_seed2))
             conn.commit()
         except Exception:
             pass
@@ -5563,6 +5599,165 @@ class CBMDatabase:
             "fulfilled_at": float(row[2]) if row[2] else None,
             "created_at": float(row[3]) if row[3] else None
         }
+
+    # -------------------------------------------------------------------------
+    # Referral Reward Program Engine
+    # -------------------------------------------------------------------------
+
+    def register_referral(self, inviter_account: str, invitee_account: str) -> bool:
+        """
+        Records a referral relationship. Called during invitee registration.
+        Rejects self-referrals and duplicate invitee entries.
+        Returns True on success, False if already exists or invalid.
+        """
+        clean_inviter = (inviter_account or "").strip()
+        clean_invitee = (invitee_account or "").strip()
+        if not clean_inviter or not clean_invitee:
+            return False
+        if clean_inviter.upper() == clean_invitee.upper():
+            return False
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "INSERT OR IGNORE INTO cbm_referrals (inviter_account, invitee_account, status, created_at) VALUES (?, ?, 'PENDING', ?)",
+                (clean_inviter, clean_invitee, time.time())
+            )
+            if cur.rowcount > 0:
+                cur.execute(
+                    "UPDATE cbm_accounts SET referred_by = ? WHERE LOWER(account_name) = LOWER(?)",
+                    (clean_inviter, clean_invitee)
+                )
+                conn.commit()
+                return True
+            conn.rollback()
+            return False
+        except Exception as e:
+            conn.rollback()
+            print(f"[!] Referral registration error: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def check_and_settle_referral(self, invitee_account: str) -> None:
+        """
+        Checks qualification thresholds (>200G donated & >2,000G deposited) for an invitee.
+        On success: credits 500G to both inviter and invitee, marks referral REWARDED.
+        Funded from central bank unencumbered reserves; logged as REFERRAL_REWARD in cbm_ledger.
+        """
+        clean_invitee = (invitee_account or "").strip()
+        if not clean_invitee:
+            return
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        now = time.time()
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+            cur.execute(
+                "SELECT inviter_account, status FROM cbm_referrals WHERE LOWER(invitee_account) = LOWER(?)",
+                (clean_invitee,)
+            )
+            ref = cur.fetchone()
+            if not ref or ref[1] == "REWARDED":
+                conn.rollback()
+                return
+
+            inviter = ref[0]
+
+            # Invitee total deposited gold
+            cur.execute(
+                "SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
+                (clean_invitee,)
+            )
+            acc_row = cur.fetchone()
+            deposited_gold = (acc_row[0] or 0) / 100.0 if acc_row else 0.0
+
+            # Invitee total donated to war chest
+            cur.execute(
+                "SELECT COALESCE(SUM(amount_cents), 0) FROM cbm_donations WHERE LOWER(donor_name) = LOWER(?) OR LOWER(territorial_account) = LOWER(?)",
+                (clean_invitee, clean_invitee)
+            )
+            donated_gold = (cur.fetchone()[0] or 0) / 100.0
+
+            # Update progress tracking
+            cur.execute(
+                "UPDATE cbm_referrals SET invitee_deposited_gold = ?, invitee_donated_gold = ? WHERE LOWER(invitee_account) = LOWER(?)",
+                (deposited_gold, donated_gold, clean_invitee)
+            )
+
+            if donated_gold > 200.0 and deposited_gold > 2000.0:
+                reward_cents = 50000  # 500.00 Gold
+
+                # Credit inviter
+                cur.execute(
+                    "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
+                    (reward_cents, now, inviter)
+                )
+                cur.execute(
+                    "SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
+                    (inviter,)
+                )
+                inviter_bal_row = cur.fetchone()
+                inviter_bal = inviter_bal_row[0] if inviter_bal_row else 0
+                cur.execute(
+                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
+                    (inviter, reward_cents, inviter_bal, f"ref_inviter_{clean_invitee}_{int(now)}", f"Referral Reward: {clean_invitee} qualified (>200G donated & >2,000G deposited)", now)
+                )
+
+                # Credit invitee
+                cur.execute(
+                    "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
+                    (reward_cents, now, clean_invitee)
+                )
+                cur.execute(
+                    "SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
+                    (clean_invitee,)
+                )
+                invitee_bal_row = cur.fetchone()
+                invitee_bal = invitee_bal_row[0] if invitee_bal_row else 0
+                cur.execute(
+                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
+                    (clean_invitee, reward_cents, invitee_bal, f"ref_invitee_{clean_invitee}_{int(now)}", f"Referral Welcome Reward: Qualified under sponsor {inviter}", now)
+                )
+
+                # Mark referral as rewarded
+                cur.execute(
+                    "UPDATE cbm_referrals SET status = 'REWARDED', rewarded_at = ? WHERE LOWER(invitee_account) = LOWER(?)",
+                    (now, clean_invitee)
+                )
+                conn.commit()
+                self.recompute_treasury()
+                print(f"[REFERRAL] Credited 500 Gold to {inviter} and {clean_invitee}!")
+            else:
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[!] Referral settlement error: {e}")
+        finally:
+            conn.close()
+
+    def get_referral_stats(self, inviter_account: str) -> dict:
+        """Returns referral program statistics for a given inviter account."""
+        clean = (inviter_account or "").strip()
+        if not clean:
+            return {"total": 0, "pending": 0, "rewarded": 0, "total_gold_earned": 0.0}
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT status, COUNT(*) FROM cbm_referrals WHERE LOWER(inviter_account) = LOWER(?) GROUP BY status",
+            (clean,)
+        )
+        rows = cur.fetchall()
+        stats = {"total": 0, "pending": 0, "qualified": 0, "rewarded": 0, "total_gold_earned": 0.0}
+        for status, count in rows:
+            stats["total"] += count
+            key = status.lower()
+            if key in stats:
+                stats[key] = count
+        stats["total_gold_earned"] = round(stats["rewarded"] * 500.0, 2)
+        return stats
+
 
 
 

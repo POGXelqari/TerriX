@@ -1,6 +1,6 @@
 /**
  * TerriX Client Extension Bundle
- * Compiled: 2026-09-20 19:23:49 UTC
+ * Compiled: 2026-09-22 00:11:21 UTC
  * Active Mods: 01_cosmetics_shop.js
  */
 ;(function(window, document) {
@@ -34,8 +34,10 @@
   var CBM_API_BASE = "https://cbm.wispbyte.org/api/v1";
   var CBM_WEB_BASE = "https://cbm.wispbyte.org";
   var PRODUCT_ID = "prod_hellokitty";
+  var PRODUCT_ID_POLAND = "prod_poland";
   var VAULT_ACCOUNT = "DdcBC";
   var HELLO_KITTY_PRICE = 500;
+  var POLAND_PRICE = 1000;
   var MAX_TRIAL_MATCHES = 25;
 
   // State Management
@@ -46,6 +48,7 @@
     orderPollTimer: null,
     countdownTimer: null,
     receipt: null,              // { order_id, verification_token, account_name, verified_at }
+    receiptPoland: null,        // Poland pattern receipt
     ownedPatterns: {},
     equippedPattern: null,
     trial: {
@@ -57,6 +60,8 @@
     },
     patternImage: null,
     patternTexture: null,
+    patternImagePoland: null,
+    patternTexturePoland: null,
     currentMatchDeducted: false,
     lastTileCount: 0
   };
@@ -84,6 +89,16 @@
           state.receipt = JSON.parse(rawReceipt);
           if (state.receipt && state.receipt.order_id) {
             state.ownedPatterns['hello_kitty'] = true;
+          }
+        } catch(e) {}
+      }
+
+      var rawReceiptPoland = localStorage.getItem('terrix_cbm_receipt_poland');
+      if (rawReceiptPoland) {
+        try {
+          state.receiptPoland = JSON.parse(rawReceiptPoland);
+          if (state.receiptPoland && state.receiptPoland.order_id) {
+            state.ownedPatterns['poland'] = true;
           }
         } catch(e) {}
       }
@@ -124,6 +139,12 @@
         localStorage.removeItem('terrix_cbm_receipt_hello_kitty');
       }
 
+      if (state.receiptPoland) {
+        localStorage.setItem('terrix_cbm_receipt_poland', JSON.stringify(state.receiptPoland));
+      } else {
+        localStorage.removeItem('terrix_cbm_receipt_poland');
+      }
+
       var currentAcc = getActiveAccount();
       if (currentAcc) {
         var trialKey = 'terrix_cbm_trial_' + currentAcc.toLowerCase();
@@ -134,7 +155,7 @@
     }
   }
 
-  // Pre-load pattern texture
+  // Pre-load pattern textures
   function initPatternAssets() {
     var img = new Image();
     img.src = 'assets/patterns/hello-kitty-pattern.png';
@@ -147,6 +168,19 @@
     };
     img.onerror = function() {
       console.warn('[TerriX Cosmetics] Pattern image failed to load from assets/patterns/hello-kitty-pattern.png');
+    };
+
+    var imgPoland = new Image();
+    imgPoland.src = 'assets/patterns/poland-pattern.avif';
+    imgPoland.onload = function() {
+      state.patternImagePoland = imgPoland;
+      var pc = document.createElement('canvas');
+      var pCtx = pc.getContext('2d');
+      state.patternTexturePoland = pCtx.createPattern(imgPoland, 'repeat');
+      console.log('[TerriX Cosmetics] Poland pattern texture initialized.');
+    };
+    imgPoland.onerror = function() {
+      console.warn('[TerriX Cosmetics] Poland pattern image failed to load from assets/patterns/poland-pattern.avif');
     };
   }
 
@@ -740,6 +774,19 @@
         '        <div id="tx-slip-container"></div>',
         '      </div>',
         '    </div>',
+        '    <!-- Catalog Item: Poland Flag -->',
+        '    <div class="terrix-item-card" id="tx-poland-card">',
+        '      <canvas class="terrix-preview-canvas" id="tx-preview-canvas-poland" width="120" height="120"></canvas>',
+        '      <div class="terrix-item-details">',
+        '        <div class="terrix-item-title">Poland Flag Territory Pattern</div>',
+        '        <div class="terrix-item-desc">Official Polish national coat of arms tile coating your territory during live matches. Exclusive limited release.</div>',
+        '        <div class="terrix-price-tag">Price: 1,000 Gold &rarr; Clan Vault (DdcBC)</div>',
+        '        <div class="terrix-btn-group" id="tx-action-buttons-poland">',
+        '          <!-- Poland action buttons injected dynamically -->',
+        '        </div>',
+        '        <div id="tx-slip-container-poland"></div>',
+        '      </div>',
+        '    </div>',
         '  </div>',
         '</div>'
       ].join('\n');
@@ -973,6 +1020,77 @@
         updateShopUI();
       };
     }
+
+    // Update Poland card UI
+    updatePolandUI();
+  }
+
+  function updatePolandUI() {
+    var btnContainer = document.getElementById('tx-action-buttons-poland');
+    var slipContainer = document.getElementById('tx-slip-container-poland');
+    if (!btnContainer) return;
+
+    var isOwned = !!state.ownedPatterns['poland'];
+    var isEquipped = state.equippedPattern === 'poland';
+    var buttonsHtml = '';
+
+    if (isOwned) {
+      if (isEquipped) {
+        buttonsHtml = '<button class="terrix-action-btn green" id="tx-poland-equip-btn">Equipped &#10004;</button>' +
+                      '<button class="terrix-action-btn" id="tx-poland-unequip-btn">Unequip</button>';
+      } else {
+        buttonsHtml = '<button class="terrix-action-btn gold" id="tx-poland-equip-btn">Equip Poland Pattern</button>';
+      }
+      if (slipContainer) {
+        var rid = (state.receiptPoland && state.receiptPoland.order_id) ? state.receiptPoland.order_id : 'Verified';
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
+          '<span>&#10004;</span> Verified Purchase &bull; Order ' + rid + '</div>';
+      }
+    } else {
+      buttonsHtml = '<button class="terrix-action-btn gold" id="tx-poland-buy-btn">Get Order Slip (1,000 Gold)</button>';
+      if (slipContainer) slipContainer.innerHTML = '';
+    }
+
+    btnContainer.innerHTML = buttonsHtml;
+
+    var polandBuyBtn = document.getElementById('tx-poland-buy-btn');
+    if (polandBuyBtn) {
+      polandBuyBtn.onclick = function() {
+        initProductCheckout(PRODUCT_ID_POLAND, POLAND_PRICE);
+      };
+    }
+
+    var polandEquipBtn = document.getElementById('tx-poland-equip-btn');
+    if (polandEquipBtn) {
+      polandEquipBtn.onclick = function() {
+        state.equippedPattern = 'poland';
+        savePersistedState();
+        showNotification("Poland Pattern equipped!");
+        updateShopUI();
+      };
+    }
+
+    var polandUnequipBtn = document.getElementById('tx-poland-unequip-btn');
+    if (polandUnequipBtn) {
+      polandUnequipBtn.onclick = function() {
+        state.equippedPattern = null;
+        savePersistedState();
+        showNotification("Pattern unequipped.");
+        updateShopUI();
+      };
+    }
+
+    // Render Poland canvas preview
+    var pc = document.getElementById('tx-preview-canvas-poland');
+    if (pc && state.patternImagePoland) {
+      var pCtx = pc.getContext('2d');
+      if (!state.patternTexturePoland) {
+        state.patternTexturePoland = pCtx.createPattern(state.patternImagePoland, 'repeat');
+      }
+      pCtx.clearRect(0, 0, 120, 120);
+      pCtx.fillStyle = state.patternTexturePoland;
+      pCtx.fillRect(0, 0, 120, 120);
+    }
   }
 
   // Draw animated swatch preview in modal
@@ -1068,8 +1186,10 @@
     }
 
     // Check if pattern is still valid (either owned or active trial)
-    var canUse = state.ownedPatterns['hello_kitty'] || (state.trial.active && state.trial.matchesRemaining >= 0);
+    var canUse = state.ownedPatterns['hello_kitty'] || state.ownedPatterns['poland'] || (state.trial.active && state.trial.matchesRemaining >= 0);
     if (!canUse) return;
+    // Must have an equipped pattern selected
+    if (!state.equippedPattern) return;
 
     // 4. Territory Bounding Box
     var minX = playerData.botExpansionAi[p];
@@ -1115,20 +1235,32 @@
 
       offscreenMaskCtx.putImageData(imgData, 0, 0);
 
-      // Re-create pattern texture if needed
+      // Re-create pattern texture if needed (Hello Kitty)
       if (!state.patternTexture && state.patternImage && state.patternImage.complete) {
         state.patternTexture = offscreenPatternCtx.createPattern(state.patternImage, 'repeat');
+      }
+      // Re-create pattern texture if needed (Poland)
+      if (!state.patternTexturePoland && state.patternImagePoland && state.patternImagePoland.complete) {
+        state.patternTexturePoland = offscreenPatternCtx.createPattern(state.patternImagePoland, 'repeat');
+      }
+
+      // Select active pattern texture based on currently equipped pattern
+      var activeTexture = null;
+      if (state.equippedPattern === 'poland') {
+        activeTexture = state.patternTexturePoland;
+      } else if (state.equippedPattern === 'hello_kitty') {
+        activeTexture = state.patternTexture;
       }
 
       // Composite pattern into offscreenPatternCanvas using 'source-in'
       offscreenPatternCtx.clearRect(0, 0, bw, bh);
       offscreenPatternCtx.drawImage(offscreenMaskCanvas, 0, 0);
 
-      if (state.patternTexture) {
+      if (activeTexture) {
         offscreenPatternCtx.globalCompositeOperation = 'source-in';
         offscreenPatternCtx.save();
         offscreenPatternCtx.translate(-minX, -minY);
-        offscreenPatternCtx.fillStyle = state.patternTexture;
+        offscreenPatternCtx.fillStyle = activeTexture;
         offscreenPatternCtx.fillRect(minX, minY, bw, bh);
         offscreenPatternCtx.restore();
         offscreenPatternCtx.globalCompositeOperation = 'source-over';

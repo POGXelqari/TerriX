@@ -5687,9 +5687,25 @@ class CBMDatabase:
             )
 
             if donated_gold > 200.0 and deposited_gold > 2000.0:
-                reward_cents = 50000  # 500.00 Gold
+                reward_cents = 50000  # 500.00 Gold per recipient
+                total_payout_cents = reward_cents * 2  # 1,000 Gold total
 
-                # Credit inviter
+                # --- Reserve Solvency Check ---
+                # bank_reserves = vault_total - SUM(deposited_cents for member accounts)
+                # We need vault_excess >= total_payout_cents before issuing any credit.
+                treasury = self.get_treasury()
+                vault_excess_cents = treasury.get("vault_excess_cents", 0)
+                if vault_excess_cents < total_payout_cents:
+                    # Insufficient reserves — defer; update progress only
+                    print(
+                        f"[CBM Referral] Insufficient vault excess ({vault_excess_cents/100:.2f}G) "
+                        f"to settle referral {inviter} -> {clean_invitee}. "
+                        f"Required: {total_payout_cents/100:.2f}G. Deferred."
+                    )
+                    conn.commit()
+                    return
+
+                # --- Credit inviter ---
                 cur.execute(
                     "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
                     (reward_cents, now, inviter)
@@ -5700,12 +5716,18 @@ class CBMDatabase:
                 )
                 inviter_bal_row = cur.fetchone()
                 inviter_bal = inviter_bal_row[0] if inviter_bal_row else 0
+                # Member credit entry
                 cur.execute(
                     "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
                     (inviter, reward_cents, inviter_bal, f"ref_inviter_{clean_invitee}_{int(now)}", f"Referral Reward: {clean_invitee} qualified (>200G donated & >2,000G deposited)", now)
                 )
+                # Reserve debit entry — offsets the liability increase so vault_excess is preserved correctly
+                cur.execute(
+                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'RESERVE_DEBIT', ?, ?, ?, ?, ?)",
+                    ("reserves", reward_cents, max(0, vault_excess_cents - reward_cents), f"ref_rsv_inviter_{clean_invitee}_{int(now)}", f"Reserve debit: referral reward funded for {inviter}", now)
+                )
 
-                # Credit invitee
+                # --- Credit invitee ---
                 cur.execute(
                     "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
                     (reward_cents, now, clean_invitee)
@@ -5716,9 +5738,15 @@ class CBMDatabase:
                 )
                 invitee_bal_row = cur.fetchone()
                 invitee_bal = invitee_bal_row[0] if invitee_bal_row else 0
+                # Member credit entry
                 cur.execute(
                     "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
                     (clean_invitee, reward_cents, invitee_bal, f"ref_invitee_{clean_invitee}_{int(now)}", f"Referral Welcome Reward: Qualified under sponsor {inviter}", now)
+                )
+                # Reserve debit entry
+                cur.execute(
+                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'RESERVE_DEBIT', ?, ?, ?, ?, ?)",
+                    ("reserves", reward_cents, max(0, vault_excess_cents - total_payout_cents), f"ref_rsv_invitee_{clean_invitee}_{int(now)}", f"Reserve debit: referral welcome reward funded for {clean_invitee}", now)
                 )
 
                 # Mark referral as rewarded
@@ -5727,8 +5755,11 @@ class CBMDatabase:
                     (now, clean_invitee)
                 )
                 conn.commit()
+                print(
+                    f"[CBM Referral] Settled: {inviter} <- 500G | {clean_invitee} <- 500G "
+                    f"| Reserve debit: 1,000G from vault_excess ({vault_excess_cents/100:.2f}G remaining before payout)"
+                )
                 self.recompute_treasury()
-                print(f"[REFERRAL] Credited 500 Gold to {inviter} and {clean_invitee}!")
             else:
                 conn.commit()
         except Exception as e:

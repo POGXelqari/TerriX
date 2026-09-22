@@ -871,6 +871,29 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "pending_donations": pending
             })
 
+        # 5c. Slip Status by ID (used by donations.html polling — returns PENDING/FULFILLED/EXPIRED)
+        elif path == "/api/cbm/donations/slip-status":
+            slip_id = (params.get("id") or "").strip()
+            if not slip_id:
+                return self._send_json(400, {"status": "error", "message": "id is required."})
+            slip = db.get_donation_slip_by_id(slip_id)
+            if not slip:
+                return self._send_json(404, {"status": "error", "message": "Slip not found."})
+            # Derive display status: if PENDING but past expires_at, surface as EXPIRED
+            import time as _time
+            display_status = slip.get("status", "PENDING")
+            if display_status == "PENDING" and slip.get("expires_at", 0) < _time.time():
+                display_status = "EXPIRED"
+            return self._send_json(200, {
+                "status": "ok",
+                "slip_id": slip_id,
+                "slip_status": display_status,
+                "amount_gold": slip.get("amount_gold"),
+                "amount_cents": slip.get("amount_cents"),
+                "tx_hash": slip.get("tx_hash"),
+                "remaining_seconds": slip.get("remaining_seconds", 0)
+            })
+
         # --- Developer Console Management APIs (GET) ---
         elif path == "/api/cbm/dev/overview":
             acc_name = params.get("account_name") or params.get("account") or params.get("name") or ""

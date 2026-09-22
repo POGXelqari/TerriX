@@ -699,19 +699,25 @@
       if (pollInterval) clearInterval(pollInterval);
       pollInterval = setInterval(async () => {
         try {
-          const res = await fetch(`/api/cbm/donations/pending?account=${encodeURIComponent(slip.account_name)}`);
-          if (res.ok) {
-            const data = await res.json();
-            const slips = data.pending_donations || [];
-            const match = slips.find(s => s.id === slip.id);
-            if (!match) {
-              clearInterval(pollInterval);
-              clearInterval(activeSlipTimer);
-              box.style.display = 'none';
-              showAlert('Donation successfully received and credited to Clan War Chest! Thank you!', false);
-              loadDonationsData();
-            }
+          const res = await fetch(`/api/cbm/donations/slip-status?id=${encodeURIComponent(slip.id)}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          const slipStatus = data.slip_status;
+
+          if (slipStatus === 'FULFILLED') {
+            clearInterval(pollInterval);
+            clearInterval(activeSlipTimer);
+            box.style.display = 'none';
+            showAlert('Donation verified and credited to the Clan War Chest! Thank you!', false);
+            loadDonationsData();
+          } else if (slipStatus === 'EXPIRED') {
+            clearInterval(pollInterval);
+            clearInterval(activeSlipTimer);
+            box.style.display = 'none';
+            showAlert('Donation slip expired. If you sent the transfer, it was booked as a personal deposit. Check your balance.', true);
+            loadDonationsData();
           }
+          // status === 'PENDING': keep polling
         } catch (e) {}
       }, 5000);
     }

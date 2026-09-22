@@ -359,7 +359,7 @@ class CBMDatabase:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_pending_donations (
                 id TEXT PRIMARY KEY,
-                account_name TEXT NOT NULL,
+                account_name TEXT COLLATE NOCASE NOT NULL,
                 amount_cents INTEGER NOT NULL,
                 amount_gold REAL NOT NULL,
                 message TEXT DEFAULT '',
@@ -369,6 +369,30 @@ class CBMDatabase:
                 expires_at REAL
             )
         """)
+        # Migration: add COLLATE NOCASE to account_name on pre-existing databases
+        # SQLite does not support ALTER COLUMN; we recreate the table if the column has no COLLATE NOCASE
+        try:
+            cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='cbm_pending_donations'")
+            _existing_ddl = (cur.fetchone() or [None])[0] or ""
+            if "COLLATE NOCASE" not in _existing_ddl:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS cbm_pending_donations_new (
+                        id TEXT PRIMARY KEY,
+                        account_name TEXT COLLATE NOCASE NOT NULL,
+                        amount_cents INTEGER NOT NULL,
+                        amount_gold REAL NOT NULL,
+                        message TEXT DEFAULT '',
+                        status TEXT DEFAULT 'PENDING',
+                        tx_hash TEXT,
+                        created_at REAL,
+                        expires_at REAL
+                    )
+                """)
+                cur.execute("INSERT OR IGNORE INTO cbm_pending_donations_new SELECT * FROM cbm_pending_donations")
+                cur.execute("DROP TABLE cbm_pending_donations")
+                cur.execute("ALTER TABLE cbm_pending_donations_new RENAME TO cbm_pending_donations")
+        except Exception:
+            pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_vault_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3736,50 +3760,108 @@ class CBMDatabase:
             r["remaining_seconds"] = max(0, int(r.get("expires_at", 0) - now))
         return rows
 
+
     def find_and_claim_pending_donation(self, sender_account: str, amount_cents: int, tx_id: str) -> Optional[Dict[str, Any]]:
         """
-        Model 3 In-Game Donation Matching:
-        Finds an active pending donation slip matching the sender and exact amount.
-        If matched, immediately marks as FULFILLED with tx_hash to prevent double-claiming.
+        Model 3 In-Game Donation Matching (hardened):
+        - Expands candidates to ALL linked territorial.io payment methods, not just primary.
+        - Matches by sender identity with COLLATE NOCASE (case-insensitive IN clause handled via LOWER()).
+        - Tolerant amount matching: picks the nearest pending slip by ABS(amount_cents - ?),
+          falling back gracefully when no exact match exists.
+        - Uses BEGIN IMMEDIATE to prevent double-claim race conditions.
+        - Books the actual received amount to the War Chest, logs variance if it differs from the slip.
         """
         now = time.time()
         sender_clean = sender_account.strip()
-        candidates = [sender_clean]
+
+        # Build candidate set: sender as-is, then resolve all identity surfaces
+        seen = set()
+        candidates = []
+        def _add(v):
+            if v and v.lower() not in seen:
+                seen.add(v.lower())
+                candidates.append(v)
+
+        _add(sender_clean)
+
+        # 1. Primary CBM owner via payment_methods table
         owner = self.get_cbm_username_by_territorial_account(sender_clean)
-        if owner and owner not in candidates:
-            candidates.append(owner)
+        _add(owner)
+
+        # 2. Direct account lookup by the sender string
         owner_acc = self._get_account_raw(sender_clean)
         if owner_acc:
-            c_name = owner_acc.get("account_name")
-            if c_name and c_name not in candidates:
-                candidates.append(c_name)
-            d_name = owner_acc.get("display_name")
-            if d_name and d_name not in candidates:
-                candidates.append(d_name)
-            p_terri = owner_acc.get("primary_territorial_account")
-            if p_terri and p_terri not in candidates:
-                candidates.append(p_terri)
+            _add(owner_acc.get("account_name"))
+            _add(owner_acc.get("display_name"))
+            _add(owner_acc.get("primary_territorial_account"))
+            # 3. Expand ALL linked alts (Fix 3: previously only primary_territorial_account was checked)
+            linked_methods = self.get_payment_methods(owner_acc.get("account_name") or sender_clean)
+            for pm in linked_methods:
+                _add(pm.get("territorial_account_name"))
+        elif owner:
+            # Owner resolved but not directly in cbm_accounts — expand owner's alts
+            linked_methods = self.get_payment_methods(owner)
+            for pm in linked_methods:
+                _add(pm.get("territorial_account_name"))
+
+        if not candidates:
+            return None
 
         conn = sqlite3.connect(self.sqlite_path)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        placeholders = ",".join("?" for _ in candidates)
-        cur.execute(f"""
-            SELECT * FROM cbm_pending_donations 
-            WHERE account_name IN ({placeholders}) 
-              AND amount_cents = ? 
-              AND status = 'PENDING' 
-              AND expires_at >= ?
-            ORDER BY created_at ASC 
-            LIMIT 1
-        """, (*candidates, amount_cents, now))
-        row = cur.fetchone()
-        if row:
+        try:
+            # BEGIN IMMEDIATE: prevent concurrent claims on the same slip (Fix: race condition)
+            cur.execute("BEGIN IMMEDIATE")
+
+            # COLLATE NOCASE is on the column definition; LOWER() on params is belt-and-suspenders.
+            lower_candidates = [c.lower() for c in candidates]
+            placeholders = ",".join("?" for _ in lower_candidates)
+
+            # Tolerance match: ORDER BY ABS(amount_cents - ?) so the nearest slip wins.
+            # The daemon still books the ACTUAL received amount to the War Chest.
+            cur.execute(f"""
+                SELECT * FROM cbm_pending_donations
+                WHERE LOWER(account_name) IN ({placeholders})
+                  AND status = 'PENDING'
+                  AND expires_at >= ?
+                ORDER BY ABS(amount_cents - ?) ASC, created_at ASC
+                LIMIT 1
+            """, (*lower_candidates, now, amount_cents))
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                conn.close()
+                return None
+
             slip = dict(row)
             slip_id = slip["id"]
-            cur.execute("UPDATE cbm_pending_donations SET status = 'FULFILLED', tx_hash = ? WHERE id = ?", (tx_id, slip_id))
+            slip_amount = slip["amount_cents"]
+            variance_cents = amount_cents - slip_amount
+
+            cur.execute(
+                "UPDATE cbm_pending_donations SET status = 'FULFILLED', tx_hash = ? WHERE id = ? AND status = 'PENDING'",
+                (tx_id, slip_id)
+            )
+            if cur.rowcount == 0:
+                # Another concurrent writer claimed it first
+                conn.rollback()
+                conn.close()
+                return None
+
             conn.commit()
             conn.close()
+
+            if variance_cents != 0:
+                print(
+                    f"[CBM Slip] VARIANCE on slip {slip_id}: declared {slip_amount/100:.2f}G, "
+                    f"received {amount_cents/100:.2f}G, delta {variance_cents/100:+.2f}G. "
+                    f"Booking actual received amount to War Chest."
+                )
+            # Return slip but override amount_cents with the actual received amount
+            # so the caller (deposit_daemon) books the correct figure to the War Chest.
+            slip["actual_amount_cents"] = amount_cents
+            slip["variance_cents"] = variance_cents
 
             if self.use_supabase:
                 self._sb_request(
@@ -3790,10 +3872,31 @@ class CBMDatabase:
                 )
             return slip
 
-        conn.close()
-        return None
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            conn.close()
+            print(f"[!] find_and_claim_pending_donation error: {e}")
+            return None
 
-    # --- Vault Telemetry & 7-Day Timeline Aggregation ---
+    def get_donation_slip_by_id(self, slip_id: str) -> Optional[Dict[str, Any]]:
+        """Returns a single donation slip row by its ID, regardless of status. Used by the slip-status polling endpoint."""
+        if not slip_id:
+            return None
+        conn = self._get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM cbm_pending_donations WHERE id = ?", (slip_id.strip(),))
+        row = cur.fetchone()
+        if not row:
+            return None
+        slip = dict(row)
+        now = time.time()
+        slip["remaining_seconds"] = max(0, int(slip.get("expires_at", 0) - now))
+        return slip
+
     def record_vault_snapshot(
         self,
         vault_total_gold: float,

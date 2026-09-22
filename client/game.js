@@ -89,10 +89,10 @@ uiSurface.platformActions.du();}camera.dv();}createSystems();startGameLoop();set
 function SettingsPanel(){this.dw=1761;
 var dx=2;
 var dy=16;
-var dz=51;
+var dz=52;
 this.rVersion=25;this.e0=0;this.applyToGame=function(){this.e1=2;
 var e2="";this.o=dx+"."+dy+"."+dz;
-this.e3="13 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
+this.e3="22 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
 this.aA=this.hostname.indexOf("territorial.io")>=0;this.e4=this.hostname.indexOf("github.io")>=0;
 this.e5=this.hostname.indexOf("game.territorial.io")>=0;this.aB=e6();this.e7=(new Date()).getTime()%1048576;
 console.log("hostname: ["+this.hostname+"] validHostname: "+(+this.aA)+" validMod: "+(+this.e4));
@@ -4293,7 +4293,7 @@ function MessageManager(){this.L84=["No Admin","Helper",
 "➡️ Login","1v1 Rating",
 "Elo: ","Played Games: ","Battle Royale Rating","Commander","Strategist","Soldier","Recruit",
 "Rating: ","Zombie Rating","Savior","Veteran","Hunter","Defender","Refugee","Admin Statistics",
-"Votes: ","You are about to purchase {10} votes for {11} Gold with your Account {2}.",
+"Votes: ","Elect","You are about to purchase {10} votes for {11} Gold with your Account {2}.",
 "User","Email Verified","🟢 Online",
 "Browsing the menus.","Watching a replay.","Playing a team game.","Playing a battle royale game.",
 "Playing a 1v1 match.","Fighting zombies.","In the lobby.","Playing in single player.",
@@ -4307,11 +4307,10 @@ function MessageManager(){this.L84=["No Admin","Helper",
 "Code","Submit Code","Bio","Upload Bio","Enable Auto Renew",
 "Disable Auto Renew","Auto Renew is off. The subscription will end in {10} day(s).",
 "Auto Renew is on. The subscription will renew in {10} day(s).",
-"The monthly fee is currently {10} gold.",
-"Buy","Description","Report Player","Primary Clan Stats","Clan: {0}",
-"Monthly Points: {0}","Rank: {0}","Total Points: {0}","Won Games: {0}","Avg. Points per Game: {0}",
-"Secondary Clan Stats","Clan Leader Statistics","Clan Leader of {0}","No Clan Leader",
-"Elect","Rating: {10}","Rank: {10}","Status: {10}","Active","Inactive","Unlink Account",
+"The monthly fee is currently {10} gold.","Buy","Description","Report Player","Primary Clan Stats",
+"Clan: {0}","Monthly Points: {0}","Rank: {0}","Total Points: {0}","Won Games: {0}",
+"Avg. Points per Game: {0}","Secondary Clan Stats","Clan Leader Statistics","Clan Leader of {0}",
+"No Clan Leader","Rating: {10}","Rank: {10}","Status: {10}","Active","Inactive","Unlink Account",
 "Benefits:","No Ads","Separate Leaderboard","Exclusive Username Color","Status: Not Linked",
 "Join Territorial.io on Patreon:","Once you have joined, connect your account:",
 "If you hide Patreon, no one can transfer a membership to your account.",
@@ -6513,48 +6512,44 @@ return aQh;}
 function aQd(){var aQh=new rx();aQh.LobbyChatPanel(L(225));
 aQh.s6(L(226)+data.aQy+"<br>"+L(182)+(data.aQz+1)+" / "+data.y3+"<br>"+L(183)+br.eK(data.aQz)
 );if(data.aQN){var t6=new t7({value:connectionMgr.buffer.data[157].value,eI:-1},1,undefined,function(e){
-connectionMgr.qo.boatNotificationHandler(157,aQm(e.target.value));
-});t6.e.style.marginTop="0.6em";aQh.sB(t6);
-var aQp=new x(L(185),function(e){
-if(e.textContent===L(185)){e.textContent=L(186);t6.e.readOnly=true;
-aR0[0].se(0);aR0[1].se(0);aR0[0].button.style.color=colorPalette.qN;aR0[1].button.style.color=colorPalette.qN;
+connectionMgr.qo.boatNotificationHandler(157,aQm(e.target.value));});
+t6.e.style.marginTop="0.6em";aQh.sB(t6);
+var aQp=new x(L(185),function(e){if(e.textContent===L(185)){
+e.textContent=L(186);t6.e.readOnly=true;aR0[0].se(0);aR0[0].button.style.color=colorPalette.qN;
 aQm(connectionMgr.buffer.data[157].value);}else{aQo();}return true;});aQh.sB((new tl([
 aQp.button])));
-var aR0=[new x("−",function(e){if(t6.e.readOnly&&gameServer.z.responsePacketBuilder(0)){gameState.sK.wV(e);
-aQo();gameServer.aHS.aHT({action:2,uY:data.uY,value:mathUtils.distanceBetweenPointsAndEncoded(parseInt(connectionMgr.buffer.data[157].value,10),3,32767)
-});}return true;},1),new x("+",function(e){if(t6.e.readOnly&&gameServer.z.responsePacketBuilder(0)){gameState.sK.wV(e);
-aQo();gameServer.aHS.aHT({action:1,uY:data.uY,value:mathUtils.distanceBetweenPointsAndEncoded(parseInt(connectionMgr.buffer.data[157].value,10),3,32767)
+var aR0=[new x(L(227),function(e){if(t6.e.readOnly&&gameServer.z.responsePacketBuilder(0)){gameState.sK.wV(e);
+aQo();gameServer.aHS.aHT({action:1,uY:data.uY,value:mathUtils.distanceBetweenPointsAndEncoded(parseInt(connectionMgr.buffer.data[157].value,10),2,30000)
 });}return true;},1)];
 var s3=aQh.s2();
 var aQm=function(g1){
-g1=gameState.gv.initializeMapImageBuffer(g1,3,32767);s3.textContent=L(227,[g1-1,g1,connectionMgr.buffer.data[105].value]);
-return g1;};aQh.sB(new tl([aR0[0].button,aR0[1].button]));for(var aC=0;aC<2;aC++){
-aR0[aC].button.style.fontSize="1.6em";}var aQo=function(){aQp.button.textContent=L(185);
-t6.e.readOnly=false;aR0[0].se(1);aR0[1].se(1);aR0[0].button.style.color=colorPalette.pO;
-aR0[1].button.style.color=colorPalette.pO;};aQm(connectionMgr.buffer.data[157].value);}return aQh;}
+g1=gameState.gv.initializeMapImageBuffer(g1,2,30000);s3.textContent=L(228,[g1-1,g1,connectionMgr.buffer.data[105].value]);
+return g1;};aQh.sB(new tl([aR0[0].button]));
+var aQo=function(){aQp.button.textContent=L(185);t6.e.readOnly=false;aR0[0].se(1);
+aR0[0].button.style.color=colorPalette.pO;};aQm(connectionMgr.buffer.data[157].value);}return aQh;}
 
 function aQQ(){
-var aQh=new rx();aQh.LobbyChatPanel(L(228));if(data.aR1){aQh.s6("✅ "+L(229)).style.marginBottom="0.75em";
-}var a30=data.aR2;if(a30<1){aQh.s6(L(230));if(data.aR3===0){
-aQh.s2(L(231));}else if(data.aR3===1){aQh.s2(L(232));}else if(data.aR3===2){aQh.s2(L(233));
-}else if(data.aR3===3){aQh.s2(L(234));}else if(data.aR3===4){aQh.s2(L(235));}else if(data.aR3===5){
-aQh.s2(L(236));}else if(data.aR3===6){aQh.s2(L(237));}else{aQh.s2(L(238));}}else{aQh.s6(L(239));
-var a8x;if(a30<2){a8x=L(240);}else if(a30<61){if(a30===2){a8x=L(241);}else{a8x=L(242,[a30-1]);
-}}else if(a30<84){if(a30===61){a8x=L(243);}else{a8x=L(244,[a30-60]);}}else if(a30<255){
-if(a30===84){a8x=L(245);}else{a8x=L(246,[a30-83]);}}else{a8x=L(247);}aQh.s2(a8x);}aQh.sB(new tw());
-if(data.aQN){var s3=aQh.s2();aQh.sB((new tl([(new x(connectionMgr.xF.vp(data.uY)?L(248):L(249),function(e){
-if(connectionMgr.xF.xS(data.uY)){e.textContent=L(248);aQm(1);}else{e.textContent=L(249);aQm(0);}return true;
+var aQh=new rx();aQh.LobbyChatPanel(L(229));if(data.aR1){aQh.s6("✅ "+L(230)).style.marginBottom="0.75em";
+}var a30=data.aR2;if(a30<1){aQh.s6(L(231));if(data.aR3===0){
+aQh.s2(L(232));}else if(data.aR3===1){aQh.s2(L(233));}else if(data.aR3===2){aQh.s2(L(234));
+}else if(data.aR3===3){aQh.s2(L(235));}else if(data.aR3===4){aQh.s2(L(236));}else if(data.aR3===5){
+aQh.s2(L(237));}else if(data.aR3===6){aQh.s2(L(238));}else{aQh.s2(L(239));}}else{aQh.s6(L(240));
+var a8x;if(a30<2){a8x=L(241);}else if(a30<61){if(a30===2){a8x=L(242);}else{a8x=L(243,[a30-1]);
+}}else if(a30<84){if(a30===61){a8x=L(244);}else{a8x=L(245,[a30-60]);}}else if(a30<255){
+if(a30===84){a8x=L(246);}else{a8x=L(247,[a30-83]);}}else{a8x=L(248);}aQh.s2(a8x);}aQh.sB(new tw());
+if(data.aQN){var s3=aQh.s2();aQh.sB((new tl([(new x(connectionMgr.xF.vp(data.uY)?L(249):L(250),function(e){
+if(connectionMgr.xF.xS(data.uY)){e.textContent=L(249);aQm(1);}else{e.textContent=L(250);aQm(0);}return true;
 })).button])));
-var aQm=function(g1){s3.textContent=g1?L(250):"";};if(connectionMgr.xF.vp(data.uY)){
+var aQm=function(g1){s3.textContent=g1?L(251):"";};if(connectionMgr.xF.vp(data.uY)){
 aQm(1);}aQh.sB(new tw());}var t6=new t7({value:data.username,eI:-1});t6.e.readOnly=true;
 aQh.sB(t6);aQh.sB((new tl([(new x(L(188),function(e){gameState.sK.trimStartSpaces(t6.e);gameState.sK.wV(e);
-return true;})).button])));if(!data.aQN){aQh.s2(L(251));}if(data.aR4||data.aR5||data.aR6){
-aQh.sB(new tw());aQh.s2(L(252));var sO;if(data.aR4){aQh.s2("• Account Timeout").style.color="orange";
+return true;})).button])));if(!data.aQN){aQh.s2(L(252));}if(data.aR4||data.aR5||data.aR6){
+aQh.sB(new tw());aQh.s2(L(253));var sO;if(data.aR4){aQh.s2("• Account Timeout").style.color="orange";
 }if(data.aR5){sO=aQh.s2("• Muted");sO.style.color="orange";sO.style.marginTop="0.5em";
 }if(data.aR6){sO=aQh.s2("• Redacted");sO.style.color="orange";sO.style.marginTop="0.5em";
 }}if(data.aQN){aQh.sB(new tw());aQh.s6(gameServer.z.aQi("/wiki/reports"),"0.75em").style.marginBottom="0.8em";
-aQh.sB((new tl([(new x(L(253),function(e){gameServer.aHS.aHT({action:3,uY:data.uY,value:0});gameState.sK.wV(e);
-return true;},colorPalette.q3)).button])));aQh.sB((new tl([(new x(L(254),function(e){gameServer.aHS.aHT({
+aQh.sB((new tl([(new x(L(254),function(e){gameServer.aHS.aHT({action:3,uY:data.uY,value:0});gameState.sK.wV(e);
+return true;},colorPalette.q3)).button])));aQh.sB((new tl([(new x(L(255),function(e){gameServer.aHS.aHT({
 action:3,uY:data.uY,value:1});gameState.sK.wV(e);return true;},colorPalette.q3)).button])));aQh.sB((new tl([
 (new x("Cheater",function(e){gameServer.aHS.aHT({action:3,uY:data.uY,value:2});gameState.sK.wV(e);return true;
 },colorPalette.q3)).button])));aQh.sB((new tl([(new x("False Reporter",function(e){gameServer.aHS.aHT({action:3,uY:data.uY,
@@ -6571,64 +6566,64 @@ action:3,uY:data.uY,value:6});gameState.sK.wV(e);return true;},colorPalette.canc
 function aQP(sF,aR8){if(data.aQN){return;}if(data.aR1){if(aR8){
 return;}}else{if(!aR8){return;}if(data.isTileWrap<10000){return;}}var aQh=new rx();
 var aR9=data.isTileWrap>=100000;
-var aRA=aQh.LobbyChatPanel(aR8?(aR9?"⚠️ ":"")+L(255):L(256));aR9&&(aRA.style.color="yellow");
-if(aR8){aQh.s2(L(257,[gameState.tI.a6L(data.isTileWrap,0.01,0)]));}else{var aRB=new t7({value:data.aRC,eI:-1});
+var aRA=aQh.LobbyChatPanel(aR8?(aR9?"⚠️ ":"")+L(256):L(257));aR9&&(aRA.style.color="yellow");
+if(aR8){aQh.s2(L(258,[gameState.tI.a6L(data.isTileWrap,0.01,0)]));}else{var aRB=new t7({value:data.aRC,eI:-1});
 aRB.e.readOnly=true;aRB.e.type="password";aQh.sB(aRB);aQh.sB((new tl([(new x(L(191),function(e){
 if(e.textContent===L(191)){e.textContent=L(192);aRB.e.type="text";}else{e.textContent=L(191);
 aRB.e.type="password";}return true;})).button,(new x(L(188),function(e){gameState.sK.trimStartSpaces(aRB.e);
-gameState.sK.wV(e);return true;})).button])));}aQh.s6(aR8?L(256):L(258)).style.marginTop="0.75em";
+gameState.sK.wV(e);return true;})).button])));}aQh.s6(aR8?L(257):L(259)).style.marginTop="0.75em";
 var aRD=new t7({value:"",eI:-1},0,0);aRD.e.type="email";aRD.e.autocomplete="email";
 aRD.e.name="email";aRD.e.inputMode="email";aRD.e.spellcheck=false;aQh.sB(aRD);aQh.sB((new tl([
-(new x(L(259),function(e){gameServer.aHS.aRE({action:3,s1:aRD.e.value.trim().substring(0,63)
-});gameState.sK.wV(e);return true;})).button])));aR8&&aQh.s2(L(260));
-aQh.s6(L(261)).style.marginTop="0.75em";
+(new x(L(260),function(e){gameServer.aHS.aRE({action:3,s1:aRD.e.value.trim().substring(0,63)
+});gameState.sK.wV(e);return true;})).button])));aR8&&aQh.s2(L(261));
+aQh.s6(L(262)).style.marginTop="0.75em";
 var aRF=new t7({value:"",eI:-1},1);aQh.sB(aRF);
-aQh.sB((new tl([(new x(L(262),function(){gameServer.aHS.aHT({action:4,uY:"",value:Math.floor(+aRF.e.value)
+aQh.sB((new tl([(new x(L(263),function(){gameServer.aHS.aHT({action:4,uY:"",value:Math.floor(+aRF.e.value)
 });account.v(8,account.handleKeyInput().a3U,new ub(18));})).button])));sF.push(aQh);}
 
 function aQR(sF){
-if(data.aQN){return;}var aQh=new rx();aQh.LobbyChatPanel(L(263));
+if(data.aQN){return;}var aQh=new rx();aQh.LobbyChatPanel(L(264));
 var s3=aQh.s2(data.aRG.length+" / 160");
 s3.style.textAlign="center";
 var aEU=true;
 var aRH=new x0(0,1,function(e){
 var resolveAttackCombat=e.target.value.length;s3.textContent=resolveAttackCombat+" / 160";if(resolveAttackCombat>160){if(aEU){
 aEU=false;aQp.se(1);}}else if(!aEU){aEU=true;aQp.se(0);}});aRH.e.rows=6;aRH.e.style.fontSize="1em";
-aRH.x6(data.aRG);aQh.sB(aRH);if(data.aRI!==0){var aQp=new x(L(264),function(){if(!aEU){
+aRH.x6(data.aRG);aQh.sB(aRH);if(data.aRI!==0){var aQp=new x(L(265),function(){if(!aEU){
 return true;}account.v(8,account.handleKeyInput().a3U,new ub(29,{action:1,s1:aRH.x7().substring(0,160)}));},0,0,1);
-aQh.sB((new tl([aQp.button])));aQh.sB((new tl([(new x(data.aRI===1?L(265):L(266),function(){
+aQh.sB((new tl([aQp.button])));aQh.sB((new tl([(new x(data.aRI===1?L(266):L(267),function(){
 account.v(8,account.handleKeyInput().a3U,new ub(29,{action:0,s1:""}));},0,0,1)).button])));aQh.s2(data.aRI===1?
-L(267,[data.aRJ-1]):L(268,[data.aRJ-1]));aQh.s2(L(269,[data.aRK]));sF.push(aQh);
-return;}var aQn=new x(L(270),function(){if(aRH.e.readOnly){account.v(8,account.handleKeyInput().a3U,new ub(29,{
+L(268,[data.aRJ-1]):L(269,[data.aRJ-1]));aQh.s2(L(270,[data.aRK]));sF.push(aQh);
+return;}var aQn=new x(L(271),function(){if(aRH.e.readOnly){account.v(8,account.handleKeyInput().a3U,new ub(29,{
 action:1,s1:aRH.x7().substring(0,160)}));return;}return true;},1);
 var aQp=new x(L(185),function(e){
 if(e.textContent===L(185)){if(!aEU){return true;}e.textContent=L(186);aRH.e.readOnly=true;
 aQn.se(0);aQn.button.style.color=colorPalette.qN;}else{aQo();}return true;});aQh.sB((new tl([
-aQp.button])));aQh.s2(L(269,[data.aRK]));
+aQp.button])));aQh.s2(L(270,[data.aRK]));
 var aQo=function(){aQp.button.textContent=L(185);
 aRH.e.readOnly=false;aQn.se(1);aQn.button.style.color=colorPalette.pO;};aQh.sB((new tl([aQn.button])));
 sF.push(aQh);}
 
 function aQS(sF){if(!data.aQN){return;}if(data.aRI===0){return;}var aQh=new rx();
-aQh.LobbyChatPanel(L(271));aQh.s4(data.aRG);aQh.sB((new tl([(new x(L(272,0,"Report"),function(e){
+aQh.LobbyChatPanel(L(272));aQh.s4(data.aRG);aQh.sB((new tl([(new x(L(273,0,"Report"),function(e){
 if(gameServer.z.responsePacketBuilder(0)){gameState.sK.wV(e);gameServer.aHS.aRL({action:5,uY:data.uY});}return true;},0,0,1)).button
 ])));sF.push(aQh);}
 
 function aQb(sF){var aQh=new rx();
-var aRM=data.y7;aQh.LobbyChatPanel(L(273));
-aQh.s6(L(274,[(data.y5.length?("["+data.y5+"]"):"-")]));aQh.s6(L(275,[gameState.tI.a6L(aRM,0.01,2)]));
-aQh.s6(L(276,[(data.y9+1)+" / "+data.y3]));
-var aRN=data.yA;aQh.s6(L(277,[gameState.tI.a6L(aRN,0.1,1)]));
-var aRO=data.yC;aQh.s6(L(278,[aRO]));aQh.s6(L(279,[gameState.tI.a6L(aRN/Math.max(aRO,1),0.1,2)]));
-aRM=data.y8;aQh.LobbyChatPanel(L(280),"0.8em");aQh.s6(L(274,[(data.y6.length?("["+data.y6+"]"):"-")]));
-aQh.s6(L(275,[gameState.tI.a6L(aRM,0.01,2)]));aRN=data.yB;aQh.s6(L(277,[gameState.tI.a6L(aRN,0.1,1)]));
-aRO=data.yD;aQh.s6(L(278,[aRO]));aQh.s6(L(279,[gameState.tI.a6L(aRN/Math.max(aRO,1),0.1,2)]));
+var aRM=data.y7;aQh.LobbyChatPanel(L(274));
+aQh.s6(L(275,[(data.y5.length?("["+data.y5+"]"):"-")]));aQh.s6(L(276,[gameState.tI.a6L(aRM,0.01,2)]));
+aQh.s6(L(277,[(data.y9+1)+" / "+data.y3]));
+var aRN=data.yA;aQh.s6(L(278,[gameState.tI.a6L(aRN,0.1,1)]));
+var aRO=data.yC;aQh.s6(L(279,[aRO]));aQh.s6(L(280,[gameState.tI.a6L(aRN/Math.max(aRO,1),0.1,2)]));
+aRM=data.y8;aQh.LobbyChatPanel(L(281),"0.8em");aQh.s6(L(275,[(data.y6.length?("["+data.y6+"]"):"-")]));
+aQh.s6(L(276,[gameState.tI.a6L(aRM,0.01,2)]));aRN=data.yB;aQh.s6(L(278,[gameState.tI.a6L(aRN,0.1,1)]));
+aRO=data.yD;aQh.s6(L(279,[aRO]));aQh.s6(L(280,[gameState.tI.a6L(aRN/Math.max(aRO,1),0.1,2)]));
 aQh.s6(gameServer.z.aQi("/wiki/clans"),"0.75em").style.marginTop="0.8em";sF.push(aQh);
 }
 
-function aQc(sF){var aQh=new rx();aQh.LobbyChatPanel(L(281));aQh.s6(L(218)+(data.aRP/10).toFixed(1)+
-"<br>"+L(183)+(data.aRQ.length?L(282,[data.aRQ]):L(283)));if(data.aQN){aQh.sB((new tl([
-(new x(L(284),function(e){if(gameServer.z.responsePacketBuilder(0)){gameState.sK.wV(e);gameServer.aHS.aRL({action:4,uY:data.uY
+function aQc(sF){var aQh=new rx();aQh.LobbyChatPanel(L(282));aQh.s6(L(218)+(data.aRP/10).toFixed(1)+
+"<br>"+L(183)+(data.aRQ.length?L(283,[data.aRQ]):L(284)));if(data.aQN){aQh.sB((new tl([
+(new x(L(227),function(e){if(gameServer.z.responsePacketBuilder(0)){gameState.sK.wV(e);gameServer.aHS.aRL({action:4,uY:data.uY
 });}return true;},0,0,1)).button])));}aQh.s6(gameServer.z.aQi("/wiki/clans"),"0.75em").style.marginTop="0.8em";
 sF.push(aQh);}
 
@@ -7711,7 +7706,7 @@ function aQO(){var sF=[];sF.push(SettingsPacketHandler());return sF;
 
 function SettingsPacketHandler(){var aQh=new rx();aQh.s6(gameServer.z.aQi("/wiki/faq"),"0.75em").style.marginBottom="0.8em";
 aQh.LobbyChatPanel(L(187));
-var t6=new t7({value:"",eI:-1});aQh.sB(t6);aQh.LobbyChatPanel(L(256),"0.8em");
+var t6=new t7({value:"",eI:-1});aQh.sB(t6);aQh.LobbyChatPanel(L(257),"0.8em");
 var aRD=new t7({value:"",eI:-1},0,0);aRD.e.type="email";aRD.e.autocomplete="email";aRD.e.name="email";
 aRD.e.inputMode="email";aRD.e.spellcheck=false;aQh.sB(aRD);
 var aQn=new x(L(436),function(e){

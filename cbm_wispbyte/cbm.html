@@ -1046,6 +1046,7 @@
       <button class="game-tab-btn" onclick="switchTab('banking')">⚡ Bank In & Out</button>
       <button class="game-tab-btn" onclick="switchTab('payment-methods')">🔗 Link Alts</button>
       <button class="game-tab-btn" onclick="switchTab('loans')">📜 Quick Loans</button>
+      <button class="game-tab-btn" onclick="switchTab('referrals')" id="tabBtnReferrals">🎁 Refer & Earn</button>
       <a href="/donations.html" class="game-tab-btn" style="color: var(--paypal-yellow); text-decoration: none;">🎁 War Chest ↗</a>
       <button class="game-tab-btn" onclick="switchTab('audit')">🔍 Activity</button>
       <a href="/rulebook.html" target="_blank" class="game-tab-btn"
@@ -2063,6 +2064,68 @@
       </div>
     </div>
 
+    <!-- Tab: Referral Reward Program -->
+    <div id="tab-referrals" class="tab-content">
+      <div class="game-panel">
+        <div class="panel-headline">
+          <div>
+            <h3>Refer &amp; Earn</h3>
+            <p>Invite players to the Clan Bank Manager. You and your referral both earn <strong>500 Gold</strong> once they deposit &gt;2,000 Gold and donate &gt;200 Gold to the War Chest.</p>
+          </div>
+          <button class="btn-game btn-game-secondary btn-game-sm" onclick="loadReferralTab()">🔄 Refresh</button>
+        </div>
+
+        <!-- Invite Link Box -->
+        <div id="referralInviteBox" style="margin: 18px 0 0; display:none;">
+          <div style="background: var(--surface-2, #1a1f2e); border: 1px solid var(--border, #2a2f45); border-radius: 10px; padding: 18px 20px;">
+            <div style="font-size: 13px; color: var(--text-dim, #8892aa); margin-bottom: 8px;">Your referral invite link</div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <input id="referralInviteInput" type="text" readonly
+                style="flex: 1; background: var(--surface-3, #111827); border: 1px solid var(--border, #2a2f45); border-radius: 6px; padding: 9px 12px; color: #fff; font-size: 13px; font-family: monospace;">
+              <button class="btn-game btn-game-primary btn-game-sm" onclick="copyReferralLink()">📋 Copy</button>
+            </div>
+            <div style="font-size: 11px; color: var(--text-dim, #8892aa); margin-top: 8px;">Share this link. When a friend registers and hits the qualification thresholds, 500 Gold is automatically credited to both accounts.</div>
+          </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div id="referralStatsRow" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-top: 18px;">
+          <div class="game-stat-card" style="text-align:center;">
+            <div class="stat-value" id="refStatTotal">—</div>
+            <div class="stat-label">Total Referrals</div>
+          </div>
+          <div class="game-stat-card" style="text-align:center;">
+            <div class="stat-value" id="refStatPending" style="color: var(--paypal-yellow, #f5c518);">—</div>
+            <div class="stat-label">Pending</div>
+          </div>
+          <div class="game-stat-card" style="text-align:center;">
+            <div class="stat-value" id="refStatRewarded" style="color: #10b981;">—</div>
+            <div class="stat-label">Rewarded</div>
+          </div>
+          <div class="game-stat-card" style="text-align:center;">
+            <div class="stat-value" id="refStatGold" style="color: var(--paypal-gold, #f5c518);">—</div>
+            <div class="stat-label">Gold Earned</div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div style="margin-top: 24px; background: var(--surface-2, #1a1f2e); border: 1px solid var(--border, #2a2f45); border-radius: 10px; padding: 18px 20px;">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 12px;">How it works</div>
+          <ol style="margin: 0; padding-left: 20px; color: var(--text-dim, #8892aa); font-size: 13px; line-height: 2;">
+            <li>Copy your invite link and share it with a friend.</li>
+            <li>Your friend registers using that link.</li>
+            <li>Once they <strong style="color:#fff;">deposit &gt;2,000 Gold</strong> AND <strong style="color:#fff;">donate &gt;200 Gold</strong> to the War Chest, both accounts are automatically credited <strong style="color:#f5c518;">500 Gold</strong>.</li>
+            <li>There is no cap on how many players you can refer.</li>
+          </ol>
+        </div>
+
+        <div id="referralNotLoggedIn" style="display:none; margin-top: 18px; padding: 18px; background: var(--surface-2, #1a1f2e); border-radius: 10px; text-align: center; color: var(--text-dim, #8892aa); font-size: 13px;">
+          Log in to view your referral stats and invite link.
+        </div>
+        <div id="referralError" style="display:none; margin-top: 18px;" class="alert-msg error"></div>
+      </div>
+    </div>
+
     <!-- Tab 7: Public Audit Ledger -->
     <div id="tab-audit" class="tab-content">
       <div class="game-panel">
@@ -2329,6 +2392,89 @@
       if (tabId === 'loans') {
         loadLendingFacility();
       }
+      if (tabId === 'referrals') {
+        loadReferralTab();
+      }
+    }
+
+
+    // ---------------------------------------------------------------
+    // Referral Reward Program
+    // ---------------------------------------------------------------
+    async function loadReferralTab() {
+      const inviteBox = document.getElementById('referralInviteBox');
+      const notLoggedIn = document.getElementById('referralNotLoggedIn');
+      const errorBox = document.getElementById('referralError');
+      const statsRow = document.getElementById('referralStatsRow');
+
+      // Reset
+      if (inviteBox) inviteBox.style.display = 'none';
+      if (notLoggedIn) notLoggedIn.style.display = 'none';
+      if (errorBox) errorBox.style.display = 'none';
+      ['refStatTotal','refStatPending','refStatRewarded','refStatGold'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '…';
+      });
+
+      const acc = currentActiveAccount;
+      if (!acc || !acc.account_name) {
+        if (notLoggedIn) notLoggedIn.style.display = 'block';
+        if (statsRow) statsRow.style.display = 'none';
+        return;
+      }
+      if (statsRow) statsRow.style.display = 'grid';
+
+      const username = acc.account_name;
+
+      try {
+        const resp = await fetch('/api/cbm/referral/stats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_name: username })
+        });
+        const data = await resp.json();
+
+        if (data.status !== 'ok') {
+          if (errorBox) {
+            errorBox.textContent = data.message || 'Failed to load referral stats.';
+            errorBox.style.display = 'block';
+          }
+          return;
+        }
+
+        // Populate stats
+        const s = data.referral_stats || {};
+        const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        setVal('refStatTotal',    s.total    ?? 0);
+        setVal('refStatPending',  s.pending  ?? 0);
+        setVal('refStatRewarded', s.rewarded ?? 0);
+        setVal('refStatGold',     (s.total_gold_earned ?? 0).toFixed(0) + ' G');
+
+        // Build invite link
+        const baseUrl = window.location.origin;
+        const inviteUrl = baseUrl + (data.invite_link || `/register?ref=${encodeURIComponent(username)}`);
+        const inviteInput = document.getElementById('referralInviteInput');
+        if (inviteInput) inviteInput.value = inviteUrl;
+        if (inviteBox) inviteBox.style.display = 'block';
+
+      } catch (err) {
+        if (errorBox) {
+          errorBox.textContent = 'Network error loading referral stats. Check your connection.';
+          errorBox.style.display = 'block';
+        }
+      }
+    }
+
+    function copyReferralLink() {
+      const input = document.getElementById('referralInviteInput');
+      if (!input || !input.value) return;
+      navigator.clipboard.writeText(input.value).then(() => {
+        showToast('Invite link copied to clipboard!', 'success');
+      }).catch(() => {
+        input.select();
+        document.execCommand('copy');
+        showToast('Invite link copied!', 'success');
+      });
     }
 
     function copyVault() {

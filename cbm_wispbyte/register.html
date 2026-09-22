@@ -344,6 +344,15 @@
 
       <div id="alertBox" class="alert-box"></div>
 
+      <!-- Referral banner: shown when ?ref= present in URL -->
+      <div id="referralBanner" style="display:none; background: linear-gradient(135deg, #1a2a1a 0%, #0f2417 100%); border: 1px solid #10b981; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 22px;">🎁</span>
+        <div>
+          <div style="font-weight: 600; font-size: 13px; color: #10b981; margin-bottom: 2px;">You were invited!</div>
+          <div style="font-size: 12px; color: #8892aa;">Register now and complete the deposit + donation thresholds — both you and <strong id="referralBannerName" style="color:#fff;"></strong> will earn <strong style="color:#f5c518;">500 Gold</strong> each.</div>
+        </div>
+      </div>
+
       <form id="registerForm" onsubmit="handleRegister(event)" autocomplete="on">
         <div class="avatar-preview-section">
           <div class="avatar-img-box">
@@ -521,13 +530,16 @@
         return;
       }
 
+      const refCode = new URLSearchParams(window.location.search).get('ref') || '';
+
       const payload = {
         username: username,
         password: password,
         avatar_url: currentAvatarData,
         primary_territorial_account: terriAcc,
         territorial_password: terriPass,
-        pin: pin || null
+        pin: pin || null,
+        referral_code: refCode || undefined
       };
 
       const btn = document.getElementById('submitBtn');
@@ -571,5 +583,19 @@
       }
     }
   </script>
+
+  <script>
+    // Show referral invite banner if ?ref= is present in the URL
+    (function() {
+      const ref = new URLSearchParams(window.location.search).get('ref');
+      if (ref) {
+        const banner = document.getElementById('referralBanner');
+        const nameEl = document.getElementById('referralBannerName');
+        if (banner) banner.style.display = 'flex';
+        if (nameEl) nameEl.textContent = ref;
+      }
+    })();
+  </script>
+
 </body>
 </html>

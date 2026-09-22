@@ -3386,6 +3386,12 @@ class CBMDatabase:
         # Recalculate unencumbered reserves (liabilities drop, reserves expand 1:1)
         self.recompute_treasury()
 
+        # Bug B fix: trigger referral qualification check for this donor after the donation completes
+        try:
+            self.check_and_settle_referral(acc_key)
+        except Exception:
+            pass
+
         donation_info = {
             "donor_name": acc.get("display_name") or acc_key,
             "account_name": acc_key,
@@ -3475,6 +3481,15 @@ class CBMDatabase:
         curr_vault = treasury.get("vault_total_gold_cents", 0) + amount_cents
         self.update_vault_balance(curr_vault)
         self.recompute_treasury()
+
+        # Bug B fix: if the direct sender maps to a CBM account, check referral qualification
+        # (they may have now crossed the donation threshold for their inviter's reward)
+        if acc:
+            cbm_account_name = acc.get("account_name") or raw_donor
+            try:
+                self.check_and_settle_referral(cbm_account_name)
+            except Exception:
+                pass
 
         return {
             "donor_name": clean_donor,
@@ -5665,19 +5680,28 @@ class CBMDatabase:
 
             inviter = ref[0]
 
-            # Invitee total deposited gold
+            # Bug A fix: use total_deposited_cents (lifetime gross inflows) not deposited_cents (current liquid balance)
             cur.execute(
-                "SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
+                "SELECT total_deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
                 (clean_invitee,)
             )
             acc_row = cur.fetchone()
             deposited_gold = (acc_row[0] or 0) / 100.0 if acc_row else 0.0
 
-            # Invitee total donated to war chest
-            cur.execute(
-                "SELECT COALESCE(SUM(amount_cents), 0) FROM cbm_donations WHERE LOWER(donor_name) = LOWER(?) OR LOWER(territorial_account) = LOWER(?)",
-                (clean_invitee, clean_invitee)
-            )
+            # Bug C fix: sum donations matching canonical account_name OR display_name OR territorial_account
+            # so players who donated under a display_name are correctly identified
+            cur.execute("""
+                SELECT COALESCE(SUM(d.amount_cents), 0)
+                FROM cbm_donations d
+                LEFT JOIN cbm_accounts a
+                    ON LOWER(d.donor_name) = LOWER(a.display_name)
+                    OR LOWER(d.donor_name) = LOWER(a.account_name)
+                    OR LOWER(d.territorial_account) = LOWER(a.primary_territorial_account)
+                WHERE
+                    LOWER(a.account_name) = LOWER(?)
+                    OR LOWER(d.donor_name) = LOWER(?)
+                    OR LOWER(d.territorial_account) = LOWER(?)
+            """, (clean_invitee, clean_invitee, clean_invitee))
             donated_gold = (cur.fetchone()[0] or 0) / 100.0
 
             # Update progress tracking

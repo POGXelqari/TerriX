@@ -21,6 +21,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import threading
+import queue
 from typing import Dict, Any, Optional, List, Tuple, Set, Union
 
 try:
@@ -113,10 +114,13 @@ class CBMDatabase:
         self._alias_lock = threading.RLock()
         self._alias_cache_primed = False
         self._recovery_lock = threading.Lock()
+        self._sb_queue: queue.Queue = queue.Queue(maxsize=10000)
+        self._sb_worker_thread = None
 
         self._init_sqlite()
         self._ensure_alias_cache_loaded()
         if self.use_supabase and not (is_test_env and not allow_live_prod):
+            self._start_supabase_worker()
             try:
                 self.sync_all_from_supabase(quiet=True)
             except Exception as e:
@@ -218,10 +222,10 @@ class CBMDatabase:
         cur.execute("PRAGMA journal_mode = WAL;")
         cur.execute("PRAGMA synchronous = NORMAL;")
         cur.execute("PRAGMA busy_timeout = 5000;")
-        cur.execute("PRAGMA cache_size = -4000;")
+        cur.execute("PRAGMA cache_size = -8192;")
         cur.execute("PRAGMA temp_store = MEMORY;")
         cur.execute("PRAGMA wal_autocheckpoint = 250;")
-        cur.execute("PRAGMA mmap_size = 16777216;")
+        cur.execute("PRAGMA mmap_size = 33554432;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_accounts (
                 account_name TEXT PRIMARY KEY,
@@ -679,10 +683,10 @@ class CBMDatabase:
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA synchronous = NORMAL;")
             conn.execute("PRAGMA busy_timeout = 30000;")
-            conn.execute("PRAGMA cache_size = -4000;")
+            conn.execute("PRAGMA cache_size = -8192;")
             conn.execute("PRAGMA temp_store = MEMORY;")
             conn.execute("PRAGMA wal_autocheckpoint = 250;")
-            conn.execute("PRAGMA mmap_size = 16777216;")
+            conn.execute("PRAGMA mmap_size = 33554432;")
             conn.row_factory = sqlite3.Row if row_factory else None
             self._local.conn = conn
             return conn
@@ -699,10 +703,10 @@ class CBMDatabase:
                 conn.execute("PRAGMA journal_mode = WAL;")
                 conn.execute("PRAGMA synchronous = NORMAL;")
                 conn.execute("PRAGMA busy_timeout = 30000;")
-                conn.execute("PRAGMA cache_size = -4000;")
+                conn.execute("PRAGMA cache_size = -8192;")
                 conn.execute("PRAGMA temp_store = MEMORY;")
                 conn.execute("PRAGMA wal_autocheckpoint = 250;")
-                conn.execute("PRAGMA mmap_size = 16777216;")
+                conn.execute("PRAGMA mmap_size = 33554432;")
                 conn.row_factory = sqlite3.Row if row_factory else None
                 self._local.conn = conn
                 return conn
@@ -717,11 +721,50 @@ class CBMDatabase:
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)};")
-        conn.execute("PRAGMA cache_size = -4000;")
+        conn.execute("PRAGMA cache_size = -8192;")
         conn.execute("PRAGMA temp_store = MEMORY;")
         conn.execute("PRAGMA wal_autocheckpoint = 250;")
-        conn.execute("PRAGMA mmap_size = 16777216;")
+        conn.execute("PRAGMA mmap_size = 33554432;")
         return conn
+
+    def _start_supabase_worker(self):
+        """Spawns an asynchronous background worker to decouple Supabase writes from the request latency path."""
+        def _worker():
+            while True:
+                try:
+                    item = self._sb_queue.get()
+                    if item is None:
+                        break
+                    table, method, params, body, upsert = item
+                    try:
+                        self._sb_request(table, method=method, params=params, body=body, upsert=upsert)
+                    except Exception:
+                        pass
+                    finally:
+                        self._sb_queue.task_done()
+                except Exception:
+                    time.sleep(0.05)
+
+        self._sb_worker_thread = threading.Thread(target=_worker, daemon=True, name="CBM-Supabase-Sync")
+        self._sb_worker_thread.start()
+
+    def _enqueue_sb_task(self, table: str, method: str = "POST", params: str = "", body: Optional[dict] = None, upsert: bool = False):
+        """Asynchronously enqueues a database mutation for background cloud replication."""
+        if not self.use_supabase:
+            return
+        if ("unittest" in sys.modules or "pytest" in sys.modules or os.environ.get("CBM_ENV") == "test") and not os.environ.get("ALLOW_LIVE_PROD_ACCESS"):
+            return
+        try:
+            self._sb_queue.put_nowait((table, method, params, body, upsert))
+        except queue.Full:
+            pass
+
+    def flush_supabase_queue(self, timeout: float = 2.0):
+        """Blocks until the pending cloud replication queue is drained or timeout is reached."""
+        if hasattr(self, "_sb_queue"):
+            t0 = time.time()
+            while not self._sb_queue.empty() and (time.time() - t0 < timeout):
+                time.sleep(0.01)
 
     def _sb_request(self, table: str, method: str = "GET", params: str = "", body: Optional[dict] = None, upsert: bool = False) -> Tuple[int, Any]:
         """Executes a PostgREST request to Supabase with persistent HTTP connection reuse."""
@@ -1220,7 +1263,7 @@ class CBMDatabase:
                 "fee_gold": fee_gold,
                 "credited_account": credited_account
             }
-            self._sb_request("cbm_processed_txs", method="POST", body=payload)
+            self._enqueue_sb_task("cbm_processed_txs", method="POST", body=payload)
 
     def _save_account_to_local_sqlite(self, acc: Dict[str, Any]):
         """Caches an account record fetched from remote Supabase directly into local SQLite."""
@@ -1631,23 +1674,6 @@ class CBMDatabase:
 
     def _save_pin_hash(self, account_name: str, h: str, salt: str, mark_verified: bool = True):
         now = time.time()
-        if self.use_supabase:
-            patch_data = {"pin_hash": h, "salt": salt}
-            if mark_verified:
-                patch_data["is_verified"] = True
-            st, res = self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body=patch_data)
-            if st in (200, 204) and (not res or len(res) == 0):
-                insert_data = {
-                    "account_name": account_name,
-                    "display_name": account_name,
-                    "clan_tag": "ANTI-OG",
-                    "role": "member",
-                    "pin_hash": h,
-                    "salt": salt,
-                    "is_verified": mark_verified
-                }
-                self._sb_request("cbm_accounts", method="POST", body=insert_data, upsert=True)
-
         conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
@@ -1661,6 +1687,18 @@ class CBMDatabase:
         """, (account_name, account_name, h, salt, 1 if mark_verified else 0, now, now, 1 if mark_verified else 0))
         conn.commit()
         conn.close()
+
+        if self.use_supabase:
+            insert_data = {
+                "account_name": account_name,
+                "display_name": account_name,
+                "clan_tag": "ANTI-OG",
+                "role": "member",
+                "pin_hash": h,
+                "salt": salt,
+                "is_verified": mark_verified
+            }
+            self._enqueue_sb_task("cbm_accounts", method="POST", body=insert_data, upsert=True)
 
     def create_account_pin(self, account_name: str, pin: str) -> Tuple[bool, str]:
         """Creates a brand new CBM Access PIN for an account that does not currently have one."""
@@ -1772,13 +1810,13 @@ class CBMDatabase:
 
         # Auto-heal: persist is_verified = 1 in both Supabase and SQLite
         if verified:
-            if self.use_supabase:
-                self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{canonical_name}", body={"is_verified": True})
             conn = self.get_write_connection()
             cur = conn.cursor()
             cur.execute("UPDATE cbm_accounts SET is_verified = 1 WHERE account_name = ?", (canonical_name,))
             conn.commit()
             conn.close()
+            if self.use_supabase:
+                self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{canonical_name}", body={"is_verified": True})
 
         return verified
 
@@ -1898,7 +1936,7 @@ class CBMDatabase:
             if pin_hash:
                 acc_data["pin_hash"] = pin_hash
                 acc_data["salt"] = pin_salt
-            self._sb_request("cbm_accounts", method="POST", body=acc_data, upsert=True)
+            self._enqueue_sb_task("cbm_accounts", method="POST", body=acc_data, upsert=True)
 
         # Save to SQLite
         conn = self.get_write_connection()
@@ -1967,15 +2005,6 @@ class CBMDatabase:
         now = time.time()
         updates["updated_at"] = now
 
-        if self.use_supabase:
-            import urllib.parse
-            self._sb_request(
-                "cbm_accounts",
-                method="PATCH",
-                params=f"?account_name=eq.{urllib.parse.quote(canonical_name)}",
-                body=updates
-            )
-
         conn = self.get_write_connection()
         cur = conn.cursor()
         set_clauses = [f"{k} = ?" for k in updates.keys()]
@@ -1983,6 +2012,15 @@ class CBMDatabase:
         cur.execute(f"UPDATE cbm_accounts SET {', '.join(set_clauses)} WHERE account_name = ?", values)
         conn.commit()
         conn.close()
+
+        if self.use_supabase:
+            import urllib.parse
+            self._enqueue_sb_task(
+                "cbm_accounts",
+                method="PATCH",
+                params=f"?account_name=eq.{urllib.parse.quote(canonical_name)}",
+                body=updates
+            )
         return True
 
     def set_account_role(self, account_name: str, role: str) -> bool:
@@ -1995,6 +2033,15 @@ class CBMDatabase:
             return existing
 
         now = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR IGNORE INTO cbm_accounts (account_name, display_name, clan_tag, role, deposited_cents, total_deposited_cents, total_withdrawn_cents, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?)
+        """, (account_name, display_name or account_name, clan_tag, role, now, now))
+        conn.commit()
+        conn.close()
+
         if self.use_supabase:
             payload = {
                 "account_name": account_name,
@@ -2005,18 +2052,8 @@ class CBMDatabase:
                 "total_deposited_cents": 0,
                 "total_withdrawn_cents": 0
             }
-            status, res = self._sb_request("cbm_accounts", method="POST", body=payload)
-            if status in (200, 201) and isinstance(res, list) and res:
-                return res[0]
+            self._enqueue_sb_task("cbm_accounts", method="POST", body=payload, upsert=True)
 
-        conn = self.get_write_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT OR IGNORE INTO cbm_accounts (account_name, display_name, clan_tag, role, deposited_cents, total_deposited_cents, total_withdrawn_cents, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 0, 0, 0, ?, ?)
-        """, (account_name, display_name or account_name, clan_tag, role, now, now))
-        conn.commit()
-        conn.close()
         return self.get_account(account_name)
 
     def update_account_profile(self, account_name: str, display_name: str, avatar_url: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
@@ -2039,14 +2076,6 @@ class CBMDatabase:
         self.register_or_get_account(acc_key)
         now = time.time()
 
-        if self.use_supabase:
-            self._sb_request(
-                "cbm_accounts",
-                method="PATCH",
-                params=f"?account_name=eq.{acc_key}",
-                body={"display_name": new_name, "avatar_url": new_avatar}
-            )
-
         conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
@@ -2056,6 +2085,14 @@ class CBMDatabase:
         """, (new_name, new_avatar, now, acc_key))
         conn.commit()
         conn.close()
+
+        if self.use_supabase:
+            self._enqueue_sb_task(
+                "cbm_accounts",
+                method="PATCH",
+                params=f"?account_name=eq.{acc_key}",
+                body={"display_name": new_name, "avatar_url": new_avatar}
+            )
 
         updated = self.get_account(acc_key)
         return True, "Profile updated successfully.", updated
@@ -2102,6 +2139,7 @@ class CBMDatabase:
         # 2. Mirror to Supabase if active
         if self.use_supabase:
             payload = {
+                "id": loan_id,
                 "account_name": account_name,
                 "principal_gold": principal_gold,
                 "interest_rate_percent": 0.0,
@@ -2115,11 +2153,7 @@ class CBMDatabase:
                 "territorial_password": enc_pwd,
                 "credential_status": "VALID"
             }
-            status, res = self._sb_request("cbm_loans", method="POST", body=payload)
-            if status in (200, 201) and isinstance(res, list) and res:
-                sb_id = res[0].get("id")
-                if sb_id:
-                    loan_id = sb_id
+            self._enqueue_sb_task("cbm_loans", method="POST", body=payload, upsert=True)
 
         # Ensure payment method is linked for borrower
         if territorial_account:
@@ -2149,8 +2183,8 @@ class CBMDatabase:
 
         # 2. Mirror to Supabase
         if self.use_supabase:
-            self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body={"deposited_cents": new_balance})
-            self._sb_request("cbm_ledger", method="POST", body={
+            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body={"deposited_cents": new_balance})
+            self._enqueue_sb_task("cbm_ledger", method="POST", body={
                 "account_name": account_name,
                 "entry_type": "LOAN_DISBURSEMENT",
                 "amount_cents": principal_cents,
@@ -2269,7 +2303,7 @@ class CBMDatabase:
 
         # 2. Mirror to Supabase if active
         if self.use_supabase:
-            self._sb_request("cbm_loans", method="PATCH", params=f"?id=eq.{loan_id}", body=body)
+            self._enqueue_sb_task("cbm_loans", method="PATCH", params=f"?id=eq.{loan_id}", body=body)
 
     def repay_loan_from_balance(
         self,
@@ -2363,8 +2397,8 @@ class CBMDatabase:
 
         # 2. Mirror to Supabase if active
         if self.use_supabase:
-            self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{acc_key}", body={"deposited_cents": new_balance})
-            self._sb_request("cbm_ledger", method="POST", body={
+            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{acc_key}", body={"deposited_cents": new_balance})
+            self._enqueue_sb_task("cbm_ledger", method="POST", body={
                 "account_name": acc_key,
                 "entry_type": "LOAN_REPAYMENT",
                 "amount_cents": repay_amount,
@@ -2479,7 +2513,7 @@ class CBMDatabase:
 
                     # 2. Mirror to Supabase if active
                     if self.use_supabase:
-                        self._sb_request("cbm_ledger", method="POST", body={
+                        self._enqueue_sb_task("cbm_ledger", method="POST", body={
                             "account_name": acc_name,
                             "entry_type": "LOAN_PENALTY",
                             "amount_cents": penalty_cents,
@@ -2629,7 +2663,7 @@ class CBMDatabase:
 
             # 2. Mirror to Supabase if active
             if self.use_supabase:
-                self._sb_request("cbm_ledger", method="POST", body={
+                self._enqueue_sb_task("cbm_ledger", method="POST", body={
                     "account_name": acc_name,
                     "entry_type": "LOAN_REPAYMENT",
                     "amount_cents": seized_cents,
@@ -2660,7 +2694,7 @@ class CBMDatabase:
 
         # 2. Mirror to Supabase if active
         if self.use_supabase:
-            self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body={"role": role})
+            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body={"role": role})
 
     def reconcile_overdue_loans_and_enforce_garnishment(self, account_name: str, force: bool = False) -> Dict[str, Any]:
         """
@@ -2715,8 +2749,8 @@ class CBMDatabase:
 
                 # 2. Mirror to Supabase if active
                 if self.use_supabase:
-                    self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body={"deposited_cents": new_bal})
-                    self._sb_request("cbm_ledger", method="POST", body={
+                    self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body={"deposited_cents": new_bal})
+                    self._enqueue_sb_task("cbm_ledger", method="POST", body={
                         "account_name": account_name,
                         "entry_type": "LOAN_REPAYMENT",
                         "amount_cents": garnish_cents,
@@ -2812,7 +2846,7 @@ class CBMDatabase:
 
             # 2. Mirror to Supabase if active
             if self.use_supabase:
-                self._sb_request("cbm_ledger", method="POST", body={
+                self._enqueue_sb_task("cbm_ledger", method="POST", body={
                     "account_name": account_name,
                     "entry_type": "LOAN_REPAYMENT",
                     "amount_cents": garnish,
@@ -2906,13 +2940,13 @@ class CBMDatabase:
 
             # 2. Mirror to Supabase if active
             if self.use_supabase:
-                self._sb_request(
+                self._enqueue_sb_task(
                     "cbm_accounts",
                     method="PATCH",
                     params=f"?account_name=eq.{account_name}",
                     body={"deposited_cents": new_balance, "total_deposited_cents": total_dep}
                 )
-                self._sb_request(
+                self._enqueue_sb_task(
                     "cbm_ledger",
                     method="POST",
                     body={
@@ -2935,7 +2969,7 @@ class CBMDatabase:
 
             # 2. Mirror to Supabase if active
             if self.use_supabase:
-                self._sb_request(
+                self._enqueue_sb_task(
                     "cbm_accounts",
                     method="PATCH",
                     params=f"?account_name=eq.{account_name}",
@@ -3069,20 +3103,6 @@ class CBMDatabase:
         now = time.time()
         iso = now_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
 
-        if self.use_supabase:
-            patch_payload = {
-                "vault_total_gold_cents": metrics["vault_total_gold_cents"],
-                "member_liabilities_cents": metrics["member_liabilities_cents"],
-                "bank_reserves_cents": metrics["bank_reserves_cents"],
-                "last_sync_at": iso
-            }
-            patch_payload_full = dict(patch_payload)
-            patch_payload_full["unencumbered_capital_cents"] = metrics["unencumbered_capital_cents"]
-            patch_payload_full["loan_penalties_cents"] = metrics["loan_penalties_cents"]
-            status, _ = self._sb_request("cbm_treasury", method="PATCH", params="?id=eq.1", body=patch_payload_full)
-            if status != 200:
-                self._sb_request("cbm_treasury", method="PATCH", params="?id=eq.1", body=patch_payload)
-
         conn = self.get_write_connection(timeout=30.0)
         cur = conn.cursor()
         try:
@@ -3112,6 +3132,18 @@ class CBMDatabase:
             ))
         conn.commit()
         conn.close()
+
+        if self.use_supabase:
+            patch_payload = {
+                "vault_total_gold_cents": metrics["vault_total_gold_cents"],
+                "member_liabilities_cents": metrics["member_liabilities_cents"],
+                "bank_reserves_cents": metrics["bank_reserves_cents"],
+                "last_sync_at": iso
+            }
+            patch_payload_full = dict(patch_payload)
+            patch_payload_full["unencumbered_capital_cents"] = metrics["unencumbered_capital_cents"]
+            patch_payload_full["loan_penalties_cents"] = metrics["loan_penalties_cents"]
+            self._enqueue_sb_task("cbm_treasury", method="PATCH", params="?id=eq.1", body=patch_payload_full)
 
     def sync_vault_balance_from_live_api(self, vault_account: str, vault_password: str) -> Tuple[bool, int, Dict[str, Any]]:
         """
@@ -3261,8 +3293,8 @@ class CBMDatabase:
                 "is_primary": is_primary
             }
             if is_primary:
-                self._sb_request("cbm_payment_methods", method="PATCH", params=f"?cbm_username=eq.{cbm_user}", body={"is_primary": False})
-            self._sb_request("cbm_payment_methods", method="POST", body=payload)
+                self._enqueue_sb_task("cbm_payment_methods", method="PATCH", params=f"?cbm_username=eq.{cbm_user}", body={"is_primary": False})
+            self._enqueue_sb_task("cbm_payment_methods", method="POST", body=payload)
 
         methods = self.get_payment_methods(cbm_user)
         for m in methods:
@@ -3419,8 +3451,8 @@ class CBMDatabase:
 
         # 2. Dual-Write: Mirror to Supabase if active
         if self.use_supabase:
-            self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{acc_key}", body={"deposited_cents": new_balance_cents})
-            self._sb_request("cbm_ledger", method="POST", body={
+            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{acc_key}", body={"deposited_cents": new_balance_cents})
+            self._enqueue_sb_task("cbm_ledger", method="POST", body={
                 "account_name": acc_key,
                 "entry_type": "TREASURY_DONATION",
                 "amount_cents": -amount_cents,
@@ -3439,7 +3471,7 @@ class CBMDatabase:
                 "is_refundable": False,
                 "status": "IRREVOCABLE"
             }
-            self._sb_request("cbm_donations", method="POST", body=donation_payload)
+            self._enqueue_sb_task("cbm_donations", method="POST", body=donation_payload)
 
         # Recalculate unencumbered reserves (liabilities drop, reserves expand 1:1)
         self.recompute_treasury()
@@ -3525,8 +3557,8 @@ class CBMDatabase:
                 "is_refundable": False,
                 "status": "IRREVOCABLE"
             }
-            self._sb_request("cbm_donations", method="POST", body=donation_payload)
-            self._sb_request("cbm_ledger", method="POST", body={
+            self._enqueue_sb_task("cbm_donations", method="POST", body=donation_payload)
+            self._enqueue_sb_task("cbm_ledger", method="POST", body={
                 "account_name": "TREASURY",
                 "entry_type": "DIRECT_RESERVE_INJECTION",
                 "amount_cents": amount_cents,
@@ -3724,6 +3756,15 @@ class CBMDatabase:
         canonical_acc = self._get_account_raw(raw_acc)
         canonical_name = canonical_acc.get("account_name") if canonical_acc else raw_acc
 
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO cbm_pending_donations (id, account_name, amount_cents, amount_gold, message, status, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)
+        """, (slip_id, canonical_name, amount_cents, round(amount_gold, 2), clean_msg, now, expires_at))
+        conn.commit()
+        conn.close()
+
         if self.use_supabase:
             payload = {
                 "id": slip_id,
@@ -3734,16 +3775,7 @@ class CBMDatabase:
                 "status": "PENDING",
                 "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at))
             }
-            self._sb_request("cbm_pending_donations", method="POST", body=payload)
-
-        conn = self.get_write_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO cbm_pending_donations (id, account_name, amount_cents, amount_gold, message, status, created_at, expires_at)
-            VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)
-        """, (slip_id, canonical_name, amount_cents, round(amount_gold, 2), clean_msg, now, expires_at))
-        conn.commit()
-        conn.close()
+            self._enqueue_sb_task("cbm_pending_donations", method="POST", body=payload)
 
         return {
             "id": slip_id,
@@ -3898,7 +3930,7 @@ class CBMDatabase:
             slip["variance_cents"] = variance_cents
 
             if self.use_supabase:
-                self._sb_request(
+                self._enqueue_sb_task(
                     "cbm_pending_donations",
                     method="PATCH",
                     params=f"?id=eq.{slip_id}",
@@ -3953,19 +3985,6 @@ class CBMDatabase:
         self._last_snapshot_at = now
         net_flow = inflow_gold - outflow_gold
 
-        if self.use_supabase:
-            payload = {
-                "timestamp_epoch": now,
-                "vault_total_gold": vault_total_gold,
-                "unencumbered_reserves_gold": unencumbered_reserves_gold,
-                "member_liabilities_gold": member_liabilities_gold,
-                "inflow_period_gold": inflow_gold,
-                "outflow_period_gold": outflow_gold,
-                "net_flow_gold": net_flow,
-                "tx_count_period": tx_count
-            }
-            self._sb_request("cbm_vault_snapshots", method="POST", body=payload)
-
         conn = self._get_sqlite_conn()
         cur = conn.cursor()
         cur.execute("""
@@ -3981,6 +4000,20 @@ class CBMDatabase:
             net_flow, tx_count, time.time()
         ))
         conn.commit()
+
+        if self.use_supabase:
+            payload = {
+                "timestamp_epoch": now,
+                "vault_total_gold": vault_total_gold,
+                "unencumbered_reserves_gold": unencumbered_reserves_gold,
+                "member_liabilities_gold": member_liabilities_gold,
+                "inflow_period_gold": inflow_gold,
+                "outflow_period_gold": outflow_gold,
+                "net_flow_gold": net_flow,
+                "tx_count_period": tx_count
+            }
+            self._enqueue_sb_task("cbm_vault_snapshots", method="POST", body=payload)
+
         return {"status": "ok", "snapshot_at": now}
 
     def get_vault_timeline(self, days: int = 7, bucket_hours: Optional[int] = None) -> Dict[str, Any]:
@@ -4330,22 +4363,19 @@ class CBMDatabase:
         }
 
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_api_keys", method="POST", body={
-                    "key_id": key_id,
-                    "key_hash": key_hash,
-                    "key_prefix": key_prefix,
-                    "app_name": clean_app,
-                    "owner_account": owner_account,
-                    "environment": env,
-                    "scopes": clean_scopes,
-                    "rate_limit_rpm": rpm,
-                    "total_requests": 0,
-                    "credits_consumed_gold": 0.0,
-                    "is_active": True
-                })
-            except Exception as ex:
-                print(f"[!] Supabase key sync notice: {ex}")
+            self._enqueue_sb_task("cbm_api_keys", method="POST", body={
+                "key_id": key_id,
+                "key_hash": key_hash,
+                "key_prefix": key_prefix,
+                "app_name": clean_app,
+                "owner_account": owner_account,
+                "environment": env,
+                "scopes": clean_scopes,
+                "rate_limit_rpm": rpm,
+                "total_requests": 0,
+                "credits_consumed_gold": 0.0,
+                "is_active": True
+            })
 
         return True, secret_token, key_record
 
@@ -4422,15 +4452,12 @@ class CBMDatabase:
 
         if affected > 0:
             if self.use_supabase:
-                try:
-                    self._sb_request(
-                        "cbm_api_keys",
-                        method="PATCH",
-                        params=f"?key_id=eq.{key_id}&owner_account=eq.{owner_account}",
-                        body={"is_active": False}
-                    )
-                except Exception as ex:
-                    print(f"[!] Supabase key revoke notice: {ex}")
+                self._enqueue_sb_task(
+                    "cbm_api_keys",
+                    method="PATCH",
+                    params=f"?key_id=eq.{key_id}&owner_account=eq.{owner_account}",
+                    body={"is_active": False}
+                )
             return True, f"API Key '{key_id}' successfully revoked."
         return False, f"API Key '{key_id}' not found or not owned by '{owner_account}'."
 
@@ -4488,27 +4515,24 @@ class CBMDatabase:
         conn.close()
 
         if self.use_supabase:
-            try:
-                self._sb_request(
-                    "cbm_accounts",
-                    method="PATCH",
-                    params=f"?account_name=eq.{owner_account}",
-                    body={"deposited_cents": new_balance}
-                )
-                self._sb_request(
-                    "cbm_ledger",
-                    method="POST",
-                    body={
-                        "account_name": owner_account,
-                        "entry_type": "API_CONSUMPTION",
-                        "amount_cents": -cost_cents,
-                        "balance_after_cents": new_balance,
-                        "tx_hash": tx_hash,
-                        "notes": ledger_note
-                    }
-                )
-            except Exception as ex:
-                print(f"[!] Supabase credit sync notice: {ex}")
+            self._enqueue_sb_task(
+                "cbm_accounts",
+                method="PATCH",
+                params=f"?account_name=eq.{owner_account}",
+                body={"deposited_cents": new_balance}
+            )
+            self._enqueue_sb_task(
+                "cbm_ledger",
+                method="POST",
+                body={
+                    "account_name": owner_account,
+                    "entry_type": "API_CONSUMPTION",
+                    "amount_cents": -cost_cents,
+                    "balance_after_cents": new_balance,
+                    "tx_hash": tx_hash,
+                    "notes": ledger_note
+                }
+            )
 
         # Recalculate central bank solvency:
         # Since member_liabilities_cents decreased by 100 cents, bank_reserves_cents increases by 100 cents!
@@ -4836,20 +4860,17 @@ class CBMDatabase:
             conn.close()
 
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_admin_votes", method="POST", body={
-                    "claim_id": claim_id,
-                    "cbm_username": cbm_username,
-                    "voter_account": voter_account.strip(),
-                    "target_account": target_vault,
-                    "votes_count": votes_count,
-                    "gold_spent": calculated_gold_spent,
-                    "reward_gold": reward_gold,
-                    "reward_cents": reward_cents,
-                    "status": "PENDING"
-                })
-            except Exception as ex:
-                print(f"[!] Supabase admin vote claim sync notice: {ex}")
+            self._enqueue_sb_task("cbm_admin_votes", method="POST", body={
+                "claim_id": claim_id,
+                "cbm_username": cbm_username,
+                "voter_account": voter_account.strip(),
+                "target_account": target_vault,
+                "votes_count": votes_count,
+                "gold_spent": calculated_gold_spent,
+                "reward_gold": reward_gold,
+                "reward_cents": reward_cents,
+                "status": "PENDING"
+            })
 
         if auto_settle:
             return self.settle_admin_vote_claim(claim_id)
@@ -4913,13 +4934,10 @@ class CBMDatabase:
                 """, (reason, now, claim_id))
                 conn.commit()
                 if self.use_supabase:
-                    try:
-                        self._sb_request("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
-                            "status": "REJECTED",
-                            "rejection_reason": reason
-                        })
-                    except Exception:
-                        pass
+                    self._enqueue_sb_task("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
+                        "status": "REJECTED",
+                        "rejection_reason": reason
+                    })
                 return True, f"Claim '{claim_id}' rejected: {reason}", {"claim_id": claim_id, "status": "REJECTED"}
 
             # Double check account exists
@@ -4955,22 +4973,19 @@ class CBMDatabase:
 
         # Dual-Write to Supabase
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{cbm_username}", body={"deposited_cents": new_balance_cents})
-                self._sb_request("cbm_ledger", method="POST", body={
-                    "account_name": cbm_username,
-                    "entry_type": "ADMIN_VOTE_REWARD",
-                    "amount_cents": reward_cents,
-                    "balance_after_cents": new_balance_cents,
-                    "tx_hash": tx_hash,
-                    "notes": notes
-                })
-                self._sb_request("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
-                    "status": "REWARDED",
-                    "quarantine_until": quarantine_until
-                })
-            except Exception as ex:
-                print(f"[!] Supabase admin vote reward sync notice: {ex}")
+            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{cbm_username}", body={"deposited_cents": new_balance_cents})
+            self._enqueue_sb_task("cbm_ledger", method="POST", body={
+                "account_name": cbm_username,
+                "entry_type": "ADMIN_VOTE_REWARD",
+                "amount_cents": reward_cents,
+                "balance_after_cents": new_balance_cents,
+                "tx_hash": tx_hash,
+                "notes": notes
+            })
+            self._enqueue_sb_task("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
+                "status": "REWARDED",
+                "quarantine_until": quarantine_until
+            })
 
         # Recalculate central bank solvency (liabilities grew by reward_cents, reserves funded it)
         self.recompute_treasury()
@@ -5154,10 +5169,7 @@ class CBMDatabase:
         }
 
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_products", method="POST", body=prod_record)
-            except Exception as ex:
-                print(f"[!] Supabase product sync notice: {ex}")
+            self._enqueue_sb_task("cbm_products", method="POST", body=prod_record)
 
         return True, prod_record
 
@@ -5298,10 +5310,7 @@ class CBMDatabase:
 
         updated = self.get_product(product_id) or {}
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_products", method="PATCH", params=f"?product_id=eq.{product_id}", body=updated)
-            except Exception:
-                pass
+            self._enqueue_sb_task("cbm_products", method="PATCH", params=f"?product_id=eq.{product_id}", body=updated)
 
         return True, updated
 
@@ -5325,10 +5334,7 @@ class CBMDatabase:
             conn.close()
 
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_products", method="PATCH", params=f"?product_id=eq.{product_id}", body={"status": "ARCHIVED"})
-            except Exception:
-                pass
+            self._enqueue_sb_task("cbm_products", method="PATCH", params=f"?product_id=eq.{product_id}", body={"status": "ARCHIVED"})
 
         return True, "Product archived."
 
@@ -5421,23 +5427,20 @@ class CBMDatabase:
         }
 
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_product_orders", method="POST", body={
-                    "order_id": order_id,
-                    "product_id": product_id,
-                    "buyer_cbm_username": clean_buyer_cbm,
-                    "buyer_territorial_account": clean_buyer_terri,
-                    "price_gold": price_gold,
-                    "price_cents": price_cents,
-                    "owner_share_cents": owner_share_cents,
-                    "cushion_share_cents": cushion_share_cents,
-                    "payment_method": payment_method,
-                    "verification_token": verification_token,
-                    "status": "PENDING",
-                    "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at))
-                })
-            except Exception as ex:
-                print(f"[!] Supabase product order sync notice: {ex}")
+            self._enqueue_sb_task("cbm_product_orders", method="POST", body={
+                "order_id": order_id,
+                "product_id": product_id,
+                "buyer_cbm_username": clean_buyer_cbm,
+                "buyer_territorial_account": clean_buyer_terri,
+                "price_gold": price_gold,
+                "price_cents": price_cents,
+                "owner_share_cents": owner_share_cents,
+                "cushion_share_cents": cushion_share_cents,
+                "payment_method": payment_method,
+                "verification_token": verification_token,
+                "status": "PENDING",
+                "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at))
+            })
 
         return order_record
 
@@ -5573,23 +5576,20 @@ class CBMDatabase:
 
         # Dual-write to Supabase
         if self.use_supabase:
-            try:
-                self._sb_request("cbm_product_orders", method="PATCH", params=f"?order_id=eq.{order_id}", body={
-                    "status": "FULFILLED",
-                    "tx_hash": tx_hash,
-                    "fulfilled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-                })
-                self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{owner_account}", body={"deposited_cents": new_bal})
-                self._sb_request("cbm_ledger", method="POST", body={
-                    "account_name": owner_account,
-                    "entry_type": "PRODUCT_SALE_REVENUE",
-                    "amount_cents": owner_share_cents,
-                    "balance_after_cents": new_bal,
-                    "tx_hash": tx_hash,
-                    "notes": notes
-                })
-            except Exception as ex:
-                print(f"[!] Supabase order fulfillment sync notice: {ex}")
+            self._enqueue_sb_task("cbm_product_orders", method="PATCH", params=f"?order_id=eq.{order_id}", body={
+                "status": "FULFILLED",
+                "tx_hash": tx_hash,
+                "fulfilled_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+            })
+            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{owner_account}", body={"deposited_cents": new_bal})
+            self._enqueue_sb_task("cbm_ledger", method="POST", body={
+                "account_name": owner_account,
+                "entry_type": "PRODUCT_SALE_REVENUE",
+                "amount_cents": owner_share_cents,
+                "balance_after_cents": new_bal,
+                "tx_hash": tx_hash,
+                "notes": notes
+            })
 
         # Recalculate treasury: since 100% came into vault and only 50% was given to owner,
         # vault_excess and reserve_cushion_gold automatically increase by the remaining 50%!

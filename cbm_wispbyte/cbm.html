@@ -2591,10 +2591,17 @@
       loadUserLoansTab();
     }
 
+    let lastStatusEtag = null;
+
     async function loadStatus() {
       try {
-        const res = await fetch('/api/cbm/status');
+        const headers = {};
+        if (lastStatusEtag) headers['If-None-Match'] = lastStatusEtag;
+        const res = await fetch('/api/cbm/status', { headers });
+        if (res.status === 304) return;
         if (!res.ok) return;
+        const etag = res.headers.get('ETag');
+        if (etag) lastStatusEtag = etag;
         const data = await res.json();
 
         if (data.treasury) {
@@ -3245,10 +3252,17 @@
       }
     }
 
+    let lastDonorsEtag = null;
+
     async function loadDonors() {
       try {
-        const res = await fetch('/api/cbm/donors?limit=10');
+        const headers = {};
+        if (lastDonorsEtag) headers['If-None-Match'] = lastDonorsEtag;
+        const res = await fetch('/api/cbm/donors?limit=10', { headers });
+        if (res.status === 304) return;
         if (!res.ok) return;
+        const etag = res.headers.get('ETag');
+        if (etag) lastDonorsEtag = etag;
         const data = await res.json();
 
         // 1. Total War Chest Metric
@@ -3320,13 +3334,52 @@
       }
     }
 
-    // Auto-restore previous active user if available & intelligent background tab throttling
+    // Auto-restore previous active user if available & intelligent background tab throttling with adaptive inactivity backoff
     let statusTimer = null;
     let donorsTimer = null;
+    let lastUserInteraction = Date.now();
+    let currentPollingTier = 'ACTIVE';
+
+    function recordUserActivity() {
+      const now = Date.now();
+      const wasDormant = (now - lastUserInteraction) > 120000;
+      lastUserInteraction = now;
+      if (wasDormant && !document.hidden && currentPollingTier !== 'ACTIVE') {
+        currentPollingTier = 'ACTIVE';
+        startBackgroundPolling();
+        loadStatus();
+      }
+    }
+
+    ['mousemove', 'keydown', 'touchstart', 'scroll', 'click'].forEach(evt => {
+      window.addEventListener(evt, recordUserActivity, { passive: true });
+    });
+
+    function getPollingIntervals() {
+      const idleSec = (Date.now() - lastUserInteraction) / 1000;
+      if (idleSec > 300) {
+        currentPollingTier = 'DORMANT';
+        return { statusMs: 60000, donorsMs: 120000 };
+      } else if (idleSec > 120) {
+        currentPollingTier = 'IDLE';
+        return { statusMs: 30000, donorsMs: 60000 };
+      }
+      currentPollingTier = 'ACTIVE';
+      return { statusMs: 15000, donorsMs: 30000 };
+    }
 
     function startBackgroundPolling() {
-      if (!statusTimer) statusTimer = setInterval(loadStatus, 30000);
-      if (!donorsTimer) donorsTimer = setInterval(loadDonors, 60000);
+      stopBackgroundPolling();
+      if (document.hidden) return;
+      const { statusMs, donorsMs } = getPollingIntervals();
+      statusTimer = setInterval(() => {
+        loadStatus();
+        const next = getPollingIntervals();
+        if (next.statusMs !== statusMs) {
+          startBackgroundPolling();
+        }
+      }, statusMs);
+      donorsTimer = setInterval(loadDonors, donorsMs);
     }
 
     function stopBackgroundPolling() {
@@ -3339,7 +3392,10 @@
       if (document.hidden) {
         stopBackgroundPolling();
       } else {
+        lastUserInteraction = Date.now();
+        currentPollingTier = 'ACTIVE';
         loadStatus();
+        loadDonors();
         startBackgroundPolling();
       }
     });

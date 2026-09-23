@@ -25,6 +25,7 @@ import hashlib
 import socket
 import sqlite3
 import urllib.parse
+import gc
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, Dict, Tuple, Any, List
@@ -291,7 +292,14 @@ def refresh_vault_analytics_cache(days: int = 7):
 
 class CBMHealthHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    timeout = 30.0
+    timeout = 3.0  # Fast 3s socket recycling prevents keepalive worker thread starvation
+    MAX_KEEPALIVE_REQUESTS = 50
+
+    def handle_one_request(self):
+        self._req_count = getattr(self, "_req_count", 0) + 1
+        if self._req_count >= self.MAX_KEEPALIVE_REQUESTS:
+            self.close_connection = True
+        return super().handle_one_request()
 
     def _apply_security_headers(self, allow_framing: bool = False):
         """Applies OWASP-recommended HTTP security headers to protect against common attacks."""
@@ -310,6 +318,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             "font-src 'self' https://fonts.gstatic.com; "
             f"frame-ancestors {frame_ancestor};"
         )
+        if getattr(self, "close_connection", False):
+            self.send_header("Connection", "close")
+        else:
+            req_left = max(1, self.MAX_KEEPALIVE_REQUESTS - getattr(self, "_req_count", 0))
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Keep-Alive", f"timeout=3, max={req_left}")
 
     def _send_cached_asset(self, asset_key: str, download_filename: Optional[str] = None, allow_framing: bool = False):
         asset = _STATIC_CACHE.get(asset_key)
@@ -322,7 +336,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             try:
                 self.send_response(304)
                 self.send_header("ETag", asset["etag"])
-                self.send_header("Cache-Control", "public, max-age=300")
+                self.send_header("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=60")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self._apply_security_headers(allow_framing=allow_framing)
                 self.end_headers()
@@ -339,7 +353,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if download_filename:
                 self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
             self.send_header("ETag", asset["etag"])
-            self.send_header("Cache-Control", "public, max-age=300")
+            self.send_header("Cache-Control", "public, max-age=300, s-maxage=3600, stale-while-revalidate=60")
             self.send_header("Access-Control-Allow-Origin", "*")
             self._apply_security_headers(allow_framing=allow_framing)
 
@@ -363,7 +377,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             try:
                 self.send_response(304)
                 self.send_header("ETag", etag)
-                self.send_header("Cache-Control", "public, max-age=10")
+                self.send_header("Cache-Control", "public, max-age=10, s-maxage=10, stale-while-revalidate=5")
                 self.send_header("Access-Control-Allow-Origin", "*")
                 self._apply_security_headers()
                 self.end_headers()
@@ -378,7 +392,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             self.send_response(status_code)
             self.send_header("Content-Type", "application/json")
             self.send_header("ETag", etag)
-            self.send_header("Cache-Control", "public, max-age=10")
+            self.send_header("Cache-Control", "public, max-age=10, s-maxage=10, stale-while-revalidate=5")
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-Simulate-Lending")
@@ -2728,7 +2742,7 @@ _SERVER_INSTANCE = None
 
 def run_http_server():
     global _SERVER_INSTANCE
-    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 60))
+    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 24))
     server = CBMThreadPoolServer(("0.0.0.0", PORT), CBMHealthHandler, max_workers=max_workers)
     _SERVER_INSTANCE = server
     print(f"[+] CBM Bounded ThreadPool Server ({max_workers} workers, backlog 256) active on 0.0.0.0:{PORT}")
@@ -2748,6 +2762,7 @@ def main():
 
     # 0. Pre-load static assets sequentially in main thread (eliminates startup thread thrashing)
     load_static_cache()
+    gc.collect()
 
     # 1. Start HTTP health server in background thread
     http_thread = threading.Thread(target=run_http_server, daemon=True)

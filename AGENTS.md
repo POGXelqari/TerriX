@@ -5,9 +5,9 @@
 ### Core Rules
 1. **Authoritative Master Runtime**:
    - All Clan Bank Manager (CBM) components (APIs, daemons, HTML portals, stylesheets, database logic) belong exclusively in `cbm_wispbyte/`.
-2. **Deprecated Directory (`web/`)**:
-   - `web/` is deprecated and decommissioned.
-   - Do NOT edit `web/` or mirror pages into `web/pages/`.
+2. **Deprecated Directories (`web/`, `client_src/`)**:
+   - `web/` is deprecated and decommissioned. Do NOT edit `web/` or mirror pages into `web/pages/`.
+   - `client_src/` is deprecated and decommissioned. All client mods, cosmetic patterns, and UI extensions belong exclusively in `src/` (built into `build/fx.bundle.js` and synced to `client/`).
 3. **High Concurrency & Low CPU Standards**:
    - Thread-local SQLite pooling with WAL mode.
    - In-memory pre-gzipped byte buffers for high-frequency endpoints.

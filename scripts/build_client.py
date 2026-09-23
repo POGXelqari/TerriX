@@ -130,188 +130,34 @@ def fetch_and_deobfuscate(html_content: str, content_hash: str):
     return True
 
 def compile_mods() -> list[str]:
-    """Compiles all .js files in client_src/mods/ into client/game.mods.js."""
-    log("Compiling client extensions and mods...")
-    mod_files = sorted([f for f in os.listdir(MODS_SRC_DIR) if f.endswith(".js")])
-    if not mod_files:
-        log("No custom mods found in client_src/mods/.")
-        out_mods_js = os.path.join(CLIENT_DIR, "game.mods.js")
-        with open(out_mods_js, "w", encoding="utf-8") as f:
-            f.write("/* TerriX Client: No custom mods active */\n")
-        return []
-
-    bundle = [
-        "/**",
-        " * TerriX Client Extension Bundle",
-        f" * Compiled: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}",
-        f" * Active Mods: {', '.join(mod_files)}",
-        " */",
-        ";(function(window, document) {",
-        "  'use strict';",
-        "  console.log('[TerriX] Initializing client extensions...');"
-    ]
-
-    for mf in mod_files:
-        fp = os.path.join(MODS_SRC_DIR, mf)
-        log(f"  + Bundling mod: {mf} ({os.path.getsize(fp):,} bytes)")
-        with open(fp, "r", encoding="utf-8") as f:
-            content = f.read()
-        bundle.append(f"\n  /* --- Mod: {mf} --- */")
-        bundle.append(content)
-
-    bundle.append("\n})(window, document);")
-    full_mods_content = "\n".join(bundle)
-
+    """Deprecated: logs deprecation notice and stubs game.mods.js."""
+    log("[!] Notice: client_src/ is DEPRECATED and decommissioned.")
+    log("[!] All TerriX client mods are compiled from src/ into client/fx.bundle.js.")
     out_mods_js = os.path.join(CLIENT_DIR, "game.mods.js")
     with open(out_mods_js, "w", encoding="utf-8") as f:
-        f.write(full_mods_content)
-    log(f"Saved compiled mods bundle: {out_mods_js} ({len(full_mods_content):,} bytes)")
-    return mod_files
+        f.write("/* DEPRECATED: client_src/ is obsolete. TerriX mods are compiled into fx.bundle.js from src/ */\n")
+    return []
 
-def assemble_client(active_mods: list[str]):
-    """Packages game.js, styles.css, assets, and index.html into client/."""
-    log("Assembling client distribution bundle in client/...")
-    
-    # 1. Sync game.js from territorial_deobfuscated_latest.js with TerriX Engine hooks
-    src_game_js = os.path.join(ROOT_DIR, "territorial_deobfuscated_latest.js")
-    dst_game_js = os.path.join(CLIENT_DIR, "game.js")
-    with open(src_game_js, "r", encoding="utf-8") as f:
-        game_code = f.read()
+def assemble_client(active_mods: list[str] = None):
+    """Executes the authoritative Webpack / build.js pipeline and syncs to client/."""
+    log("Building authoritative client distribution bundle from src/...")
+    res = subprocess.run(["node", "build.js"], cwd=ROOT_DIR, capture_output=True, text=True)
+    if res.returncode != 0:
+        log(f"[-] Node build.js failed:\n{res.stderr}\n{res.stdout}")
+        sys.exit(1)
+    log("[+] Node build.js succeeded. Synced to client/.")
 
-    # Inject render frame hook after a0O draw
-    render_target = "ws.drawImage(a0O,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());"
-    render_hook = "ws.drawImage(a0O,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());if(window.__TERRIX_HOOK_RENDER__)window.__TERRIX_HOOK_RENDER__(ws,a0O,im,hoverHandler.canvasStrokeWidth(),hoverHandler.a0M());"
-    if render_target in game_code:
-        game_code = game_code.replace(render_target, render_hook, 1)
-
-    bridge_code = """
-window.__TERRIX_ENGINE__ = {
-  get localPlayer() { return typeof localPlayer !== 'undefined' ? localPlayer : null; },
-  get playerData() { return typeof playerData !== 'undefined' ? playerData : null; },
-  get tileMap() { return typeof tileMap !== 'undefined' ? tileMap : null; },
-  get dialogManager() { return typeof dialogManager !== 'undefined' ? dialogManager : null; },
-  get ws() { return typeof ws !== 'undefined' ? ws : null; },
-  get a0O() { return typeof a0O !== 'undefined' ? a0O : null; },
-  get aEE() { return typeof aEE !== 'undefined' ? aEE : null; },
-  get gameClock() { return typeof gameClock !== 'undefined' ? gameClock : null; },
-  get clanPanel() { return typeof clanPanel !== 'undefined' ? clanPanel : null; },
-  get hoverHandler() { return typeof hoverHandler !== 'undefined' ? hoverHandler : null; },
-  get camera() { return typeof camera !== 'undefined' ? camera : null; },
-  get im() { return typeof im !== 'undefined' ? im : 1; },
-  getAccountGold: function() {
-    if (typeof account !== 'undefined' && account.z && account.z.aPy && account.z.aPy.isTileWrap !== undefined && account.z.aPy.isTileWrap !== null && account.z.aPy.isTileWrap !== 0) {
-      return account.z.aPy.isTileWrap;
-    }
-    if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[113] && connectionMgr.buffer.data[113].value !== undefined) {
-      return connectionMgr.buffer.data[113].value;
-    }
-    return 0;
-  },
-  getAccountUsername: function() {
-    if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105]) {
-      return connectionMgr.buffer.data[105].value || '';
-    }
-    return '';
-  },
-  onRenderFrameCallbacks: [],
-  onRenderFrame: function(cb) { this.onRenderFrameCallbacks.push(cb); }
-};
-window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
-  if (window.__TERRIX_ENGINE__ && window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length > 0) {
-    for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) {
-      try {
-        window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i]({
-          ws: ws, a0O: a0O, im: im, offsetX: ox, offsetY: oy,
-          localPlayer: localPlayer, playerData: playerData, tileMap: tileMap,
-          dialogManager: dialogManager, gameClock: gameClock, clanPanel: clanPanel
-        });
-      } catch(e) { console.error("[TerriX Engine Hook Error]", e); }
-    }
-  }
-};
-"""
-    if "})();" in game_code:
-        idx = game_code.rfind("})();")
-        game_code = game_code[:idx] + bridge_code + game_code[idx:]
-
-    with open(dst_game_js, "w", encoding="utf-8") as f:
-        f.write(game_code)
-    
-    # 2. Sync styles.css
-    src_css = os.path.join(ROOT_DIR, "styles.css")
-    dst_css = os.path.join(CLIENT_DIR, "styles.css")
-    shutil.copyfile(src_css, dst_css)
-    
-    # 3. Sync assets (recursive)
-    src_assets = os.path.join(ROOT_DIR, "assets")
-    dst_assets = os.path.join(CLIENT_DIR, "assets")
-    for root, dirs, files in os.walk(src_assets):
-        rel_dir = os.path.relpath(root, src_assets)
-        target_dir = os.path.join(dst_assets, rel_dir) if rel_dir != "." else dst_assets
-        os.makedirs(target_dir, exist_ok=True)
-        for f_name in files:
-            shutil.copyfile(os.path.join(root, f_name), os.path.join(target_dir, f_name))
-
-    # 4. Generate client/index.html with mod script injection
-    mod_script_tag = '  <script src="game.mods.js"></script>\n' if active_mods else ''
-    index_html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Territorial.io — TerriX Client</title>
-  <meta name="description" content="Territorial.io - The Art of Conquest (TerriX Client Edition)">
-  <meta name="keywords" content="territorial.io, territorial, territorial game, conquest game, conquer game, territory game, terrix">
-  <meta name="author" content="David Tschacher & TerriX Red Team">
-  <meta name="viewport" content="width=device-width, maximum-scale=1">
-  <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="styles.css">
-  <style>
-    html,
-    body {{
-      overflow: hidden;
-      padding: 0;
-      margin: 0;
-      background: #000000;
-      color: #ffffff;
-      width: 100%;
-      height: 100%;
-    }}
-    * {{
-      box-sizing: border-box;
-    }}
-    a {{
-      color: rgb(225, 225, 255);
-    }}
-    #canvasA {{
-      display: block;
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-    }}
-  </style>
-</head>
-<body>
-  <canvas id="canvasA" width="128" height="128"></canvas>
-  <script src="game.js"></script>
-{mod_script_tag}</body>
-</html>
-"""
-    with open(os.path.join(CLIENT_DIR, "index.html"), "w", encoding="utf-8") as f:
-        f.write(index_html)
-    log("Generated client/index.html with active extension hooks.")
-
-    # 5. Update version metadata
+    # Update version metadata
     v_data = load_client_version()
     v_data["last_build_time"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    v_data["active_mods"] = active_mods
+    v_data["authoritative_source"] = "src/"
+    v_data["active_bundle"] = "fx.bundle.js"
     save_client_version(v_data)
 
 def validate_syntax() -> bool:
     """Validates syntax of generated JavaScript files using node -c."""
     log("Running syntax validation checks...")
-    for js_file in ["game.js", "game.mods.js"]:
+    for js_file in ["game.js", "fx.bundle.js"]:
         p = os.path.join(CLIENT_DIR, js_file)
         if not os.path.exists(p):
             continue
@@ -334,17 +180,21 @@ def build(check_only=False, force_upstream=False):
         has_update, html, hsh = check_upstream()
         if html:
             fetch_and_deobfuscate(html, hsh)
+            log("Running node index.js to refresh and patch upstream...")
+            subprocess.run(["node", "index.js"], cwd=ROOT_DIR, check=True)
             updated_upstream = True
     elif check_only:
         has_update, html, hsh = check_upstream()
         if has_update:
             fetch_and_deobfuscate(html, hsh)
+            log("Running node index.js to refresh and patch upstream...")
+            subprocess.run(["node", "index.js"], cwd=ROOT_DIR, check=True)
             updated_upstream = True
         else:
             log("No upstream update needed.")
             
-    active_mods = compile_mods()
-    assemble_client(active_mods)
+    compile_mods()
+    assemble_client()
     
     if not validate_syntax():
         log("[-] Build finished with syntax errors!")
@@ -356,7 +206,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TerriX Client Automated Builder & Upstream Tracker")
     parser.add_argument("--check-upstream", action="store_true", help="Check upstream for updates and rebuild if changed")
     parser.add_argument("--force-upstream", action="store_true", help="Force re-fetch and re-deobfuscate from upstream")
-    parser.add_argument("--apply-mods", action="store_true", help="Compile and bundle mods from client_src/mods/")
+    parser.add_argument("--apply-mods", action="store_true", help="Compile and bundle mods from authoritative src/")
     args = parser.parse_args()
 
     build(check_only=args.check_upstream, force_upstream=args.force_upstream)

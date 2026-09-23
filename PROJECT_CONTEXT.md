@@ -40,6 +40,21 @@ All active Clan Bank Manager (CBM) development, APIs, background daemons, and we
   - **NEVER** propose Vercel deployment commands for CBM.
   - All new pages, styling changes, and API fixes belong directly in `cbm_wispbyte/`.
 
+### ✅ AUTHORITATIVE CLIENT MOD ARCHITECTURE: `src/` (Single Source of Truth)
+All active TerriX Territorial.io web client modifications, HUD overlays, match telemetry engines, and cosmetics reside **exclusively** in:
+`g:\TerriX\src\`
+- **Build System**: Webpack compiles `src/main.js` into `build/fx.bundle.js` and synchronizes to `client/fx.bundle.js` for GitHub Pages deployment.
+- **Cosmetics & Patterns**: [`src/terrixCosmetics.js`](file:///g:/TerriX/src/terrixCosmetics.js) manages all territory patterns (Hello Kitty, Poland Flag, etc.), shop dialogs, offscreen mipmapped textures, and CBM API verification.
+- **Build Commands**: `npm run build` or `node build.js`.
+
+### ❌ DEPRECATED & ARCHIVED: `client_src/` (Legacy Mod Concatenation)
+- **Status**: **DECOMMISSIONED / OBSOLETE** (See [`client_src/DEPRECATED.md`](file:///g:/TerriX/client_src/DEPRECATED.md)).
+- Monolithic alphabetical concatenation from `client_src/mods/` into `client/game.mods.js` is obsolete.
+- **MANDATORY RULE**:
+  - **NEVER** add, modify, or maintain scripts in `client_src/mods/`.
+  - **NEVER** concatenate or generate `client/game.mods.js`.
+  - All client modifications must be authored in `src/` and bundled via Webpack.
+
 ---
 
 ## 2. Production Environment & Hosting

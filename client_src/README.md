@@ -1,6 +1,9 @@
 # TerriX Client Architecture & Modding Guide
 
-This directory (`client_src/`) contains source assets, custom extensions, and modifications for the TerriX Territorial.io Web Client.
+> [!WARNING]
+> **`client_src/` IS DEPRECATED AND DECOMMISSIONED.**  
+> Please see [`client_src/DEPRECATED.md`](file:///g:/TerriX/client_src/DEPRECATED.md) and [`PROJECT_CONTEXT.md`](file:///g:/TerriX/PROJECT_CONTEXT.md).  
+> All client modifications and extensions must be authored exclusively in [`src/`](file:///g:/TerriX/src/) and compiled via Webpack (`npm run build` or `node build.js`).
 
 ---
 

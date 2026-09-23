@@ -760,7 +760,10 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             acc = db.get_account(acc_name)
             canonical_name = acc.get("account_name") if acc else acc_name
 
-            db.reconcile_overdue_loans_and_enforce_garnishment(canonical_name)
+            try:
+                db.reconcile_overdue_loans_and_enforce_garnishment(canonical_name)
+            except Exception as ex:
+                print(f"[!] Loan reconcile non-critical notice: {ex}")
             loans = db.get_account_loans(canonical_name)
             return self._send_json(200, {
                 "status": "ok",
@@ -2708,7 +2711,7 @@ class CBMThreadPoolServer(HTTPServer):
     def __init__(self, server_address, RequestHandlerClass, max_workers=None):
         super().__init__(server_address, RequestHandlerClass)
         if max_workers is None:
-            max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 60))
+            max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 24))
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cbm_worker")
 
     def process_request(self, request, client_address):
@@ -2731,6 +2734,9 @@ class CBMThreadPoolServer(HTTPServer):
     def handle_error(self, request, client_address):
         exc_type, exc_val, _ = sys.exc_info()
         if exc_type in (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError, socket.timeout):
+            return
+        if exc_type is sqlite3.OperationalError and any(k in str(exc_val).lower() for k in ("locked", "busy")):
+            print(f"[!] Server concurrency notice: Database busy for request from {client_address}")
             return
         super().handle_error(request, client_address)
 

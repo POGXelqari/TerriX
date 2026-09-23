@@ -24,6 +24,8 @@ import threading
 import queue
 from typing import Dict, Any, Optional, List, Tuple, Set, Union
 
+_DB_WRITE_LOCK = threading.RLock()
+
 try:
     import urllib3
 except ImportError:
@@ -2790,7 +2792,8 @@ class CBMDatabase:
             self.set_account_role(account_name, "member")
             print(f"[+] Restored account '{account_name}' access to 'member' (All loans fully satisfied).")
 
-        self.recompute_treasury()
+        if total_garnished > 0:
+            self.recompute_treasury()
         return {
             "account_name": account_name,
             "total_garnished_cents": total_garnished,
@@ -3099,39 +3102,62 @@ class CBMDatabase:
         }
 
     def _persist_treasury_metrics(self, metrics: Dict[str, Any], now_iso: Optional[str] = None):
-        """Helper to persist computed treasury metrics to Supabase and SQLite."""
+        """Helper to persist computed treasury metrics to Supabase and SQLite with lock retry resilience."""
         now = time.time()
         iso = now_iso or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
 
-        conn = self.get_write_connection(timeout=30.0)
-        cur = conn.cursor()
-        try:
-            cur.execute("""
-                UPDATE cbm_treasury
-                SET vault_total_gold_cents = ?, member_liabilities_cents = ?, bank_reserves_cents = ?,
-                    unencumbered_capital_cents = ?, loan_penalties_cents = ?, last_sync_at = ?
-                WHERE id = 1
-            """, (
-                metrics["vault_total_gold_cents"],
-                metrics["member_liabilities_cents"],
-                metrics["bank_reserves_cents"],
-                metrics["unencumbered_capital_cents"],
-                metrics["loan_penalties_cents"],
-                now
-            ))
-        except Exception:
-            cur.execute("""
-                UPDATE cbm_treasury
-                SET vault_total_gold_cents = ?, member_liabilities_cents = ?, bank_reserves_cents = ?, last_sync_at = ?
-                WHERE id = 1
-            """, (
-                metrics["vault_total_gold_cents"],
-                metrics["member_liabilities_cents"],
-                metrics["bank_reserves_cents"],
-                now
-            ))
-        conn.commit()
-        conn.close()
+        for attempt in range(5):
+            conn = None
+            try:
+                with _DB_WRITE_LOCK:
+                    conn = self.get_write_connection(timeout=10.0)
+                    cur = conn.cursor()
+                    try:
+                        cur.execute("""
+                            UPDATE cbm_treasury
+                            SET vault_total_gold_cents = ?, member_liabilities_cents = ?, bank_reserves_cents = ?,
+                                unencumbered_capital_cents = ?, loan_penalties_cents = ?, last_sync_at = ?
+                            WHERE id = 1
+                        """, (
+                            metrics["vault_total_gold_cents"],
+                            metrics["member_liabilities_cents"],
+                            metrics["bank_reserves_cents"],
+                            metrics["unencumbered_capital_cents"],
+                            metrics["loan_penalties_cents"],
+                            now
+                        ))
+                    except sqlite3.OperationalError as col_err:
+                        if "no such column" in str(col_err).lower():
+                            cur.execute("""
+                                UPDATE cbm_treasury
+                                SET vault_total_gold_cents = ?, member_liabilities_cents = ?, bank_reserves_cents = ?, last_sync_at = ?
+                                WHERE id = 1
+                            """, (
+                                metrics["vault_total_gold_cents"],
+                                metrics["member_liabilities_cents"],
+                                metrics["bank_reserves_cents"],
+                                now
+                            ))
+                        else:
+                            raise
+                    conn.commit()
+                break
+            except sqlite3.OperationalError as lock_err:
+                if "locked" in str(lock_err).lower() or "busy" in str(lock_err).lower():
+                    if attempt < 4:
+                        time.sleep(0.05 * (2 ** attempt))
+                        continue
+                print(f"[!] Warning: _persist_treasury_metrics locked after {attempt+1} attempts: {lock_err}")
+                break
+            except Exception as e:
+                print(f"[!] Notice in _persist_treasury_metrics: {e}")
+                break
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
 
         if self.use_supabase:
             patch_payload = {

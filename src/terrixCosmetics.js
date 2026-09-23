@@ -215,6 +215,28 @@
     return mipmaps;
   }
 
+  // Pattern type helper:
+  // - Flag patterns (e.g. 'poland'): rendered as a single unified flag covering the entire nation
+  // - Tiled patterns (e.g. 'hello_kitty'): repeat seamlessly across territories
+  function isFlagPattern(patternId) {
+    if (!patternId) return false;
+    return patternId === 'poland' || patternId.indexOf('flag') >= 0;
+  }
+
+  function getBestMipmap(img, mipmaps, targetW, targetH) {
+    if (!mipmaps || mipmaps.length === 0) return img;
+    var best = img;
+    for (var i = 0; i < mipmaps.length; i++) {
+      var m = mipmaps[i];
+      if (m.width >= targetW && m.height >= targetH) {
+        best = m;
+      } else {
+        break;
+      }
+    }
+    return best;
+  }
+
   // Pre-load pattern textures
   function initPatternAssets() {
     var img = new Image();
@@ -227,6 +249,9 @@
       var crispTile = state.mipmaps[2] || state.mipmaps[1] || img;
       state.patternTexture = dummyCtx.createPattern(crispTile, 'repeat');
       console.log('[TerriX Cosmetics] Hello Kitty pattern texture initialized with high-res mipmapping.');
+      if (document.getElementById('tx-preview-canvas')) {
+        renderPreview();
+      }
     };
     img.onerror = function() {
       console.warn('[TerriX Cosmetics] Pattern image failed to load from assets/patterns/hello-kitty-pattern.png');
@@ -237,11 +262,10 @@
     imgPoland.onload = function() {
       state.patternImagePoland = imgPoland;
       state.mipmapsPoland = buildMipmaps(imgPoland);
-      var pc = document.createElement('canvas');
-      var pCtx = pc.getContext('2d');
-      var crispTile = state.mipmapsPoland[2] || state.mipmapsPoland[1] || imgPoland;
-      state.patternTexturePoland = pCtx.createPattern(crispTile, 'repeat');
-      console.log('[TerriX Cosmetics] Poland pattern texture initialized with high-res mipmapping.');
+      console.log('[TerriX Cosmetics] Poland single flag pattern initialized with high-res mipmapping.');
+      if (document.getElementById('tx-preview-canvas-poland')) {
+        updatePolandUI();
+      }
     };
     imgPoland.onerror = function() {
       console.warn('[TerriX Cosmetics] Poland pattern image failed to load from assets/patterns/poland-pattern.avif');
@@ -1145,7 +1169,7 @@
         '        <canvas class="terrix-preview-canvas" id="tx-preview-canvas-poland" width="120" height="120"></canvas>',
         '        <div class="terrix-item-details">',
         '          <div class="terrix-item-title">Poland Flag Territory Pattern</div>',
-        '          <div class="terrix-item-desc">Official Polish national coat of arms tile coating your territory during live matches. Exclusive limited release.</div>',
+        '          <div class="terrix-item-desc">Official Polish national flag and coat of arms unified across your territory during live matches. Single flag pattern.</div>',
         '          <div class="terrix-price-tag">Price: 1,000 Gold &rarr; Clan Vault (DdcBC)</div>',
         '          <div class="terrix-btn-group" id="tx-action-buttons-poland"></div>',
         '          <div id="tx-slip-container-poland"></div>',
@@ -1572,17 +1596,15 @@
       };
     }
 
-    // Render Poland canvas preview
+    // Render Poland canvas preview (Single unified flag image)
     var pc = document.getElementById('tx-preview-canvas-poland');
     if (pc) {
       var pCtx = pc.getContext('2d');
       pCtx.clearRect(0, 0, 120, 120);
       if (state.patternImagePoland && state.patternImagePoland.complete) {
-        if (!state.patternTexturePoland) {
-          state.patternTexturePoland = pCtx.createPattern(state.patternImagePoland, 'repeat');
-        }
-        pCtx.fillStyle = state.patternTexturePoland;
-        pCtx.fillRect(8, 8, 104, 104);
+        pCtx.imageSmoothingEnabled = true;
+        pCtx.imageSmoothingQuality = 'high';
+        pCtx.drawImage(state.patternImagePoland, 8, 8, 104, 104);
         pCtx.strokeStyle = '#ffd700';
         pCtx.lineWidth = 2;
         pCtx.strokeRect(8, 8, 104, 104);
@@ -1729,22 +1751,19 @@
       offscreenPatternCanvas.width = bw;
       offscreenPatternCanvas.height = bh;
 
+      var isFlag = isFlagPattern(state.equippedPattern);
       var activeMipmaps = (state.equippedPattern === 'poland') ? state.mipmapsPoland : state.mipmaps;
-      var activeTexture = (state.equippedPattern === 'poland') ? state.patternTexturePoland : state.patternTexture;
+      var activeTexture = isFlag ? null : state.patternTexture;
 
-      // Re-create pattern texture if needed
-      if (!activeTexture && activeImage && activeImage.complete) {
+      // Re-create pattern texture if needed (only for repeating tiled patterns)
+      if (!isFlag && !activeTexture && activeImage && activeImage.complete) {
         if (activeMipmaps) {
           var crispTile = activeMipmaps[2] || activeMipmaps[1] || activeImage;
           activeTexture = offscreenPatternCtx.createPattern(crispTile, 'repeat');
         } else {
           activeTexture = offscreenPatternCtx.createPattern(activeImage, 'repeat');
         }
-        if (state.equippedPattern === 'poland') {
-          state.patternTexturePoland = activeTexture;
-        } else {
-          state.patternTexture = activeTexture;
-        }
+        state.patternTexture = activeTexture;
       }
 
       offscreenMaskCtx.clearRect(0, 0, bw, bh);
@@ -1784,7 +1803,12 @@
         offscreenPatternCtx.imageSmoothingQuality = 'high';
         offscreenPatternCtx.globalCompositeOperation = 'source-in';
 
-        if (activeTexture) {
+        if (isFlag) {
+          // Flag pattern: render as ONE single unified flag across the entire territory bounding box
+          var flagSource = getBestMipmap(activeImage, activeMipmaps, bw, bh);
+          offscreenPatternCtx.drawImage(flagSource, 0, 0, bw, bh);
+        } else if (activeTexture) {
+          // Tiled repeat pattern (e.g. Hello Kitty): repeat pattern across coordinates
           offscreenPatternCtx.save();
           offscreenPatternCtx.translate(-minX, -minY);
           offscreenPatternCtx.fillStyle = activeTexture;

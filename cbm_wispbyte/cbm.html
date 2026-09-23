@@ -1419,7 +1419,7 @@
           <form onsubmit="handleWithdraw(event)">
             <div class="game-form-group">
               <label>Your Registered Account Name</label>
-              <input type="text" id="wAccName" class="game-input" placeholder="e.g. B8bbq" required>
+              <input type="text" id="wAccName" name="wAccName" class="game-input" placeholder="e.g. B8bbq" required autocomplete="username">
             </div>
 
             <div class="game-form-group">
@@ -1427,7 +1427,7 @@
                 <label style="margin-bottom: 0;">Recipient In-Game Account</label>
                 <span style="font-size: 11px; color: var(--success);">🔒 Closed-Loop Enforced</span>
               </div>
-              <input type="text" id="wTargetAcc" class="game-input" placeholder="Defaults to your registered account">
+              <input type="text" id="wTargetAcc" name="wTargetAcc" class="game-input" placeholder="Defaults to your registered account" autocomplete="username">
               <div id="wVerifiedDestinations" style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;"></div>
             </div>
 
@@ -1437,7 +1437,7 @@
                 <span id="wPinStatusLabel" style="font-size: 11px; color: var(--text-dim);">Required if account is PIN
                   protected</span>
               </div>
-              <input type="password" id="wPin" class="game-input" maxlength="8" placeholder="••••••" autocomplete="off"
+              <input type="password" id="wPin" name="wPin" class="game-input" maxlength="8" placeholder="••••••" autocomplete="off"
                 inputmode="numeric">
             </div>
 
@@ -1558,7 +1558,7 @@
             <form onsubmit="handleDonate(event)">
               <div class="game-form-group">
                 <label>Your CBM Account Name</label>
-                <input type="text" id="donateAccName" class="game-input" placeholder="e.g. B8bbq" required>
+                <input type="text" id="donateAccName" name="donateAccName" class="game-input" placeholder="e.g. B8bbq" required autocomplete="username">
               </div>
 
               <div class="game-form-group">
@@ -1709,20 +1709,20 @@
               onclick="setPmMethod('TRANSACTION_VERIFIED')">Ledger Deposit (Zero-Pass)</button>
           </div>
 
-          <form onsubmit="handleLinkPaymentMethod(event)">
+          <form id="linkPaymentMethodForm" name="linkPaymentMethodForm" onsubmit="handleLinkPaymentMethod(event)">
             <div class="game-form-group">
               <label>CBM Username / Clan Identity</label>
-              <input type="text" id="pmCbmUser" class="game-input" placeholder="e.g. B8bbq" required>
+              <input type="text" id="pmCbmUser" name="pmCbmUser" class="game-input" placeholder="e.g. B8bbq" required autocomplete="username">
             </div>
 
             <div class="game-form-group">
               <label>Territorial.io Account Name</label>
-              <input type="text" id="pmTerriAcc" class="game-input" placeholder="In-game player name" required>
+              <input type="text" id="pmTerriAcc" name="pmTerriAcc" class="game-input" placeholder="In-game player name" required autocomplete="username">
             </div>
 
             <div class="game-form-group" id="pmPassGroup">
               <label>Territorial.io Account Password</label>
-              <input type="password" id="pmTerriPass" class="game-input" placeholder="In-game account password" autocomplete="current-password">
+              <input type="password" id="pmTerriPass" name="pmTerriPass" class="game-input" placeholder="In-game account password" autocomplete="current-password">
               <span class="form-subtext">Verified directly against official game API. Never disclosed.</span>
             </div>
 
@@ -1735,7 +1735,7 @@
 
             <div class="game-form-group">
               <label>Account Label / Display Name (Optional)</label>
-              <input type="text" id="pmDisplayName" class="game-input" placeholder="e.g. Primary Warrior">
+              <input type="text" id="pmDisplayName" name="pmDisplayName" class="game-input" placeholder="e.g. Primary Warrior">
             </div>
 
             <div class="game-form-group" id="pmPinGroup">
@@ -1743,7 +1743,7 @@
                 <label style="margin-bottom: 0;">6-Digit CBM Access PIN</label>
                 <span style="font-size: 11px; color: var(--text-dim);">Required if PIN protected</span>
               </div>
-              <input type="password" id="pmPin" class="game-input" maxlength="8" placeholder="••••••" autocomplete="off"
+              <input type="password" id="pmPin" name="pmPin" class="game-input" maxlength="8" placeholder="••••••" autocomplete="off"
                 inputmode="numeric">
             </div>
 
@@ -1834,10 +1834,10 @@
             </div>
           </div>
 
-          <form id="loanRequestForm" onsubmit="handleLoanRequest(event)">
+          <form id="loanRequestForm" name="loanRequestForm" onsubmit="handleLoanRequest(event)">
             <div class="game-form-group">
               <label>Borrower CBM Identity</label>
-              <input type="text" id="loanAccName" class="game-input" placeholder="e.g. B8bbq" required readonly style="opacity: 0.85;">
+              <input type="text" id="loanAccName" name="loanAccName" class="game-input" placeholder="e.g. B8bbq" required readonly style="opacity: 0.85;" autocomplete="username">
             </div>
 
             <div class="game-form-group">
@@ -1868,11 +1868,11 @@
             <div id="loanCustomCredsBox" style="background: var(--panel-2); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-bottom: 14px;">
               <div class="game-form-group" style="margin-bottom: 10px;">
                 <label style="font-size: 12px;">Territorial.io Account Name</label>
-                <input type="text" id="loanTerriAcc" class="game-input" placeholder="In-game player name">
+                <input type="text" id="loanTerriAcc" name="loanTerriAcc" class="game-input" placeholder="In-game player name" autocomplete="username">
               </div>
               <div class="game-form-group" style="margin-bottom: 0;">
                 <label style="font-size: 12px;">Territorial.io Account Password *</label>
-                <input type="password" id="loanTerriPass" class="game-input" placeholder="Valid in-game password" autocomplete="current-password">
+                <input type="password" id="loanTerriPass" name="loanTerriPass" class="game-input" placeholder="Valid in-game password" autocomplete="current-password">
                 <span class="form-subtext" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
                   🔒 Verified directly via official game API. Never disclosed to third parties.
                 </span>
@@ -2337,6 +2337,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
         if (res.ok) {
           setSessionPin(pin);
@@ -2466,6 +2468,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ account_name: username })
         });
+        const ct = resp.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const data = await resp.json();
 
         if (data.status !== 'ok') {
@@ -2600,6 +2604,8 @@
         const res = await fetch('/api/cbm/status', { headers });
         if (res.status === 304) return;
         if (!res.ok) return;
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const etag = res.headers.get('ETag');
         if (etag) lastStatusEtag = etag;
         const data = await res.json();
@@ -2772,6 +2778,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ account_name, display_name, avatar_url, pin })
         });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
         if (res.ok) {
           showToast(data.message || 'Profile saved successfully.', 'success');
@@ -2805,6 +2813,8 @@
       if (!name) return;
       try {
         const res = await fetch('/api/cbm/account?name=' + encodeURIComponent(name));
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const data = await res.json();
         if (res.ok && data.account) {
           const acc = data.account;
@@ -3050,6 +3060,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ account_name, target_account, amount_gold, pin })
         });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
         if (res.ok) {
           showToast(data.message, 'success');
@@ -3093,6 +3105,8 @@
       container.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 1.5rem;">Querying linked payment accounts...</div>';
       try {
         const res = await fetch('/api/cbm/payment-methods?name=' + encodeURIComponent(user));
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const data = await res.json();
         if (res.ok && data.payment_methods && data.payment_methods.length > 0) {
           container.innerHTML = '';
@@ -3165,6 +3179,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
         if (res.ok) {
           showToast(data.message, 'success');
@@ -3228,6 +3244,8 @@
             pin
           })
         });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
         if (res.ok) {
           showToast(`🛡️ Thank you! Contributed ${amount_gold.toFixed(2)} Gold to Clan Reserves!`, 'success');
@@ -3261,6 +3279,8 @@
         const res = await fetch('/api/cbm/donors?limit=10', { headers });
         if (res.status === 304) return;
         if (!res.ok) return;
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const etag = res.headers.get('ETag');
         if (etag) lastDonorsEtag = etag;
         const data = await res.json();
@@ -3459,6 +3479,8 @@
         const url = `/api/cbm/loan/facility${isLoanSimulationMode ? '?simulate_active=true' : ''}`;
         const res = await fetch(url);
         if (!res.ok) return;
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const data = await res.json();
         if (!data.facility) return;
 
@@ -3529,6 +3551,8 @@
       try {
         const res = await fetch(`/api/cbm/payment-methods?cbm_username=${encodeURIComponent(username)}`);
         if (!res.ok) return;
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const data = await res.json();
         const methods = data.payment_methods || [];
 
@@ -3673,6 +3697,8 @@
           headers: headers,
           body: JSON.stringify(payload)
         });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
 
         if (res.ok) {
@@ -3707,6 +3733,8 @@
       try {
         const res = await fetch(`/api/cbm/loans?name=${encodeURIComponent(user)}`);
         if (!res.ok) return;
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) return;
         const data = await res.json();
         const loans = data.loans || [];
 
@@ -3854,6 +3882,8 @@
             pin: pin
           })
         });
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
 
         if (res.ok) {

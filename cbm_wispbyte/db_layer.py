@@ -146,17 +146,19 @@ class CBMDatabase:
                 return
 
             # Verification guard: verify whether database is actually corrupt or merely experienced a transient busy lock
-            try:
-                test_conn = sqlite3.connect(db_path, timeout=1.0)
-                test_cur = test_conn.cursor()
-                test_cur.execute("PRAGMA quick_check;")
-                res = test_cur.fetchone()
-                test_conn.close()
-                if res and res[0] == "ok":
-                    print(f"[*] SQLite quick_check verified database is healthy ({res[0]}). Skipping destructive quarantine for notice: '{reason}'.")
-                    return
-            except Exception:
-                pass
+            is_explicit_corruption = any(k in str(reason).lower() for k in ("malformed", "disk image", "corrupt", "not a database", "encrypted"))
+            if not is_explicit_corruption:
+                try:
+                    test_conn = sqlite3.connect(db_path, timeout=1.0)
+                    test_cur = test_conn.cursor()
+                    test_cur.execute("PRAGMA quick_check;")
+                    res = test_cur.fetchone()
+                    test_conn.close()
+                    if res and res[0] == "ok":
+                        print(f"[*] SQLite quick_check verified database is healthy ({res[0]}). Skipping quarantine for notice: '{reason}'.")
+                        return
+                except Exception:
+                    pass
 
             print(f"[!] CRITICAL: SQLite database corruption confirmed ({reason}). Initiating automatic quarantine and recovery...")
 
@@ -204,6 +206,11 @@ class CBMDatabase:
                 self._recover_corrupted_sqlite(reason=str(db_err))
                 # Re-execute initialization on clean database
                 self._execute_init_sqlite()
+                if self.use_supabase:
+                    try:
+                        self.sync_all_from_supabase(quiet=True)
+                    except Exception:
+                        pass
             else:
                 raise
 
@@ -213,6 +220,12 @@ class CBMDatabase:
         try:
             self._do_execute_init_sqlite(conn)
             conn.commit()
+            # Active probe: ensure b-tree pages of critical tables are readable without corruption
+            cur = conn.cursor()
+            cur.execute("SELECT count(*) FROM cbm_accounts;")
+            cur.execute("SELECT count(*) FROM cbm_donations;")
+            cur.execute("SELECT count(*) FROM cbm_loans;")
+            cur.execute("SELECT count(*) FROM cbm_treasury;")
         finally:
             try:
                 conn.close()
@@ -664,7 +677,7 @@ class CBMDatabase:
         conn = getattr(self._local, "conn", None)
         if conn is not None:
             try:
-                conn.execute("SELECT 1;")
+                conn.execute("SELECT count(*) FROM cbm_accounts LIMIT 1;")
                 conn.row_factory = sqlite3.Row if row_factory else None
                 return conn
             except sqlite3.DatabaseError as db_err:
@@ -3033,6 +3046,24 @@ class CBMDatabase:
         return res_dict
 
     def _calculate_treasury_metrics(self, vault_total_cents: int) -> Dict[str, Any]:
+        try:
+            return self._do_calculate_treasury_metrics(vault_total_cents)
+        except sqlite3.DatabaseError as db_err:
+            if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image", "not a database")):
+                self._recover_corrupted_sqlite(reason=str(db_err))
+                self._init_sqlite()
+                if self.use_supabase:
+                    try:
+                        self.sync_all_from_supabase(quiet=True)
+                    except Exception:
+                        pass
+                try:
+                    return self._do_calculate_treasury_metrics(vault_total_cents)
+                except Exception as retry_err:
+                    print(f"[!] Error on retrying _calculate_treasury_metrics: {retry_err}")
+            raise
+
+    def _do_calculate_treasury_metrics(self, vault_total_cents: int) -> Dict[str, Any]:
         """
         Calculates all core treasury metrics dynamically using high-speed local SQLite:
         1. Member liabilities (sum of deposited_cents for non-system accounts)
@@ -3618,6 +3649,24 @@ class CBMDatabase:
         }
 
     def get_top_donors(self, limit: int = 10) -> List[Dict[str, Any]]:
+        try:
+            return self._do_get_top_donors(limit=limit)
+        except sqlite3.DatabaseError as db_err:
+            if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image", "not a database")):
+                self._recover_corrupted_sqlite(reason=str(db_err))
+                self._init_sqlite()
+                if self.use_supabase:
+                    try:
+                        self.sync_all_from_supabase(quiet=True)
+                    except Exception:
+                        pass
+                try:
+                    return self._do_get_top_donors(limit=limit)
+                except Exception as retry_err:
+                    print(f"[!] Error on retrying get_top_donors: {retry_err}")
+            raise
+
+    def _do_get_top_donors(self, limit: int = 10) -> List[Dict[str, Any]]:
         """
         Returns top donors ranked by total gold contributed to the Clan War Chest.
         Uses high-speed local SQLite aggregation query (<1ms) with full canonical member identity resolution.

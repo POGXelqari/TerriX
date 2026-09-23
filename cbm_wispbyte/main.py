@@ -167,56 +167,78 @@ def refresh_status_cache():
         if _STATUS_CACHE_BYTES and (now - _STATUS_CACHE_TIME) < _STATUS_CACHE_TTL:
             return _STATUS_CACHE_BYTES, _STATUS_CACHE_GZIP, _STATUS_CACHE_ETAG
 
-        treasury = db.get_treasury()
-        vault_cents = treasury.get("vault_total_gold_cents", 0)
-        metrics = db._calculate_treasury_metrics(vault_cents)
-        vault_gold = metrics["vault_total_gold"]
-        liab_gold = metrics["member_liabilities_gold"]
-        reserves_gold = metrics["bank_reserves_gold"]
-        facility = loan_engine.evaluate_lending_facility(metrics["bank_reserves_cents"])
-        recent_txs = db.get_recent_transactions(limit=15)
-        solvency_ratio = round((vault_gold / liab_gold) * 100.0, 1) if liab_gold > 0 else 100.0
+        try:
+            treasury = db.get_treasury()
+            vault_cents = treasury.get("vault_total_gold_cents", 0)
+            metrics = db._calculate_treasury_metrics(vault_cents)
+            vault_gold = metrics["vault_total_gold"]
+            liab_gold = metrics["member_liabilities_gold"]
+            reserves_gold = metrics["bank_reserves_gold"]
+            facility = loan_engine.evaluate_lending_facility(metrics["bank_reserves_cents"])
+            recent_txs = db.get_recent_transactions(limit=15)
+            solvency_ratio = round((vault_gold / liab_gold) * 100.0, 1) if liab_gold > 0 else 100.0
 
-        payload = {
-            "status": "ok",
-            "service": "Clan Bank Manager (CBM)",
-            "runtime": "Wispbyte Python",
-            "vault_account": VAULT_ACCOUNT,
-            "wispbyte_server_url": WISPBYTE_SERVER_URL,
-            "wispbyte_subdomain": WISPBYTE_SUBDOMAIN,
-            "treasury": {
-                "vault_total_gold": vault_gold,
-                "member_liabilities_gold": liab_gold,
-                "vault_excess_gold": metrics["vault_excess_gold"],
-                "unencumbered_capital_gold": metrics["unencumbered_capital_gold"],
-                "loan_penalties_gold": metrics["loan_penalties_gold"],
-                "bank_reserves_gold": reserves_gold,
-                "solvency_ratio_percent": solvency_ratio,
-                "last_sync": treasury.get("last_sync_at"),
-                "audit_status": treasury.get("audit_status", "VERIFIED_LIVE" if VAULT_PASSWORD else "ESTIMATED"),
-                "is_live_verified": bool(VAULT_PASSWORD)
-            },
-            "lending_facility": {
-                "is_active": facility.get("is_active"),
-                "bank_reserves_gold": facility.get("bank_reserves_gold"),
-                "calculated_ceiling_gold": facility.get("calculated_ceiling_gold"),
-                "max_loan_gold": facility.get("max_loan_gold"),
-                "activation_threshold_gold": facility.get("activation_threshold_gold"),
-                "min_reserves_required_gold": facility.get("min_reserves_required_gold"),
-                "progress_percent": facility.get("progress_percent"),
-                "status_message": facility.get("status_message")
-            },
-            "top_donors": db.get_top_donors(limit=5),
-            "recent_transactions": recent_txs
-        }
-        raw_bytes = json.dumps(payload).encode("utf-8")
-        etag = f'"{hashlib.sha256(raw_bytes).hexdigest()[:16]}"'
-        gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
-        _STATUS_CACHE_BYTES = raw_bytes
-        _STATUS_CACHE_GZIP = gz_bytes
-        _STATUS_CACHE_ETAG = etag
-        _STATUS_CACHE_TIME = now
-        return raw_bytes, gz_bytes, etag
+            payload = {
+                "status": "ok",
+                "service": "Clan Bank Manager (CBM)",
+                "runtime": "Wispbyte Python",
+                "vault_account": VAULT_ACCOUNT,
+                "wispbyte_server_url": WISPBYTE_SERVER_URL,
+                "wispbyte_subdomain": WISPBYTE_SUBDOMAIN,
+                "treasury": {
+                    "vault_total_gold": vault_gold,
+                    "member_liabilities_gold": liab_gold,
+                    "vault_excess_gold": metrics["vault_excess_gold"],
+                    "unencumbered_capital_gold": metrics["unencumbered_capital_gold"],
+                    "loan_penalties_gold": metrics["loan_penalties_gold"],
+                    "bank_reserves_gold": reserves_gold,
+                    "solvency_ratio_percent": solvency_ratio,
+                    "last_sync": treasury.get("last_sync_at"),
+                    "audit_status": treasury.get("audit_status", "VERIFIED_LIVE" if VAULT_PASSWORD else "ESTIMATED"),
+                    "is_live_verified": bool(VAULT_PASSWORD)
+                },
+                "lending_facility": {
+                    "is_active": facility.get("is_active"),
+                    "bank_reserves_gold": facility.get("bank_reserves_gold"),
+                    "calculated_ceiling_gold": facility.get("calculated_ceiling_gold"),
+                    "max_loan_gold": facility.get("max_loan_gold"),
+                    "activation_threshold_gold": facility.get("activation_threshold_gold"),
+                    "min_reserves_required_gold": facility.get("min_reserves_required_gold"),
+                    "progress_percent": facility.get("progress_percent"),
+                    "status_message": facility.get("status_message")
+                },
+                "top_donors": db.get_top_donors(limit=5),
+                "recent_transactions": recent_txs
+            }
+            raw_bytes = json.dumps(payload).encode("utf-8")
+            etag = f'"{hashlib.sha256(raw_bytes).hexdigest()[:16]}"'
+            gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
+            _STATUS_CACHE_BYTES = raw_bytes
+            _STATUS_CACHE_GZIP = gz_bytes
+            _STATUS_CACHE_ETAG = etag
+            _STATUS_CACHE_TIME = now
+            return raw_bytes, gz_bytes, etag
+        except Exception as ex:
+            print(f"[!] refresh_status_cache fallback notice: {ex}")
+            if _STATUS_CACHE_BYTES:
+                return _STATUS_CACHE_BYTES, _STATUS_CACHE_GZIP, _STATUS_CACHE_ETAG
+            fallback = {
+                "status": "ok",
+                "service": "Clan Bank Manager (CBM)",
+                "runtime": "Wispbyte Python",
+                "vault_account": VAULT_ACCOUNT,
+                "treasury": {
+                    "vault_total_gold": 0.0,
+                    "member_liabilities_gold": 0.0,
+                    "vault_excess_gold": 0.0,
+                    "bank_reserves_gold": 0.0,
+                    "solvency_ratio_percent": 100.0
+                },
+                "top_donors": [],
+                "recent_transactions": []
+            }
+            raw_b = json.dumps(fallback).encode("utf-8")
+            return raw_b, gzip.compress(raw_b, compresslevel=5), '"fallback"'
 
 def refresh_donors_cache(limit: int = 10):
     """Thread-safe, stampede-protected refresh of donors JSON bytes and gzip buffer."""
@@ -226,23 +248,36 @@ def refresh_donors_cache(limit: int = 10):
         if _DONORS_CACHE_BYTES and (now - _DONORS_CACHE_TIME) < _DONORS_CACHE_TTL:
             return _DONORS_CACHE_BYTES, _DONORS_CACHE_GZIP, _DONORS_CACHE_ETAG
 
-        top_donors = db.get_top_donors(limit=limit)
-        recent = db.get_recent_donations(limit=20)
-        total_donated = sum(d.get("total_gold", 0) for d in top_donors)
-        payload = {
-            "status": "ok",
-            "total_donated_gold": round(total_donated, 2),
-            "top_donors": top_donors,
-            "recent_donations": recent
-        }
-        raw_bytes = json.dumps(payload).encode("utf-8")
-        etag = f'"{hashlib.sha256(raw_bytes).hexdigest()[:16]}"'
-        gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
-        _DONORS_CACHE_BYTES = raw_bytes
-        _DONORS_CACHE_GZIP = gz_bytes
-        _DONORS_CACHE_ETAG = etag
-        _DONORS_CACHE_TIME = now
-        return raw_bytes, gz_bytes, etag
+        try:
+            top_donors = db.get_top_donors(limit=limit)
+            recent = db.get_recent_donations(limit=20)
+            total_donated = sum(d.get("total_gold", 0) for d in top_donors)
+            payload = {
+                "status": "ok",
+                "total_donated_gold": round(total_donated, 2),
+                "top_donors": top_donors,
+                "recent_donations": recent
+            }
+            raw_bytes = json.dumps(payload).encode("utf-8")
+            etag = f'"{hashlib.sha256(raw_bytes).hexdigest()[:16]}"'
+            gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
+            _DONORS_CACHE_BYTES = raw_bytes
+            _DONORS_CACHE_GZIP = gz_bytes
+            _DONORS_CACHE_ETAG = etag
+            _DONORS_CACHE_TIME = now
+            return raw_bytes, gz_bytes, etag
+        except Exception as ex:
+            print(f"[!] refresh_donors_cache fallback notice: {ex}")
+            if _DONORS_CACHE_BYTES:
+                return _DONORS_CACHE_BYTES, _DONORS_CACHE_GZIP, _DONORS_CACHE_ETAG
+            fallback = {
+                "status": "ok",
+                "total_donated_gold": 0.0,
+                "top_donors": [],
+                "recent_donations": []
+            }
+            raw_b = json.dumps(fallback).encode("utf-8")
+            return raw_b, gzip.compress(raw_b, compresslevel=5), '"fallback"'
 
 def refresh_vault_analytics_cache(days: int = 7):
     """Thread-safe, stampede-protected refresh of vault analytics timeline bytes and gzip buffer."""
@@ -589,6 +624,16 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"status": "ok"})
 
     def do_GET(self):
+        try:
+            self._do_GET()
+        except Exception as unhandled:
+            print(f"[!] Unhandled error in do_GET: {unhandled}")
+            try:
+                self._send_json(500, {"status": "error", "message": "Service temporarily busy. Please retry."})
+            except Exception:
+                pass
+
+    def _do_GET(self):
         parsed = self.path.split("?")
         path = parsed[0].rstrip("/")
         query = parsed[1] if len(parsed) > 1 else ""

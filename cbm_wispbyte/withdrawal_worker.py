@@ -101,15 +101,17 @@ class CBMWithdrawalWorker:
 
         # Record withdrawal queue item in SQLite (fee_cents = 0 charged to user; 1 cent absorbed by bank)
         conn_sq = self._get_db_conn(timeout=30.0)
-        cur = conn_sq.cursor()
-        now_ts = time.time()
-        cur.execute("""
-            INSERT INTO cbm_withdrawals (account_name, target_account, amount_gold, fee_cents, status, created_at)
-            VALUES (?, ?, ?, 0, 'PENDING', ?)
-        """, (account_name, target_account, amount_gold, now_ts))
-        w_id = cur.lastrowid
-        conn_sq.commit()
-        conn_sq.close()
+        try:
+            cur = conn_sq.cursor()
+            now_ts = time.time()
+            cur.execute("""
+                INSERT INTO cbm_withdrawals (account_name, target_account, amount_gold, fee_cents, status, created_at)
+                VALUES (?, ?, ?, 0, 'PENDING', ?)
+            """, (account_name, target_account, amount_gold, now_ts))
+            w_id = cur.lastrowid
+            conn_sq.commit()
+        finally:
+            conn_sq.close()
 
         if self.db.use_supabase:
             try:
@@ -147,82 +149,85 @@ class CBMWithdrawalWorker:
 
         conn_sq = self._get_db_conn(timeout=30.0)
         conn_sq.row_factory = sqlite3.Row
-        cur = conn_sq.cursor()
-        cur.execute("SELECT * FROM cbm_withdrawals WHERE id = ? AND status = 'PENDING'", (withdrawal_id,))
-        row = cur.fetchone()
-        if not row:
-            conn_sq.close()
-            return False, {"error": "Withdrawal request not found or already processed."}
+        try:
+            cur = conn_sq.cursor()
+            cur.execute("SELECT * FROM cbm_withdrawals WHERE id = ? AND status = 'PENDING'", (withdrawal_id,))
+            row = cur.fetchone()
+            if not row:
+                return False, {"error": "Withdrawal request not found or already processed."}
 
-        req = dict(row)
-        account_name = req["account_name"]
-        target_account = req["target_account"]
-        amount_gold = req["amount_gold"]
-        amount_cents = amount_gold * 100
+            req = dict(row)
+            account_name = req["account_name"]
+            target_account = req["target_account"]
+            amount_gold = req["amount_gold"]
+            amount_cents = amount_gold * 100
 
-        # 1. Atomic Balance Reservation: Decrement member balance immediately in SQLite
-        # If available balance < amount_cents, rowcount is 0, rejecting race conditions and double-spends.
-        now_ts = time.time()
-        cur.execute("""
-            UPDATE cbm_accounts
-            SET deposited_cents = deposited_cents - ?, updated_at = ?
-            WHERE account_name = ? AND deposited_cents >= ?
-        """, (amount_cents, now_ts, account_name, amount_cents))
-        if cur.rowcount == 0:
-            cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
-            conn_sq.commit()
-            conn_sq.close()
-            return False, {"error": "Insufficient member balance or concurrent transaction in progress."}
-
-        conn_sq.commit()
-
-        # 2. Call Territorial.io API
-        api_res = self.client.send_gold(target_account, amount_gold)
-        if api_res.get("status") != "ok":
-            err_msg = api_res.get("message") or api_res.get("status") or str(api_res)
-            # Payout rejected or failed: Rollback the atomic reservation!
-            rollback_ts = time.time()
+            # 1. Atomic Balance Reservation: Decrement member balance immediately in SQLite
+            # If available balance < amount_cents, rowcount is 0, rejecting race conditions and double-spends.
+            now_ts = time.time()
             cur.execute("""
                 UPDATE cbm_accounts
-                SET deposited_cents = deposited_cents + ?, updated_at = ?
-                WHERE account_name = ?
-            """, (amount_cents, rollback_ts, account_name))
-            cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
+                SET deposited_cents = deposited_cents - ?, updated_at = ?
+                WHERE account_name = ? AND deposited_cents >= ?
+            """, (amount_cents, now_ts, account_name, amount_cents))
+            if cur.rowcount == 0:
+                cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
+                conn_sq.commit()
+                return False, {"error": "Insufficient member balance or concurrent transaction in progress."}
+
             conn_sq.commit()
+
+            # 2. Call Territorial.io API
+            try:
+                api_res = self.client.send_gold(target_account, amount_gold)
+            except Exception as net_ex:
+                api_res = {"status": "error", "message": f"Network exception: {net_ex}"}
+
+            if api_res.get("status") != "ok":
+                err_msg = api_res.get("message") or api_res.get("status") or str(api_res)
+                # Payout rejected or failed: Rollback the atomic reservation!
+                rollback_ts = time.time()
+                cur.execute("""
+                    UPDATE cbm_accounts
+                    SET deposited_cents = deposited_cents + ?, updated_at = ?
+                    WHERE account_name = ?
+                """, (amount_cents, rollback_ts, account_name))
+                cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
+                conn_sq.commit()
+                if self.db.use_supabase:
+                    try:
+                        self.db._sb_request(
+                            "cbm_withdrawals",
+                            method="PATCH",
+                            params=f"?account_name=eq.{account_name}&status=eq.PENDING&amount_gold=eq.{amount_gold}",
+                            body={"status": "FAILED"}
+                        )
+                    except Exception as sb_err:
+                        print(f"[!] Supabase status update notice: {sb_err}")
+                return False, {"error": f"Territorial.io API rejected transfer: {err_msg}"}
+
+            # 3. Payout Succeeded: Finalize total_withdrawn_cents, ledger, and withdrawal status
+            cur.execute("SELECT deposited_cents, total_withdrawn_cents FROM cbm_accounts WHERE account_name = ?", (account_name,))
+            acc_row = cur.fetchone()
+            new_balance = acc_row["deposited_cents"] if acc_row else 0
+            total_withdrawn = ((acc_row["total_withdrawn_cents"] or 0) + amount_cents) if acc_row else amount_cents
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET total_withdrawn_cents = ?, updated_at = ?
+                WHERE account_name = ?
+            """, (total_withdrawn, now_ts, account_name))
+
+            # Add ledger record
+            tx_hash = f"W-{withdrawal_id}-{int(now_ts)}"
+            cur.execute("""
+                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                VALUES (?, 'WITHDRAWAL', ?, ?, ?, ?, ?)
+            """, (account_name, -amount_cents, new_balance, tx_hash, f"Withdrawal of {amount_gold} Gold to {target_account} (Game fee covered by Clan Bank)", now_ts))
+
+            cur.execute("UPDATE cbm_withdrawals SET status = 'EXECUTED', executed_at = ?, tx_id = ? WHERE id = ?", (now_ts, tx_hash, withdrawal_id))
+            conn_sq.commit()
+        finally:
             conn_sq.close()
-            if self.db.use_supabase:
-                try:
-                    self.db._sb_request(
-                        "cbm_withdrawals",
-                        method="PATCH",
-                        params=f"?account_name=eq.{account_name}&status=eq.PENDING&amount_gold=eq.{amount_gold}",
-                        body={"status": "FAILED"}
-                    )
-                except Exception as sb_err:
-                    print(f"[!] Supabase status update notice: {sb_err}")
-            return False, {"error": f"Territorial.io API rejected transfer: {err_msg}"}
-
-        # 3. Payout Succeeded: Finalize total_withdrawn_cents, ledger, and withdrawal status
-        cur.execute("SELECT deposited_cents, total_withdrawn_cents FROM cbm_accounts WHERE account_name = ?", (account_name,))
-        acc_row = cur.fetchone()
-        new_balance = acc_row["deposited_cents"] if acc_row else 0
-        total_withdrawn = ((acc_row["total_withdrawn_cents"] or 0) + amount_cents) if acc_row else amount_cents
-        cur.execute("""
-            UPDATE cbm_accounts
-            SET total_withdrawn_cents = ?, updated_at = ?
-            WHERE account_name = ?
-        """, (total_withdrawn, now_ts, account_name))
-
-        # Add ledger record
-        tx_hash = f"W-{withdrawal_id}-{int(now_ts)}"
-        cur.execute("""
-            INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
-            VALUES (?, 'WITHDRAWAL', ?, ?, ?, ?, ?)
-        """, (account_name, -amount_cents, new_balance, tx_hash, f"Withdrawal of {amount_gold} Gold to {target_account} (Game fee covered by Clan Bank)", now_ts))
-
-        cur.execute("UPDATE cbm_withdrawals SET status = 'EXECUTED', executed_at = ?, tx_id = ? WHERE id = ?", (now_ts, tx_hash, withdrawal_id))
-        conn_sq.commit()
-        conn_sq.close()
 
         # Supabase dual-write
         if self.db.use_supabase:

@@ -103,17 +103,24 @@ class CBMElectionWorker:
         and applies promotional quarantine holding.
         """
         now = time.time()
-        conn = self.db._get_sqlite_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT claim_id, cbm_username, voter_account, votes_count, gold_spent, reward_gold, reward_cents,
-                   COALESCE(baseline_admin_points, 0), COALESCE(expires_at, 0.0), created_at
-            FROM cbm_admin_votes
-            WHERE status IN ('PENDING', 'PENDING_REVIEW')
-            ORDER BY created_at ASC
-            LIMIT ?
-        """, (limit,))
-        pending = cur.fetchall()
+        conn = self.db.get_write_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT claim_id, cbm_username, voter_account, votes_count, gold_spent, reward_gold, reward_cents,
+                       COALESCE(baseline_admin_points, 0), COALESCE(expires_at, 0.0), created_at
+                FROM cbm_admin_votes
+                WHERE status IN ('PENDING', 'PENDING_REVIEW')
+                ORDER BY created_at ASC
+                LIMIT ?
+            """, (limit,))
+            pending = cur.fetchall()
+
+            # Total rewarded votes across active campaign
+            cur.execute("SELECT COALESCE(SUM(votes_count), 0) FROM cbm_admin_votes WHERE status = 'REWARDED'")
+            total_rewarded_votes = cur.fetchone()[0] or 0
+        finally:
+            conn.close()
 
         if not pending:
             return []
@@ -121,10 +128,6 @@ class CBMElectionWorker:
         # 1. Fetch live candidate telemetry
         telemetry = self.get_vault_election_telemetry(force_refresh=True)
         current_admin_points = int(telemetry.get("admin_points") or 0)
-
-        # Total rewarded votes across active campaign
-        cur.execute("SELECT COALESCE(SUM(votes_count), 0) FROM cbm_admin_votes WHERE status = 'REWARDED'")
-        total_rewarded_votes = cur.fetchone()[0] or 0
         uncredited_points = max(0, current_admin_points - total_rewarded_votes)
 
         # Recent transactions fallback stream

@@ -55,14 +55,25 @@ class CloudflareTunnelManager:
 
         # 3. Auto-download binary
         sys_os = platform.system()
-        sys_arch = platform.machine()
-        dl_url = DOWNLOAD_URLS.get((sys_os, sys_arch))
+        raw_arch = platform.machine()
+        sys_arch = raw_arch.lower()
+        if sys_arch in ("aarch64", "arm64", "armv8l", "armv8"):
+            norm_arch = "aarch64"
+        elif sys_arch in ("x86_64", "amd64", "x64"):
+            norm_arch = "x86_64" if sys_os == "Linux" else "AMD64"
+        else:
+            norm_arch = raw_arch
+
+        dl_url = DOWNLOAD_URLS.get((sys_os, norm_arch))
         if not dl_url:
             # Fallback for Linux architectures
             if sys_os == "Linux":
-                dl_url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+                if norm_arch == "aarch64":
+                    dl_url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
+                else:
+                    dl_url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
             else:
-                raise RuntimeError(f"Unsupported OS/Architecture for automated cloudflared download: {sys_os} {sys_arch}")
+                raise RuntimeError(f"Unsupported OS/Architecture for automated cloudflared download: {sys_os} {raw_arch}")
 
         print(f"[*] Downloading cloudflared binary for {sys_os} ({sys_arch})...")
         try:
@@ -147,6 +158,11 @@ class CloudflareTunnelManager:
         self.running = False
         if self.proc:
             try:
+                if self.proc.stdout:
+                    try:
+                        self.proc.stdout.close()
+                    except Exception:
+                        pass
                 self.proc.terminate()
                 self.proc.wait(timeout=3)
             except Exception:

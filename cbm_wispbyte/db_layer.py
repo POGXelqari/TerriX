@@ -112,6 +112,7 @@ class CBMDatabase:
         self._alias_cache: Dict[str, str] = {}
         self._alias_lock = threading.RLock()
         self._alias_cache_primed = False
+        self._recovery_lock = threading.Lock()
 
         self._init_sqlite()
         self._ensure_alias_cache_loaded()
@@ -126,43 +127,66 @@ class CBMDatabase:
         Self-healing quarantine: when a SQLite database file becomes corrupt or malformed,
         safely quarantines the bad file, unlinks orphaned WAL/SHM companion files,
         and allows a clean database to be re-initialized from scratch.
+        Thread-safe and guarded against transient busy/lock false-alarms via quick_check.
         """
-        print(f"[!] CRITICAL: SQLite database corruption detected ({reason}). Initiating automatic quarantine and recovery...")
-        
-        # Close any lingering connections on this thread
-        if hasattr(self, "_local") and hasattr(self._local, "conn") and self._local.conn:
+        recovery_lock = getattr(self, "_recovery_lock", None)
+        if recovery_lock is None:
+            self._recovery_lock = threading.Lock()
+            recovery_lock = self._recovery_lock
+
+        with recovery_lock:
+            db_path = self.sqlite_path
+            if not os.path.exists(db_path):
+                return
+
+            # Verification guard: verify whether database is actually corrupt or merely experienced a transient busy lock
             try:
-                self._local.conn.close()
+                test_conn = sqlite3.connect(db_path, timeout=1.0)
+                test_cur = test_conn.cursor()
+                test_cur.execute("PRAGMA quick_check;")
+                res = test_cur.fetchone()
+                test_conn.close()
+                if res and res[0] == "ok":
+                    print(f"[*] SQLite quick_check verified database is healthy ({res[0]}). Skipping destructive quarantine for notice: '{reason}'.")
+                    return
             except Exception:
                 pass
-            self._local.conn = None
 
-        db_path = self.sqlite_path
-        timestamp = int(time.time())
-        bak_path = f"{db_path}.corrupted.{timestamp}.bak"
+            print(f"[!] CRITICAL: SQLite database corruption confirmed ({reason}). Initiating automatic quarantine and recovery...")
 
-        # Attempt to quarantine the main database file
-        if os.path.exists(db_path):
-            try:
-                os.rename(db_path, bak_path)
-                print(f"[+] Quarantined corrupted database to: {bak_path}")
-            except Exception as ren_err:
-                print(f"[!] Could not rename corrupted database ({ren_err}), attempting unlink...")
+            # Close any lingering connections on this thread
+            if hasattr(self, "_local") and hasattr(self._local, "conn") and self._local.conn:
                 try:
-                    os.remove(db_path)
-                    print(f"[+] Unlinked corrupted database: {db_path}")
-                except Exception as rm_err:
-                    print(f"[!] Error removing corrupted database file: {rm_err}")
+                    self._local.conn.close()
+                except Exception:
+                    pass
+                self._local.conn = None
 
-        # Remove orphaned WAL and SHM files
-        for suffix in ["-wal", "-shm", "-journal"]:
-            sidecar = f"{db_path}{suffix}"
-            if os.path.exists(sidecar):
+            timestamp = int(time.time())
+            bak_path = f"{db_path}.corrupted.{timestamp}.bak"
+
+            # Attempt to quarantine the main database file
+            if os.path.exists(db_path):
                 try:
-                    os.remove(sidecar)
-                    print(f"[+] Removed orphaned SQLite sidecar file: {sidecar}")
-                except Exception as sidecar_err:
-                    print(f"[!] Could not remove {sidecar}: {sidecar_err}")
+                    os.rename(db_path, bak_path)
+                    print(f"[+] Quarantined corrupted database to: {bak_path}")
+                except Exception as ren_err:
+                    print(f"[!] Could not rename corrupted database ({ren_err}), attempting unlink...")
+                    try:
+                        os.remove(db_path)
+                        print(f"[+] Unlinked corrupted database: {db_path}")
+                    except Exception as rm_err:
+                        print(f"[!] Error removing corrupted database file: {rm_err}")
+
+            # Remove orphaned WAL and SHM files
+            for suffix in ["-wal", "-shm", "-journal"]:
+                sidecar = f"{db_path}{suffix}"
+                if os.path.exists(sidecar):
+                    try:
+                        os.remove(sidecar)
+                        print(f"[+] Removed orphaned SQLite sidecar file: {sidecar}")
+                    except Exception as sidecar_err:
+                        print(f"[!] Could not remove {sidecar}: {sidecar_err}")
 
     def _init_sqlite(self):
         """Initializes local SQLite schema with high-concurrency WAL mode, indexes, and corruption self-healing."""
@@ -636,7 +660,7 @@ class CBMDatabase:
                 conn = None
 
         try:
-            conn = sqlite3.connect(self.sqlite_path, timeout=30.0, check_same_thread=False)
+            conn = self.get_write_connection(timeout=30.0)
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA synchronous = NORMAL;")
             conn.execute("PRAGMA busy_timeout = 30000;")
@@ -656,7 +680,7 @@ class CBMDatabase:
                         self.sync_all_from_supabase(quiet=True)
                     except Exception:
                         pass
-                conn = sqlite3.connect(self.sqlite_path, timeout=30.0, check_same_thread=False)
+                conn = self.get_write_connection(timeout=30.0)
                 conn.execute("PRAGMA journal_mode = WAL;")
                 conn.execute("PRAGMA synchronous = NORMAL;")
                 conn.execute("PRAGMA busy_timeout = 30000;")
@@ -743,20 +767,13 @@ class CBMDatabase:
 
     def sync_all_from_supabase(self, quiet: bool = False) -> Dict[str, Any]:
         """
-        Comprehensive Bi-directional Synchronization:
-        Hydrates local SQLite from remote Supabase (cloud source of truth) for all core tables:
-        1. cbm_accounts
-        2. cbm_payment_methods
-        3. cbm_donations
-        4. cbm_loans
-        5. cbm_processed_txs
-        6. cbm_ledger
-        7. cbm_vault_snapshots
-        8. cbm_treasury
-        Ensures local zero-latency queries never suffer from desync or stale cache issues.
+        Pulls authoritative remote records from Supabase and hydrates local SQLite.
+        Optimized concurrency: Fetches all remote records via HTTP first WITHOUT
+        holding any SQLite locks, then executes local persistence in a fast,
+        isolated write transaction.
         """
         if not self.use_supabase:
-            return {"status": "skipped", "reason": "use_supabase is False"}
+            return {"status": "skipped", "reason": "Supabase credentials not configured"}
 
         # Prevent tests from mutating or polluting production sync
         if ("unittest" in sys.modules or "pytest" in sys.modules or os.environ.get("CBM_ENV") == "test") and not os.environ.get("ALLOW_LIVE_PROD_ACCESS"):
@@ -775,370 +792,366 @@ class CBMDatabase:
             "api_keys": 0
         }
 
+        def _parse_iso(val):
+            if not val:
+                return time.time()
+            if isinstance(val, (int, float)):
+                return float(val)
+            try:
+                clean = str(val).replace('Z', '+00:00')
+                import datetime
+                return datetime.datetime.fromisoformat(clean).timestamp()
+            except Exception:
+                return time.time()
+
         try:
-            conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
-            cur = conn.cursor()
+            # 1. Fetch remote data over HTTP without holding any SQLite connection
+            st_accs, accs = self._sb_request('cbm_accounts', 'GET', '?select=*')
+            st_pms, pms = self._sb_request('cbm_payment_methods', 'GET', '?select=*')
+            st_loans, loans = self._sb_request('cbm_loans', 'GET', '?select=*')
+            st_dons, dons = self._sb_request('cbm_donations', 'GET', '?select=*')
+            st_txs, txs = self._sb_request('cbm_processed_txs', 'GET', '?select=*&order=timestamp_ms.desc&limit=500')
+            st_ledger, ledger = self._sb_request('cbm_ledger', 'GET', '?select=*&order=created_at.desc&limit=500')
+            st_snaps, snaps = self._sb_request('cbm_vault_snapshots', 'GET', '?select=*&order=timestamp_epoch.desc&limit=1000')
+            st_tr, tr = self._sb_request('cbm_treasury', 'GET', '?id=eq.1&select=*')
+            st_wds, wds = self._sb_request('cbm_withdrawals', 'GET', '?select=*&order=created_at.desc&limit=200')
+            st_keys, keys = self._sb_request('cbm_api_keys', 'GET', '?select=*&order=created_at.desc&limit=200')
+            st_votes, votes = self._sb_request('cbm_admin_votes', 'GET', '?select=*&order=created_at.desc&limit=200')
 
-            def _parse_iso(val):
-                if not val:
-                    return time.time()
-                if isinstance(val, (int, float)):
-                    return float(val)
-                try:
-                    clean = str(val).replace('Z', '+00:00')
-                    import datetime
-                    return datetime.datetime.fromisoformat(clean).timestamp()
-                except Exception:
-                    return time.time()
+            # 2. Persist to SQLite in an isolated write transaction with 30s busy timeout
+            conn = self.get_write_connection()
+            try:
+                cur = conn.cursor()
 
-            # 1. Accounts
-            st, accs = self._sb_request('cbm_accounts', 'GET', '?select=*')
-            if st == 200 and isinstance(accs, list):
-                for a in accs:
-                    cur.execute("""
-                        INSERT INTO cbm_accounts (
-                            account_name, display_name, clan_tag, role, deposited_cents,
-                            total_deposited_cents, total_withdrawn_cents, created_at, updated_at,
-                            avatar_url, pin_hash, salt, is_verified, primary_territorial_account,
-                            password_hash, password_salt
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(account_name) DO UPDATE SET
-                            display_name = excluded.display_name,
-                            clan_tag = excluded.clan_tag,
-                            role = excluded.role,
-                            deposited_cents = excluded.deposited_cents,
-                            total_deposited_cents = excluded.total_deposited_cents,
-                            total_withdrawn_cents = excluded.total_withdrawn_cents,
-                            avatar_url = excluded.avatar_url,
-                            pin_hash = COALESCE(excluded.pin_hash, cbm_accounts.pin_hash),
-                            salt = COALESCE(excluded.salt, cbm_accounts.salt),
-                            is_verified = excluded.is_verified,
-                            primary_territorial_account = excluded.primary_territorial_account,
-                            password_hash = COALESCE(excluded.password_hash, cbm_accounts.password_hash),
-                            password_salt = COALESCE(excluded.password_salt, cbm_accounts.password_salt),
-                            updated_at = excluded.updated_at
-                    """, (
-                        a.get('account_name'),
-                        a.get('display_name'),
-                        a.get('clan_tag', 'ANTI-OG'),
-                        a.get('role', 'member'),
-                        int(a.get('deposited_cents') or 0),
-                        int(a.get('total_deposited_cents') or 0),
-                        int(a.get('total_withdrawn_cents') or 0),
-                        _parse_iso(a.get('created_at')),
-                        _parse_iso(a.get('updated_at')),
-                        a.get('avatar_url', ''),
-                        a.get('pin_hash'),
-                        a.get('salt'),
-                        1 if a.get('is_verified') else 0,
-                        a.get('primary_territorial_account'),
-                        a.get('password_hash'),
-                        a.get('password_salt')
-                    ))
-                    self._do_index_account_aliases(a.get('account_name'), a.get('display_name'), a.get('primary_territorial_account'))
-                    stats["accounts"] += 1
-                conn.commit()
-
-            # 2. Payment Methods
-            st, pms = self._sb_request('cbm_payment_methods', 'GET', '?select=*')
-            if st == 200 and isinstance(pms, list):
-                for p in pms:
-                    cur.execute("""
-                        INSERT INTO cbm_payment_methods (
-                            cbm_username, territorial_account_name, territorial_password,
-                            display_name, verification_type, status, is_primary,
-                            total_transacted_gold, linked_at, last_used_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(territorial_account_name) DO UPDATE SET
-                            cbm_username = excluded.cbm_username,
-                            territorial_password = COALESCE(excluded.territorial_password, cbm_payment_methods.territorial_password),
-                            display_name = excluded.display_name,
-                            verification_type = excluded.verification_type,
-                            status = excluded.status,
-                            is_primary = excluded.is_primary,
-                            total_transacted_gold = excluded.total_transacted_gold,
-                            last_used_at = excluded.last_used_at
-                    """, (
-                        p.get('cbm_username'),
-                        p.get('territorial_account_name'),
-                        p.get('territorial_password', ''),
-                        p.get('display_name', ''),
-                        p.get('verification_type', 'INPUT_CREDENTIALS'),
-                        p.get('status', 'VERIFIED'),
-                        1 if p.get('is_primary') else 0,
-                        float(p.get('total_transacted_gold') or 0.0),
-                        _parse_iso(p.get('linked_at')),
-                        _parse_iso(p.get('last_used_at'))
-                    ))
-                    self._do_index_account_aliases(p.get('cbm_username'), p.get('display_name'), p.get('territorial_account_name'))
-                    stats["payment_methods"] += 1
-                conn.commit()
-
-            # 3. Loans
-            st, loans = self._sb_request('cbm_loans', 'GET', '?select=*')
-            if st == 200 and isinstance(loans, list):
-                for l in loans:
-                    l_id = l.get('id')
-                    cur.execute("SELECT 1 FROM cbm_loans WHERE id = ?", (l_id,))
-                    if cur.fetchone():
+                # Accounts
+                if st_accs == 200 and isinstance(accs, list):
+                    for a in accs:
                         cur.execute("""
-                            UPDATE cbm_loans
-                            SET status = ?, repaid_cents = ?, penalty_cents = ?,
-                                credential_status = ?, last_credential_check_at = ?,
-                                seizure_attempts = ?, updated_at = ?
-                            WHERE id = ?
+                            INSERT INTO cbm_accounts (
+                                account_name, display_name, clan_tag, role, deposited_cents,
+                                total_deposited_cents, total_withdrawn_cents, created_at, updated_at,
+                                avatar_url, pin_hash, salt, is_verified, primary_territorial_account,
+                                password_hash, password_salt
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(account_name) DO UPDATE SET
+                                display_name = excluded.display_name,
+                                clan_tag = excluded.clan_tag,
+                                role = excluded.role,
+                                deposited_cents = excluded.deposited_cents,
+                                total_deposited_cents = excluded.total_deposited_cents,
+                                total_withdrawn_cents = excluded.total_withdrawn_cents,
+                                avatar_url = excluded.avatar_url,
+                                pin_hash = COALESCE(excluded.pin_hash, cbm_accounts.pin_hash),
+                                salt = COALESCE(excluded.salt, cbm_accounts.salt),
+                                is_verified = excluded.is_verified,
+                                primary_territorial_account = excluded.primary_territorial_account,
+                                password_hash = COALESCE(excluded.password_hash, cbm_accounts.password_hash),
+                                password_salt = COALESCE(excluded.password_salt, cbm_accounts.password_salt),
+                                updated_at = excluded.updated_at
                         """, (
-                            l.get('status', 'ACTIVE'),
-                            int(l.get('repaid_cents') or 0),
-                            int(l.get('penalty_cents') or 0),
-                            l.get('credential_status', 'VALID'),
-                            _parse_iso(l.get('last_credential_check_at')),
-                            int(l.get('seizure_attempts') or 0),
-                            _parse_iso(l.get('updated_at')),
-                            l_id
+                            a.get('account_name'),
+                            a.get('display_name'),
+                            a.get('clan_tag', 'ANTI-OG'),
+                            a.get('role', 'member'),
+                            int(a.get('deposited_cents') or 0),
+                            int(a.get('total_deposited_cents') or 0),
+                            int(a.get('total_withdrawn_cents') or 0),
+                            _parse_iso(a.get('created_at')),
+                            _parse_iso(a.get('updated_at')),
+                            a.get('avatar_url', ''),
+                            a.get('pin_hash'),
+                            a.get('salt'),
+                            1 if a.get('is_verified') else 0,
+                            a.get('primary_territorial_account'),
+                            a.get('password_hash'),
+                            a.get('password_salt')
                         ))
-                    else:
-                        cur.execute("""
-                            INSERT INTO cbm_loans (
-                                id, account_name, principal_gold, interest_rate_percent, penalty_interest_rate,
-                                term_days, due_at, repaid_cents, penalty_cents, status,
-                                borrower_territorial_account, territorial_password, credential_status,
-                                last_credential_check_at, seizure_attempts, created_at, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            l_id,
-                            l.get('account_name'),
-                            int(l.get('principal_gold') or 0),
-                            float(l.get('interest_rate_percent') or 0.0),
-                            float(l.get('penalty_interest_rate') or 50.0),
-                            int(l.get('term_days') or 14),
-                            _parse_iso(l.get('due_at')),
-                            int(l.get('repaid_cents') or 0),
-                            int(l.get('penalty_cents') or 0),
-                            l.get('status', 'ACTIVE'),
-                            l.get('borrower_territorial_account', ''),
-                            l.get('territorial_password', ''),
-                            l.get('credential_status', 'VALID'),
-                            _parse_iso(l.get('last_credential_check_at')),
-                            int(l.get('seizure_attempts') or 0),
-                            _parse_iso(l.get('created_at')),
-                            _parse_iso(l.get('updated_at'))
-                        ))
-                    stats["loans"] += 1
-                conn.commit()
+                        self._do_index_account_aliases(a.get('account_name'), a.get('display_name'), a.get('primary_territorial_account'))
+                        stats["accounts"] += 1
 
-            # 4. Donations
-            st, dons = self._sb_request('cbm_donations', 'GET', '?select=*')
-            if st == 200 and isinstance(dons, list):
-                for d in dons:
-                    cur.execute("SELECT 1 FROM cbm_donations WHERE tx_hash = ? AND amount_cents = ?", (d.get('tx_hash'), int(d.get('amount_cents', 0))))
-                    if not cur.fetchone():
+                # Payment Methods
+                if st_pms == 200 and isinstance(pms, list):
+                    for p in pms:
                         cur.execute("""
-                            INSERT INTO cbm_donations (
-                                donor_name, territorial_account, amount_gold, amount_cents,
-                                message, source, tx_hash, is_refundable, status, created_at
+                            INSERT INTO cbm_payment_methods (
+                                cbm_username, territorial_account_name, territorial_password,
+                                display_name, verification_type, status, is_primary,
+                                total_transacted_gold, linked_at, last_used_at
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(territorial_account_name) DO UPDATE SET
+                                cbm_username = excluded.cbm_username,
+                                territorial_password = COALESCE(excluded.territorial_password, cbm_payment_methods.territorial_password),
+                                display_name = excluded.display_name,
+                                verification_type = excluded.verification_type,
+                                status = excluded.status,
+                                is_primary = excluded.is_primary,
+                                total_transacted_gold = excluded.total_transacted_gold,
+                                last_used_at = excluded.last_used_at
                         """, (
-                            d.get('donor_name', ''),
-                            d.get('territorial_account', ''),
-                            float(d.get('amount_gold', 0.0)),
-                            int(d.get('amount_cents', 0)),
-                            d.get('message', ''),
-                            d.get('source', 'BALANCE'),
-                            d.get('tx_hash', ''),
-                            1 if d.get('is_refundable') else 0,
-                            d.get('status', 'IRREVOCABLE'),
-                            _parse_iso(d.get('created_at'))
+                            p.get('cbm_username'),
+                            p.get('territorial_account_name'),
+                            p.get('territorial_password', ''),
+                            p.get('display_name', ''),
+                            p.get('verification_type', 'INPUT_CREDENTIALS'),
+                            p.get('status', 'VERIFIED'),
+                            1 if p.get('is_primary') else 0,
+                            float(p.get('total_transacted_gold') or 0.0),
+                            _parse_iso(p.get('linked_at')),
+                            _parse_iso(p.get('last_used_at'))
                         ))
-                        stats["donations"] += 1
-                conn.commit()
+                        self._do_index_account_aliases(p.get('cbm_username'), p.get('display_name'), p.get('territorial_account_name'))
+                        stats["payment_methods"] += 1
 
-            # 5. Processed Txs
-            st, txs = self._sb_request('cbm_processed_txs', 'GET', '?select=*&order=timestamp_ms.desc&limit=500')
-            if st == 200 and isinstance(txs, list):
-                for t in txs:
-                    cur.execute("""
-                        INSERT OR IGNORE INTO cbm_processed_txs (
-                            tx_id, timestamp_ms, sender, receiver, amount_gold, fee_gold, credited_account, processed_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        t.get('tx_id'),
-                        int(t.get('timestamp_ms') or 0),
-                        t.get('sender') or t.get('sender_account', ''),
-                        t.get('receiver') or t.get('receiver_account', ''),
-                        float(t.get('amount_gold') or 0.0),
-                        float(t.get('fee_gold') or 0.0),
-                        t.get('credited_account', ''),
-                        _parse_iso(t.get('processed_at'))
-                    ))
-                    stats["processed_txs"] += 1
-                conn.commit()
+                # Loans
+                if st_loans == 200 and isinstance(loans, list):
+                    for l in loans:
+                        l_id = l.get('id')
+                        cur.execute("SELECT 1 FROM cbm_loans WHERE id = ?", (l_id,))
+                        if cur.fetchone():
+                            cur.execute("""
+                                UPDATE cbm_loans
+                                SET status = ?, repaid_cents = ?, penalty_cents = ?,
+                                    credential_status = ?, last_credential_check_at = ?,
+                                    seizure_attempts = ?, updated_at = ?
+                                WHERE id = ?
+                            """, (
+                                l.get('status', 'ACTIVE'),
+                                int(l.get('repaid_cents') or 0),
+                                int(l.get('penalty_cents') or 0),
+                                l.get('credential_status', 'VALID'),
+                                _parse_iso(l.get('last_credential_check_at')),
+                                int(l.get('seizure_attempts') or 0),
+                                _parse_iso(l.get('updated_at')),
+                                l_id
+                            ))
+                        else:
+                            cur.execute("""
+                                INSERT INTO cbm_loans (
+                                    id, account_name, principal_gold, interest_rate_percent, penalty_interest_rate,
+                                    term_days, due_at, repaid_cents, penalty_cents, status,
+                                    borrower_territorial_account, territorial_password, credential_status,
+                                    last_credential_check_at, seizure_attempts, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                l_id,
+                                l.get('account_name'),
+                                int(l.get('principal_gold') or 0),
+                                float(l.get('interest_rate_percent') or 0.0),
+                                float(l.get('penalty_interest_rate') or 50.0),
+                                int(l.get('term_days') or 14),
+                                _parse_iso(l.get('due_at')),
+                                int(l.get('repaid_cents') or 0),
+                                int(l.get('penalty_cents') or 0),
+                                l.get('status', 'ACTIVE'),
+                                l.get('borrower_territorial_account', ''),
+                                l.get('territorial_password', ''),
+                                l.get('credential_status', 'VALID'),
+                                _parse_iso(l.get('last_credential_check_at')),
+                                int(l.get('seizure_attempts') or 0),
+                                _parse_iso(l.get('created_at')),
+                                _parse_iso(l.get('updated_at'))
+                            ))
+                        stats["loans"] += 1
 
-            # 6. Ledger
-            st, ledger = self._sb_request('cbm_ledger', 'GET', '?select=*&order=created_at.desc&limit=500')
-            if st == 200 and isinstance(ledger, list):
-                for l in ledger:
-                    cur.execute("SELECT 1 FROM cbm_ledger WHERE tx_hash = ? AND entry_type = ?", (l.get('tx_hash'), l.get('entry_type')))
-                    if not cur.fetchone():
+                # Donations
+                if st_dons == 200 and isinstance(dons, list):
+                    for d in dons:
+                        cur.execute("SELECT 1 FROM cbm_donations WHERE tx_hash = ? AND amount_cents = ?", (d.get('tx_hash'), int(d.get('amount_cents', 0))))
+                        if not cur.fetchone():
+                            cur.execute("""
+                                INSERT INTO cbm_donations (
+                                    donor_name, territorial_account, amount_gold, amount_cents,
+                                    message, source, tx_hash, is_refundable, status, created_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                d.get('donor_name', ''),
+                                d.get('territorial_account', ''),
+                                float(d.get('amount_gold', 0.0)),
+                                int(d.get('amount_cents', 0)),
+                                d.get('message', ''),
+                                d.get('source', 'BALANCE'),
+                                d.get('tx_hash', ''),
+                                1 if d.get('is_refundable') else 0,
+                                d.get('status', 'IRREVOCABLE'),
+                                _parse_iso(d.get('created_at'))
+                            ))
+                            stats["donations"] += 1
+
+                # Processed Txs
+                if st_txs == 200 and isinstance(txs, list):
+                    for t in txs:
                         cur.execute("""
-                            INSERT INTO cbm_ledger (
-                                account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            INSERT OR IGNORE INTO cbm_processed_txs (
+                                tx_id, timestamp_ms, sender, receiver, amount_gold, fee_gold, credited_account, processed_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
-                            l.get('account_name'),
-                            l.get('entry_type'),
-                            int(l.get('amount_cents') or 0),
-                            int(l.get('balance_after_cents') or 0),
-                            l.get('tx_hash', ''),
-                            l.get('notes', ''),
-                            _parse_iso(l.get('created_at'))
+                            t.get('tx_id'),
+                            int(t.get('timestamp_ms') or 0),
+                            t.get('sender') or t.get('sender_account', ''),
+                            t.get('receiver') or t.get('receiver_account', ''),
+                            float(t.get('amount_gold') or 0.0),
+                            float(t.get('fee_gold') or 0.0),
+                            t.get('credited_account', ''),
+                            _parse_iso(t.get('processed_at'))
                         ))
-                        stats["ledger"] += 1
-                conn.commit()
+                        stats["processed_txs"] += 1
 
-            # 7. Vault Snapshots
-            st, snaps = self._sb_request('cbm_vault_snapshots', 'GET', '?select=*&order=timestamp_epoch.desc&limit=1000')
-            if st == 200 and isinstance(snaps, list):
-                for s in snaps:
-                    cur.execute("SELECT 1 FROM cbm_vault_snapshots WHERE timestamp_epoch = ?", (float(s.get('timestamp_epoch', 0)),))
-                    if not cur.fetchone():
+                # Ledger
+                if st_ledger == 200 and isinstance(ledger, list):
+                    for l in ledger:
+                        cur.execute("SELECT 1 FROM cbm_ledger WHERE tx_hash = ? AND entry_type = ?", (l.get('tx_hash'), l.get('entry_type')))
+                        if not cur.fetchone():
+                            cur.execute("""
+                                INSERT INTO cbm_ledger (
+                                    account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                l.get('account_name'),
+                                l.get('entry_type'),
+                                int(l.get('amount_cents') or 0),
+                                int(l.get('balance_after_cents') or 0),
+                                l.get('tx_hash', ''),
+                                l.get('notes', ''),
+                                _parse_iso(l.get('created_at'))
+                            ))
+                            stats["ledger"] += 1
+
+                # Vault Snapshots
+                if st_snaps == 200 and isinstance(snaps, list):
+                    for s in snaps:
+                        cur.execute("SELECT 1 FROM cbm_vault_snapshots WHERE timestamp_epoch = ?", (float(s.get('timestamp_epoch', 0)),))
+                        if not cur.fetchone():
+                            cur.execute("""
+                                INSERT INTO cbm_vault_snapshots (
+                                    timestamp_epoch, vault_total_gold, unencumbered_reserves_gold,
+                                    member_liabilities_gold, inflow_period_gold, outflow_period_gold,
+                                    net_flow_gold, tx_count_period, created_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                float(s.get('timestamp_epoch', 0.0)),
+                                float(s.get('vault_total_gold', 0.0)),
+                                float(s.get('unencumbered_reserves_gold', 0.0)),
+                                float(s.get('member_liabilities_gold', 0.0)),
+                                float(s.get('inflow_period_gold', 0.0)),
+                                float(s.get('outflow_period_gold', 0.0)),
+                                float(s.get('net_flow_gold', 0.0)),
+                                int(s.get('tx_count_period', 0)),
+                                _parse_iso(s.get('created_at'))
+                            ))
+                            stats["snapshots"] += 1
+
+                # Treasury
+                if st_tr == 200 and isinstance(tr, list) and tr:
+                    t = tr[0]
+                    cur.execute("""
+                        UPDATE cbm_treasury
+                        SET vault_total_gold_cents = ?,
+                            member_liabilities_cents = ?,
+                            bank_reserves_cents = ?,
+                            unencumbered_capital_cents = ?,
+                            loan_penalties_cents = ?,
+                            last_sync_at = ?
+                        WHERE id = 1
+                    """, (
+                        int(t.get('vault_total_gold_cents') or 0),
+                        int(t.get('member_liabilities_cents') or 0),
+                        int(t.get('bank_reserves_cents') or 0),
+                        int(t.get('unencumbered_capital_cents') or 0),
+                        int(t.get('loan_penalties_cents') or 0),
+                        _parse_iso(t.get('last_sync_at'))
+                    ))
+                    stats["treasury"] = True
+
+                # Withdrawals
+                if st_wds == 200 and isinstance(wds, list):
+                    for w in wds:
+                        acc = w.get('account_name')
+                        tgt = w.get('target_account') or acc
+                        amt = int(w.get('amount_gold') or 0)
+                        status = w.get('status', 'PENDING')
+                        tx_id = w.get('tx_id')
+                        c_at = _parse_iso(w.get('created_at'))
+                        e_at = _parse_iso(w.get('executed_at')) if w.get('executed_at') else None
+                        cur.execute("SELECT id FROM cbm_withdrawals WHERE account_name = ? AND target_account = ? AND amount_gold = ? AND ABS(created_at - ?) < 5", (acc, tgt, amt, c_at))
+                        existing = cur.fetchone()
+                        if existing:
+                            cur.execute("UPDATE cbm_withdrawals SET status = ?, tx_id = ?, executed_at = ? WHERE id = ?", (status, tx_id, e_at, existing[0]))
+                        else:
+                            cur.execute("""
+                                INSERT INTO cbm_withdrawals (
+                                    account_name, target_account, amount_gold, fee_cents,
+                                    status, tx_id, created_at, executed_at
+                                ) VALUES (?, ?, ?, 0, ?, ?, ?, ?)
+                            """, (acc, tgt, amt, status, tx_id, c_at, e_at))
+                            stats["withdrawals"] += 1
+
+                # API Keys
+                if st_keys == 200 and isinstance(keys, list):
+                    for k in keys:
                         cur.execute("""
-                            INSERT INTO cbm_vault_snapshots (
-                                timestamp_epoch, vault_total_gold, unencumbered_reserves_gold,
-                                member_liabilities_gold, inflow_period_gold, outflow_period_gold,
-                                net_flow_gold, tx_count_period, created_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            INSERT INTO cbm_api_keys (
+                                key_id, key_hash, key_prefix, app_name, owner_account,
+                                environment, scopes, rate_limit_rpm, total_requests,
+                                credits_consumed_gold, is_active, created_at, last_used_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(key_id) DO UPDATE SET
+                                app_name = excluded.app_name,
+                                scopes = excluded.scopes,
+                                rate_limit_rpm = excluded.rate_limit_rpm,
+                                total_requests = excluded.total_requests,
+                                credits_consumed_gold = excluded.credits_consumed_gold,
+                                is_active = excluded.is_active,
+                                last_used_at = excluded.last_used_at
                         """, (
-                            float(s.get('timestamp_epoch', 0.0)),
-                            float(s.get('vault_total_gold', 0.0)),
-                            float(s.get('unencumbered_reserves_gold', 0.0)),
-                            float(s.get('member_liabilities_gold', 0.0)),
-                            float(s.get('inflow_period_gold', 0.0)),
-                            float(s.get('outflow_period_gold', 0.0)),
-                            float(s.get('net_flow_gold', 0.0)),
-                            int(s.get('tx_count_period', 0)),
-                            _parse_iso(s.get('created_at'))
+                            k.get('key_id'),
+                            k.get('key_hash'),
+                            k.get('key_prefix'),
+                            k.get('app_name', 'Default App'),
+                            k.get('owner_account'),
+                            k.get('environment', 'live'),
+                            k.get('scopes', 'read:bank,read:members'),
+                            int(k.get('rate_limit_rpm') or 60),
+                            int(k.get('total_requests') or 0),
+                            float(k.get('credits_consumed_gold') or 0.0),
+                            1 if k.get('is_active') else 0,
+                            _parse_iso(k.get('created_at')),
+                            _parse_iso(k.get('last_used_at')) if k.get('last_used_at') else None
                         ))
-                        stats["snapshots"] += 1
-                conn.commit()
+                        stats["api_keys"] += 1
 
-            # 8. Treasury
-            st, tr = self._sb_request('cbm_treasury', 'GET', '?id=eq.1&select=*')
-            if st == 200 and isinstance(tr, list) and tr:
-                t = tr[0]
-                cur.execute("""
-                    UPDATE cbm_treasury
-                    SET vault_total_gold_cents = ?,
-                        member_liabilities_cents = ?,
-                        bank_reserves_cents = ?,
-                        unencumbered_capital_cents = ?,
-                        loan_penalties_cents = ?,
-                        last_sync_at = ?
-                    WHERE id = 1
-                """, (
-                    int(t.get('vault_total_gold_cents') or 0),
-                    int(t.get('member_liabilities_cents') or 0),
-                    int(t.get('bank_reserves_cents') or 0),
-                    int(t.get('unencumbered_capital_cents') or 0),
-                    int(t.get('loan_penalties_cents') or 0),
-                    _parse_iso(t.get('last_sync_at'))
-                ))
-                stats["treasury"] = True
-                conn.commit()
-
-            # 9. Withdrawals
-            st, wds = self._sb_request('cbm_withdrawals', 'GET', '?select=*&order=created_at.desc&limit=200')
-            if st == 200 and isinstance(wds, list):
-                for w in wds:
-                    acc = w.get('account_name')
-                    tgt = w.get('target_account') or acc
-                    amt = int(w.get('amount_gold') or 0)
-                    status = w.get('status', 'PENDING')
-                    tx_id = w.get('tx_id')
-                    c_at = _parse_iso(w.get('created_at'))
-                    e_at = _parse_iso(w.get('executed_at')) if w.get('executed_at') else None
-                    cur.execute("SELECT id FROM cbm_withdrawals WHERE account_name = ? AND target_account = ? AND amount_gold = ? AND ABS(created_at - ?) < 5", (acc, tgt, amt, c_at))
-                    existing = cur.fetchone()
-                    if existing:
-                        cur.execute("UPDATE cbm_withdrawals SET status = ?, tx_id = ?, executed_at = ? WHERE id = ?", (status, tx_id, e_at, existing[0]))
-                    else:
+                # Admin Election Votes
+                if st_votes == 200 and isinstance(votes, list):
+                    for v in votes:
                         cur.execute("""
-                            INSERT INTO cbm_withdrawals (
-                                account_name, target_account, amount_gold, fee_cents,
-                                status, tx_id, created_at, executed_at
-                            ) VALUES (?, ?, ?, 0, ?, ?, ?, ?)
-                        """, (acc, tgt, amt, status, tx_id, c_at, e_at))
-                        stats["withdrawals"] += 1
-                conn.commit()
+                            INSERT INTO cbm_admin_votes (
+                                claim_id, cbm_username, voter_account, target_account,
+                                votes_count, gold_spent, reward_gold, reward_cents,
+                                status, rejection_reason, verified_at, created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(claim_id) DO UPDATE SET
+                                status = excluded.status,
+                                rejection_reason = excluded.rejection_reason,
+                                verified_at = excluded.verified_at
+                        """, (
+                            v.get('claim_id'),
+                            v.get('cbm_username'),
+                            v.get('voter_account'),
+                            v.get('target_account', 'DdcBC'),
+                            int(v.get('votes_count') or 0),
+                            float(v.get('gold_spent') or 0.0),
+                            float(v.get('reward_gold') or 0.0),
+                            int(v.get('reward_cents') or 0),
+                            v.get('status', 'PENDING'),
+                            v.get('rejection_reason'),
+                            _parse_iso(v.get('verified_at')) if v.get('verified_at') else None,
+                            _parse_iso(v.get('created_at'))
+                        ))
+                        stats["admin_votes"] = stats.get("admin_votes", 0) + 1
 
-            # 10. API Keys
-            st, keys = self._sb_request('cbm_api_keys', 'GET', '?select=*&order=created_at.desc&limit=200')
-            if st == 200 and isinstance(keys, list):
-                for k in keys:
-                    cur.execute("""
-                        INSERT INTO cbm_api_keys (
-                            key_id, key_hash, key_prefix, app_name, owner_account,
-                            environment, scopes, rate_limit_rpm, total_requests,
-                            credits_consumed_gold, is_active, created_at, last_used_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(key_id) DO UPDATE SET
-                            app_name = excluded.app_name,
-                            scopes = excluded.scopes,
-                            rate_limit_rpm = excluded.rate_limit_rpm,
-                            total_requests = excluded.total_requests,
-                            credits_consumed_gold = excluded.credits_consumed_gold,
-                            is_active = excluded.is_active,
-                            last_used_at = excluded.last_used_at
-                    """, (
-                        k.get('key_id'),
-                        k.get('key_hash'),
-                        k.get('key_prefix'),
-                        k.get('app_name', 'Default App'),
-                        k.get('owner_account'),
-                        k.get('environment', 'live'),
-                        k.get('scopes', 'read:bank,read:members'),
-                        int(k.get('rate_limit_rpm') or 60),
-                        int(k.get('total_requests') or 0),
-                        float(k.get('credits_consumed_gold') or 0.0),
-                        1 if k.get('is_active') else 0,
-                        _parse_iso(k.get('created_at')),
-                        _parse_iso(k.get('last_used_at')) if k.get('last_used_at') else None
-                    ))
-                    stats["api_keys"] += 1
                 conn.commit()
+            finally:
+                conn.close()
 
-            # 11. Admin Election Votes
-            st, votes = self._sb_request('cbm_admin_votes', 'GET', '?select=*&order=created_at.desc&limit=200')
-            if st == 200 and isinstance(votes, list):
-                for v in votes:
-                    cur.execute("""
-                        INSERT INTO cbm_admin_votes (
-                            claim_id, cbm_username, voter_account, target_account,
-                            votes_count, gold_spent, reward_gold, reward_cents,
-                            status, rejection_reason, verified_at, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(claim_id) DO UPDATE SET
-                            status = excluded.status,
-                            rejection_reason = excluded.rejection_reason,
-                            verified_at = excluded.verified_at
-                    """, (
-                        v.get('claim_id'),
-                        v.get('cbm_username'),
-                        v.get('voter_account'),
-                        v.get('target_account', 'DdcBC'),
-                        int(v.get('votes_count') or 0),
-                        float(v.get('gold_spent') or 0.0),
-                        float(v.get('reward_gold') or 0.0),
-                        int(v.get('reward_cents') or 0),
-                        v.get('status', 'PENDING'),
-                        v.get('rejection_reason'),
-                        _parse_iso(v.get('verified_at')) if v.get('verified_at') else None,
-                        _parse_iso(v.get('created_at'))
-                    ))
-                    stats["admin_votes"] = stats.get("admin_votes", 0) + 1
-                conn.commit()
-
-            conn.close()
             if not quiet:
                 print(f"[✓] Supabase bi-directional sync completed: {stats}")
             return {"status": "ok", "stats": stats}
@@ -1172,7 +1185,7 @@ class CBMDatabase:
     def record_processed_tx(self, tx_id: str, timestamp_ms: int, sender: str, receiver: str, amount_gold: float, fee_gold: float, credited_account: Optional[str] = None):
         now = time.time()
         # 1. Local ACID SQLite persistence
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT OR IGNORE INTO cbm_processed_txs (tx_id, timestamp_ms, sender, receiver, amount_gold, fee_gold, credited_account, processed_at)
@@ -1620,7 +1633,7 @@ class CBMDatabase:
                 }
                 self._sb_request("cbm_accounts", method="POST", body=insert_data, upsert=True)
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO cbm_accounts (account_name, display_name, pin_hash, salt, is_verified, created_at, updated_at)
@@ -1707,7 +1720,7 @@ class CBMDatabase:
                     break
 
         if not verified:
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             cur = conn.cursor()
             for s in candidate_senders:
                 cur.execute("SELECT 1 FROM cbm_processed_txs WHERE sender = ? AND receiver = ?", (s, self.vault_account))
@@ -1728,7 +1741,7 @@ class CBMDatabase:
                     verified = True
 
             if not verified:
-                conn = sqlite3.connect(self.sqlite_path)
+                conn = self.get_write_connection()
                 cur = conn.cursor()
                 try:
                     cur.execute("SELECT 1 FROM cbm_payment_methods WHERE cbm_username = ? AND status = 'VERIFIED'", (canonical_name,))
@@ -1746,7 +1759,7 @@ class CBMDatabase:
         if verified:
             if self.use_supabase:
                 self._sb_request("cbm_accounts", method="PATCH", params=f"?account_name=eq.{canonical_name}", body={"is_verified": True})
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             cur = conn.cursor()
             cur.execute("UPDATE cbm_accounts SET is_verified = 1 WHERE account_name = ?", (canonical_name,))
             conn.commit()
@@ -1873,7 +1886,7 @@ class CBMDatabase:
             self._sb_request("cbm_accounts", method="POST", body=acc_data, upsert=True)
 
         # Save to SQLite
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO cbm_accounts (
@@ -1948,7 +1961,7 @@ class CBMDatabase:
                 body=updates
             )
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         set_clauses = [f"{k} = ?" for k in updates.keys()]
         values = list(updates.values()) + [canonical_name]
@@ -1981,7 +1994,7 @@ class CBMDatabase:
             if status in (200, 201) and isinstance(res, list) and res:
                 return res[0]
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT OR IGNORE INTO cbm_accounts (account_name, display_name, clan_tag, role, deposited_cents, total_deposited_cents, total_withdrawn_cents, created_at, updated_at)
@@ -2019,7 +2032,7 @@ class CBMDatabase:
                 body={"display_name": new_name, "avatar_url": new_avatar}
             )
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             UPDATE cbm_accounts
@@ -2056,7 +2069,7 @@ class CBMDatabase:
         enc_pwd = encrypt_credential(territorial_password) if territorial_password else ""
 
         # 1. Always record in local SQLite
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO cbm_loans (
@@ -2112,7 +2125,7 @@ class CBMDatabase:
         ledger_note = f"Loan disbursement: {principal_gold} Gold (14-day return window, 50% penalty interest on default)"
 
         # 1. Update SQLite
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance, now, account_name))
         cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_DISBURSEMENT', ?, ?, ?, ?, ?)", (account_name, principal_cents, new_balance, tx_hash, ledger_note, now))
@@ -2212,7 +2225,7 @@ class CBMDatabase:
             body["last_seizure_attempt_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last_seizure_attempt_at))
 
         # 1. Update SQLite
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         set_clauses = ["status = ?", "penalty_cents = ?", "updated_at = ?"]
         params: list = [status, penalty_cents, now]
@@ -2326,7 +2339,7 @@ class CBMDatabase:
         ledger_note = f"Voluntary loan repayment: {repay_amount / 100.0:.2f} Gold toward {target_loan.get('principal_gold')} Gold loan (Status: {new_status})"
 
         # 1. Update SQLite
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance, now, acc_key))
         cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (acc_key, repay_amount, new_balance, tx_hash, ledger_note, now))
@@ -2379,7 +2392,7 @@ class CBMDatabase:
                 loans = res
 
         if not loans:
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             cur.execute("SELECT * FROM cbm_loans WHERE status IN ('ACTIVE', 'OVERDUE')")
@@ -2443,7 +2456,7 @@ class CBMDatabase:
                     tx_hash = f"breach_{acc_name}_{int(now)}"
 
                     # 1. Update SQLite
-                    conn = sqlite3.connect(self.sqlite_path)
+                    conn = self.get_write_connection()
                     cur = conn.cursor()
                     cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_PENALTY', ?, 0, ?, ?, ?)", (acc_name, penalty_cents, tx_hash, ledger_note, now))
                     conn.commit()
@@ -2497,7 +2510,7 @@ class CBMDatabase:
         """
         import math
         now = time.time()
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT * FROM cbm_loans WHERE id = ?", (loan_id,))
@@ -2593,7 +2606,7 @@ class CBMDatabase:
             note = f"Automated in-game gold recovery: {total_seized_gold} Gold seized from borrower account to Vault '{self.vault_account}'"
 
             # 1. Update SQLite
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             cur = conn.cursor()
             cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (acc_name, seized_cents, 0, tx_hash, note, now))
             conn.commit()
@@ -2624,7 +2637,7 @@ class CBMDatabase:
     def set_account_role(self, account_name: str, role: str):
         now = time.time()
         # 1. Update SQLite
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("UPDATE cbm_accounts SET role = ?, updated_at = ? WHERE account_name = ?", (role, now, account_name))
         conn.commit()
@@ -2678,7 +2691,7 @@ class CBMDatabase:
                 ledger_note = f"Forced balance garnishment: {garnish_cents / 100.0:.2f} Gold (50% overdue loan penalty, 20.00 Gold buffer protected)"
 
                 # 1. Update SQLite
-                conn = sqlite3.connect(self.sqlite_path)
+                conn = self.get_write_connection()
                 cur = conn.cursor()
                 cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_bal, now, account_name))
                 cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (account_name, garnish_cents, new_bal, tx_hash, ledger_note, now))
@@ -2776,7 +2789,7 @@ class CBMDatabase:
             curr_bal = curr_acc.get("deposited_cents", 0) if curr_acc else 0
 
             # 1. Update SQLite
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             cur = conn.cursor()
             cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (account_name, garnish, curr_bal, f"repay_{tx_hash[:16]}", ledger_note, now))
             conn.commit()
@@ -2825,7 +2838,7 @@ class CBMDatabase:
 
         # Deduplication check: Never double-credit a transaction that has already been recorded in the ledger
         if tx_hash:
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             cur = conn.cursor()
             cur.execute("SELECT id FROM cbm_ledger WHERE tx_hash = ? AND entry_type = 'DEPOSIT'", (tx_hash,))
             row = cur.fetchone()
@@ -2862,7 +2875,7 @@ class CBMDatabase:
                 ledger_notes += f" ({garnished_cents / 100.0:.2f} Gold garnished for loan repayment)"
 
             # 1. Update SQLite
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             cur = conn.cursor()
             cur.execute("""
                 UPDATE cbm_accounts
@@ -2899,7 +2912,7 @@ class CBMDatabase:
         elif garnished_cents > 0:
             # Entire deposit was absorbed by loan debt
             # 1. Update SQLite
-            conn = sqlite3.connect(self.sqlite_path)
+            conn = self.get_write_connection()
             cur = conn.cursor()
             cur.execute("UPDATE cbm_accounts SET total_deposited_cents = ?, updated_at = ? WHERE account_name = ?", (total_dep, now, account_name))
             conn.commit()
@@ -3192,7 +3205,7 @@ class CBMDatabase:
         enc_pwd = encrypt_credential(territorial_password) if territorial_password else ""
 
         # 1. Dual-Write: Always commit to SQLite first
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         if is_primary:
             cur.execute("UPDATE cbm_payment_methods SET is_primary = 0 WHERE cbm_username = ?", (cbm_user,))
@@ -3239,7 +3252,7 @@ class CBMDatabase:
     def get_payment_methods(self, cbm_username: str) -> List[Dict[str, Any]]:
         """Retrieves all linked territorial.io payment methods for a CBM user."""
         cbm_user = cbm_username.strip()
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT * FROM cbm_payment_methods WHERE cbm_username = ? ORDER BY is_primary DESC, linked_at ASC", (cbm_user,))
@@ -3251,7 +3264,7 @@ class CBMDatabase:
             if status == 200 and isinstance(res, list) and res:
                 rows = [dict(r) for r in res]
                 try:
-                    conn = sqlite3.connect(self.sqlite_path)
+                    conn = self.get_write_connection()
                     cur = conn.cursor()
                     for r in rows:
                         cur.execute("""
@@ -3298,7 +3311,7 @@ class CBMDatabase:
             if status == 200 and isinstance(res, list) and res:
                 return res[0].get("cbm_username")
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("SELECT cbm_username FROM cbm_payment_methods WHERE territorial_account_name = ? COLLATE NOCASE", (terri_acc,))
         row = cur.fetchone()
@@ -3309,7 +3322,7 @@ class CBMDatabase:
         """Updates the total transacted volume and last_used timestamp on the payment method."""
         terri_acc = territorial_account.strip()
         now = time.time()
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             UPDATE cbm_payment_methods
@@ -3368,7 +3381,7 @@ class CBMDatabase:
         ledger_notes = f"Clan War Chest Donation: {amount_gold:.2f} Gold. {clean_msg}".strip()
 
         # 1. Dual-Write: Always update SQLite first
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance_cents, now, acc_key))
         cur.execute("""
@@ -3465,7 +3478,7 @@ class CBMDatabase:
         clean_msg = message.strip() if message else "Direct War Chest Transfer"
 
         # 1. Dual-Write: Always update SQLite first
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO cbm_donations (donor_name, territorial_account, amount_gold, amount_cents, message, source, tx_hash, is_refundable, status, created_at)
@@ -3702,7 +3715,7 @@ class CBMDatabase:
             }
             self._sb_request("cbm_pending_donations", method="POST", body=payload)
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO cbm_pending_donations (id, account_name, amount_cents, amount_gold, message, status, created_at, expires_at)
@@ -3726,7 +3739,7 @@ class CBMDatabase:
     def get_pending_donations(self, account_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieves active unexpired donation slips."""
         now = time.time()
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         if account_name:
@@ -3807,7 +3820,7 @@ class CBMDatabase:
         if not candidates:
             return None
 
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = self.get_write_connection()
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         try:
@@ -4269,7 +4282,7 @@ class CBMDatabase:
         key_hash = hashlib.sha256(secret_token.encode("utf-8")).hexdigest()
         now = time.time()
 
-        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        conn = self.get_write_connection(timeout=15.0)
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO cbm_api_keys (
@@ -4329,7 +4342,7 @@ class CBMDatabase:
 
         key_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
 
-        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        conn = self.get_write_connection(timeout=15.0)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("SELECT * FROM cbm_api_keys WHERE key_hash = ? AND is_active = 1", (key_hash,))
@@ -4358,7 +4371,7 @@ class CBMDatabase:
         Returns all active and revoked API keys owned by a specific member.
         Redacts the key_hash for absolute security.
         """
-        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        conn = self.get_write_connection(timeout=15.0)
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         cur.execute("""
@@ -4375,7 +4388,7 @@ class CBMDatabase:
 
     def revoke_api_key(self, key_id: str, owner_account: str) -> Tuple[bool, str]:
         """Deactivates an API key owned by the specified member."""
-        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        conn = self.get_write_connection(timeout=15.0)
         cur = conn.cursor()
         cur.execute("""
             UPDATE cbm_api_keys
@@ -4427,7 +4440,7 @@ class CBMDatabase:
         tx_hash = f"api_{key_id}_{int(now)}_{secrets.token_hex(3)}"
         ledger_note = f"API Call ({key_id}): {cost_gold:.2f} Credit converted to unencumbered Clan Reserves"
 
-        conn = sqlite3.connect(self.sqlite_path, timeout=15.0)
+        conn = self.get_write_connection(timeout=15.0)
         cur = conn.cursor()
         cur.execute("""
             UPDATE cbm_accounts
@@ -4700,6 +4713,16 @@ class CBMDatabase:
         now = time.time()
         claim_id = f"av_{voter_account.lower().strip()}_{votes_count}_{int(now)}"
 
+        # Telemetry baseline for candidate points (retrieved before acquiring DB write lock)
+        baseline_points = 0
+        try:
+            from election_worker import get_election_worker
+            ew = get_election_worker(db=self)
+            t = ew.get_vault_election_telemetry()
+            baseline_points = int(t.get("admin_points") or 0)
+        except Exception:
+            pass
+
         # 3. Atomic Write Lock: Budget Cap & Anti-Abuse Verification
         conn = self.get_write_connection()
         cur = conn.cursor()
@@ -4770,16 +4793,6 @@ class CBMDatabase:
                     f"(maximum 15% of bank reserves: {max_budget_gold:.2f} Gold). "
                     f"Claim of {reward_gold:.2f} Gold exceeds remaining cap."
                 ), {}
-
-            # Telemetry baseline for candidate points
-            baseline_points = 0
-            try:
-                from election_worker import get_election_worker
-                ew = get_election_worker(db=self)
-                t = ew.get_vault_election_telemetry()
-                baseline_points = int(t.get("admin_points") or 0)
-            except Exception:
-                pass
 
             expires_at = now + 900.0  # 15-minute verification slip window
             initial_status = "PENDING"

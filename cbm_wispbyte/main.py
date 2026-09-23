@@ -1145,7 +1145,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         path = parsed[0].rstrip("/")
 
         # 1. Payload size boundaries (Anti-DoS / OOM protection)
-        max_allowed_len = 5242880 if path == "/api/cbm/dev/products/upload-image" else 65536
+        max_allowed_len = 1572864 if path == "/api/cbm/dev/products/upload-image" else 65536
         try:
             length = int(self.headers.get("Content-Length", 0))
         except (ValueError, TypeError):
@@ -1162,18 +1162,23 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 pass
             return self._send_json(413, {"status": "error", "message": f"Payload Too Large: Maximum permitted request payload is {max_allowed_len // 1024}KB."}, headers={"Connection": "close"})
 
-        raw_body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
         try:
+            raw_body = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
             body = json.loads(raw_body)
         except Exception:
-            return self._send_json(400, {"status": "error", "message": "Invalid JSON payload."})
+            return self._send_json(400, {"status": "error", "message": "Invalid JSON payload or encoding."})
 
-        # 2. Client IP resolution with Cloudflare & proxy header support
-        client_ip = (
-            self.headers.get("CF-Connecting-IP")
-            or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or (self.client_address[0] if self.client_address else "127.0.0.1")
-        )
+        # 2. Client IP resolution with Cloudflare & trusted proxy header verification
+        raw_client_ip = self.client_address[0] if self.client_address else "127.0.0.1"
+        trusted_proxies = {"127.0.0.1", "::1"}
+        if raw_client_ip in trusted_proxies:
+            client_ip = (
+                self.headers.get("CF-Connecting-IP")
+                or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                or raw_client_ip
+            )
+        else:
+            client_ip = raw_client_ip
 
         # 3. IP Rate Limiting on sensitive routes (30 req / min)
         sensitive_routes = {
@@ -2242,8 +2247,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send_json(400, {"status": "error", "message": f"Invalid base64 image data: {e}"})
 
-            if len(raw_bytes) > 4194304:
-                return self._send_json(400, {"status": "error", "message": "Image exceeds 4MB maximum size."})
+            if len(raw_bytes) > 1048576:
+                return self._send_json(400, {"status": "error", "message": "Image exceeds 1MB maximum permitted size."})
 
             ext = ".png"
             if filename:
@@ -2667,7 +2672,7 @@ class CBMThreadPoolServer(HTTPServer):
     def __init__(self, server_address, RequestHandlerClass, max_workers=None):
         super().__init__(server_address, RequestHandlerClass)
         if max_workers is None:
-            max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 16))
+            max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 60))
         self.executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cbm_worker")
 
     def process_request(self, request, client_address):
@@ -2701,7 +2706,7 @@ _SERVER_INSTANCE = None
 
 def run_http_server():
     global _SERVER_INSTANCE
-    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 16))
+    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 60))
     server = CBMThreadPoolServer(("0.0.0.0", PORT), CBMHealthHandler, max_workers=max_workers)
     _SERVER_INSTANCE = server
     print(f"[+] CBM Bounded ThreadPool Server ({max_workers} workers, backlog 256) active on 0.0.0.0:{PORT}")
@@ -2736,7 +2741,12 @@ def main():
 
     # 4. Setup graceful signal handling
     def handle_signal(sig, frame):
-        print("\n[!] Received shutdown signal. Stopping CBM daemon and tunnel...")
+        print("\n[!] Received shutdown signal. Stopping CBM server, daemon, and tunnel...")
+        if _SERVER_INSTANCE:
+            try:
+                _SERVER_INSTANCE.shutdown()
+            except Exception:
+                pass
         deposit_daemon.stop()
         if tunnel_mgr:
             tunnel_mgr.stop()
@@ -2750,14 +2760,20 @@ def main():
     # Keep main thread alive and run background loan liveness & covenant audits
     last_loan_audit = 0.0
     while True:
-        now = time.time()
-        if (now - last_loan_audit) > 600.0:  # Check every 10 minutes
-            last_loan_audit = now
-            try:
-                db.audit_loan_credential_liveness()
-            except Exception as e:
-                print(f"[!] Background loan audit error: {e}")
-        time.sleep(30)
+        try:
+            now = time.time()
+            if (now - last_loan_audit) > 600.0:  # Check every 10 minutes
+                last_loan_audit = now
+                try:
+                    db.audit_loan_credential_liveness()
+                except Exception as e:
+                    print(f"[!] Background loan audit error: {e}")
+            time.sleep(30)
+        except (KeyboardInterrupt, SystemExit):
+            break
+        except Exception as loop_err:
+            print(f"[!] Background supervisor loop notice: {loop_err}")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()

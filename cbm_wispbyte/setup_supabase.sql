@@ -391,3 +391,32 @@ DROP POLICY IF EXISTS "Service role manage cbm_product_orders" ON public.cbm_pro
 CREATE POLICY "Service role manage cbm_product_orders" ON public.cbm_product_orders FOR ALL TO service_role USING (TRUE);
 
 
+
+
+-- -----------------------------------------------------------------------------
+-- 8. REFERRAL PROGRAM
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.cbm_referrals (
+    id BIGSERIAL PRIMARY KEY,
+    inviter_account TEXT NOT NULL,
+    invitee_account TEXT UNIQUE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    invitee_donated_gold NUMERIC(14, 2) DEFAULT 0.0,
+    invitee_deposited_gold NUMERIC(14, 2) DEFAULT 0.0,
+    reward_gold NUMERIC(14, 2) DEFAULT 0.0,
+    tier1_rewarded_at TIMESTAMPTZ,
+    tier2_rewarded_at TIMESTAMPTZ,
+    tier3_rewarded_at TIMESTAMPTZ,
+    perpetual_commission_gold NUMERIC(14, 2) DEFAULT 0.0,
+    rewarded_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_cbm_referrals_inviter ON public.cbm_referrals (inviter_account);
+CREATE INDEX IF NOT EXISTS idx_cbm_referrals_invitee ON public.cbm_referrals (invitee_account);
+
+ALTER TABLE public.cbm_referrals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public read cbm_referrals" ON public.cbm_referrals;
+CREATE POLICY "Allow public read cbm_referrals" ON public.cbm_referrals FOR SELECT TO anon, authenticated USING (TRUE);
+DROP POLICY IF EXISTS "Service role manage cbm_referrals" ON public.cbm_referrals;
+CREATE POLICY "Service role manage cbm_referrals" ON public.cbm_referrals FOR ALL TO service_role USING (TRUE);

@@ -2635,11 +2635,33 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "account": account_name,
                 "referral_stats": stats,
                 "invite_link": invite_link,
-                "reward_per_qualified_referral_gold": 500,
-                "threshold": {
-                    "invitee_must_donate_gold": 200,
-                    "invitee_must_deposit_gold": 2000
-                }
+                "tiers": [
+                    {
+                        "tier": 1,
+                        "name": "Member Onboarding",
+                        "inviter_reward_gold": 15,
+                        "invitee_reward_gold": 10,
+                        "required_deposits_gold": 500,
+                        "required_donations_gold": 100
+                    },
+                    {
+                        "tier": 2,
+                        "name": "Active Supporter",
+                        "inviter_reward_gold": 35,
+                        "invitee_reward_gold": 0,
+                        "required_deposits_gold": 1000,
+                        "required_donations_gold": 300
+                    },
+                    {
+                        "tier": 3,
+                        "name": "Clan Benefactor",
+                        "inviter_reward_gold": 100,
+                        "invitee_reward_gold": 25,
+                        "required_deposits_gold": 2500,
+                        "required_donations_gold": 1000
+                    }
+                ],
+                "perpetual_patron_commission_percent": 10
             })
 
         elif path == "/api/cbm/referral/register":

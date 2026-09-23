@@ -536,7 +536,11 @@ class CBMDatabase:
                 status TEXT NOT NULL DEFAULT 'PENDING',
                 invitee_donated_gold REAL DEFAULT 0.0,
                 invitee_deposited_gold REAL DEFAULT 0.0,
-                reward_gold REAL DEFAULT 500.0,
+                reward_gold REAL DEFAULT 0.0,
+                tier1_rewarded_at REAL,
+                tier2_rewarded_at REAL,
+                tier3_rewarded_at REAL,
+                perpetual_commission_gold REAL DEFAULT 0.0,
                 rewarded_at REAL,
                 created_at REAL NOT NULL DEFAULT (strftime('%s','now'))
             )
@@ -548,6 +552,17 @@ class CBMDatabase:
             cur.execute("ALTER TABLE cbm_accounts ADD COLUMN referred_by TEXT;")
         except Exception:
             pass
+        # Migrate: add tiered referral columns to cbm_referrals if not present
+        for col_def in [
+            "ALTER TABLE cbm_referrals ADD COLUMN tier1_rewarded_at REAL;",
+            "ALTER TABLE cbm_referrals ADD COLUMN tier2_rewarded_at REAL;",
+            "ALTER TABLE cbm_referrals ADD COLUMN tier3_rewarded_at REAL;",
+            "ALTER TABLE cbm_referrals ADD COLUMN perpetual_commission_gold REAL DEFAULT 0.0;"
+        ]:
+            try:
+                cur.execute(col_def)
+            except Exception:
+                pass
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_products_owner ON cbm_products(owner_account);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_products_status ON cbm_products(status);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_prod ON cbm_product_orders(product_id);")
@@ -2959,20 +2974,26 @@ class CBMDatabase:
         cur = conn.cursor()
         cur.execute("SELECT * FROM cbm_treasury WHERE id = 1")
         row = cur.fetchone()
+        res_dict = None
         if row and row["vault_total_gold_cents"] > 0:
-            return dict(row)
-
-        if self.use_supabase:
+            res_dict = dict(row)
+        elif self.use_supabase:
             status, res = self._sb_request("cbm_treasury", method="GET", params="?id=eq.1&select=*")
             if status == 200 and isinstance(res, list) and res:
-                return res[0]
+                res_dict = res[0]
 
-        return dict(row) if row else {
-            "vault_account_name": "DdcBC",
-            "vault_total_gold_cents": 0,
-            "member_liabilities_cents": 0,
-            "bank_reserves_cents": 0
-        }
+        if not res_dict:
+            res_dict = dict(row) if row else {
+                "vault_account_name": "DdcBC",
+                "vault_total_gold_cents": 0,
+                "member_liabilities_cents": 0,
+                "bank_reserves_cents": 0
+            }
+        vt = res_dict.get("vault_total_gold_cents", 0)
+        ml = res_dict.get("member_liabilities_cents", 0)
+        res_dict["vault_excess_cents"] = max(0, vt - ml)
+        res_dict["vault_excess_gold"] = res_dict["vault_excess_cents"] / 100.0
+        return res_dict
 
     def _calculate_treasury_metrics(self, vault_total_cents: int) -> Dict[str, Any]:
         """
@@ -5772,9 +5793,12 @@ class CBMDatabase:
 
     def check_and_settle_referral(self, invitee_account: str) -> None:
         """
-        Checks qualification thresholds (>200G donated & >2,000G deposited) for an invitee.
-        On success: credits 500G to both inviter and invitee, marks referral REWARDED.
-        Funded from central bank unencumbered reserves; logged as REFERRAL_REWARD in cbm_ledger.
+        Evaluates progressive referral milestones and perpetual donation revenue share.
+        Guaranteed 75%-90% net profit margin to Clan Bank:
+          - Tier 1 (Member Onboarding): Deposits >= 500G & Donations >= 100G -> 15G to inviter, 10G to invitee (+75G net profit).
+          - Tier 2 (Active Supporter): Deposits >= 1,000G & Donations >= 300G -> 35G to inviter (+240G cumulative profit).
+          - Tier 3 (Clan Benefactor): Deposits >= 2,500G & Donations >= 1,000G -> 100G to inviter, 25G to invitee (+815G cumulative profit).
+          - Perpetual Patron Share: 10% commission to inviter on all donations beyond 1,000G (90% net profit on every donation).
         """
         clean_invitee = (invitee_account or "").strip()
         if not clean_invitee:
@@ -5786,17 +5810,21 @@ class CBMDatabase:
         try:
             cur.execute("BEGIN IMMEDIATE;")
             cur.execute(
-                "SELECT inviter_account, status FROM cbm_referrals WHERE LOWER(invitee_account) = LOWER(?)",
+                "SELECT inviter_account, status, tier1_rewarded_at, tier2_rewarded_at, tier3_rewarded_at, COALESCE(perpetual_commission_gold, 0.0), rewarded_at FROM cbm_referrals WHERE LOWER(invitee_account) = LOWER(?)",
                 (clean_invitee,)
             )
             ref = cur.fetchone()
-            if not ref or ref[1] == "REWARDED":
+            if not ref:
                 conn.rollback()
                 return
 
-            inviter = ref[0]
+            inviter, current_status, t1_at, t2_at, t3_at, perp_comm, old_rewarded_at = ref
 
-            # Bug A fix: use total_deposited_cents (lifetime gross inflows) not deposited_cents (current liquid balance)
+            # Legacy migration safety: if already marked REWARDED under old scheme, treat Tier 1 as settled
+            if current_status == "REWARDED" and not t1_at:
+                t1_at = old_rewarded_at or now
+
+            # Fetch lifetime gross deposited gold
             cur.execute(
                 "SELECT total_deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
                 (clean_invitee,)
@@ -5804,8 +5832,7 @@ class CBMDatabase:
             acc_row = cur.fetchone()
             deposited_gold = (acc_row[0] or 0) / 100.0 if acc_row else 0.0
 
-            # Bug C fix: sum donations matching canonical account_name OR display_name OR territorial_account
-            # so players who donated under a display_name are correctly identified
+            # Sum verified War Chest donations for invitee
             cur.execute("""
                 SELECT COALESCE(SUM(d.amount_cents), 0)
                 FROM cbm_donations d
@@ -5826,17 +5853,69 @@ class CBMDatabase:
                 (deposited_gold, donated_gold, clean_invitee)
             )
 
-            if donated_gold > 200.0 and deposited_gold > 2000.0:
-                reward_cents = 50000  # 500.00 Gold per recipient
-                total_payout_cents = reward_cents * 2  # 1,000 Gold total
+            payouts = []
+            new_t1_at = t1_at
+            new_t2_at = t2_at
+            new_t3_at = t3_at
+            new_perp_comm = perp_comm
 
-                # --- Reserve Solvency Check ---
-                # bank_reserves = vault_total - SUM(deposited_cents for member accounts)
-                # We need vault_excess >= total_payout_cents before issuing any credit.
+            # 1. Tier 1 Milestone: Deposits >= 500G & Donations >= 100G (Inviter: 15G, Invitee: 10G)
+            if deposited_gold >= 500.0 and donated_gold >= 100.0 and not t1_at:
+                new_t1_at = now
+                payouts.append({
+                    "recipient": inviter,
+                    "amount_cents": 1500,
+                    "note": f"Referral Milestone Tier 1: {clean_invitee} qualified (>=100G donated & >=500G deposited)"
+                })
+                payouts.append({
+                    "recipient": clean_invitee,
+                    "amount_cents": 1000,
+                    "note": f"Referral Welcome Bonus Tier 1: Qualified under sponsor {inviter}"
+                })
+
+            # 2. Tier 2 Milestone: Deposits >= 1,000G & Donations >= 300G (Inviter: 35G)
+            if deposited_gold >= 1000.0 and donated_gold >= 300.0 and not t2_at:
+                new_t2_at = now
+                payouts.append({
+                    "recipient": inviter,
+                    "amount_cents": 3500,
+                    "note": f"Referral Milestone Tier 2: {clean_invitee} qualified (>=300G donated & >=1,000G deposited)"
+                })
+
+            # 3. Tier 3 Milestone: Deposits >= 2,500G & Donations >= 1,000G (Inviter: 100G, Invitee: 25G)
+            if deposited_gold >= 2500.0 and donated_gold >= 1000.0 and not t3_at:
+                new_t3_at = now
+                payouts.append({
+                    "recipient": inviter,
+                    "amount_cents": 10000,
+                    "note": f"Referral Milestone Tier 3: {clean_invitee} reached Benefactor (>=1,000G donated & >=2,500G deposited)"
+                })
+                payouts.append({
+                    "recipient": clean_invitee,
+                    "amount_cents": 2500,
+                    "note": f"Referral Benefactor Bonus Tier 3: Qualified under sponsor {inviter}"
+                })
+
+            # 4. Perpetual Patron Share: 10% commission on donations beyond 1,000G once Tier 3 is achieved
+            if (t3_at or new_t3_at) and donated_gold > 1000.0:
+                excess_donated_cents = max(0, int(round((donated_gold - 1000.0) * 100)))
+                already_commissioned_basis_cents = int(round(perp_comm * 1000))
+                commissionable_cents = excess_donated_cents - already_commissioned_basis_cents
+                if commissionable_cents >= 100:  # At least 1.00 Gold in new donations
+                    comm_cents = int(round(commissionable_cents * 0.10))
+                    if comm_cents > 0:
+                        new_perp_comm += (comm_cents / 100.0)
+                        payouts.append({
+                            "recipient": inviter,
+                            "amount_cents": comm_cents,
+                            "note": f"Referral Perpetual Patron Share (10%): {clean_invitee} donated additional {commissionable_cents/100:.2f}G"
+                        })
+
+            total_payout_cents = sum(p["amount_cents"] for p in payouts)
+            if total_payout_cents > 0:
                 treasury = self.get_treasury()
                 vault_excess_cents = treasury.get("vault_excess_cents", 0)
                 if vault_excess_cents < total_payout_cents:
-                    # Insufficient reserves — defer; update progress only
                     print(
                         f"[CBM Referral] Insufficient vault excess ({vault_excess_cents/100:.2f}G) "
                         f"to settle referral {inviter} -> {clean_invitee}. "
@@ -5845,59 +5924,44 @@ class CBMDatabase:
                     conn.commit()
                     return
 
-                # --- Credit inviter ---
-                cur.execute(
-                    "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
-                    (reward_cents, now, inviter)
-                )
-                cur.execute(
-                    "SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
-                    (inviter,)
-                )
-                inviter_bal_row = cur.fetchone()
-                inviter_bal = inviter_bal_row[0] if inviter_bal_row else 0
-                # Member credit entry
-                cur.execute(
-                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
-                    (inviter, reward_cents, inviter_bal, f"ref_inviter_{clean_invitee}_{int(now)}", f"Referral Reward: {clean_invitee} qualified (>200G donated & >2,000G deposited)", now)
-                )
-                # Reserve debit entry — offsets the liability increase so vault_excess is preserved correctly
-                cur.execute(
-                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'RESERVE_DEBIT', ?, ?, ?, ?, ?)",
-                    ("reserves", reward_cents, max(0, vault_excess_cents - reward_cents), f"ref_rsv_inviter_{clean_invitee}_{int(now)}", f"Reserve debit: referral reward funded for {inviter}", now)
-                )
+                for p in payouts:
+                    recip = p["recipient"]
+                    amt = p["amount_cents"]
+                    note = p["note"]
 
-                # --- Credit invitee ---
-                cur.execute(
-                    "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
-                    (reward_cents, now, clean_invitee)
-                )
-                cur.execute(
-                    "SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
-                    (clean_invitee,)
-                )
-                invitee_bal_row = cur.fetchone()
-                invitee_bal = invitee_bal_row[0] if invitee_bal_row else 0
-                # Member credit entry
-                cur.execute(
-                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
-                    (clean_invitee, reward_cents, invitee_bal, f"ref_invitee_{clean_invitee}_{int(now)}", f"Referral Welcome Reward: Qualified under sponsor {inviter}", now)
-                )
-                # Reserve debit entry
-                cur.execute(
-                    "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'RESERVE_DEBIT', ?, ?, ?, ?, ?)",
-                    ("reserves", reward_cents, max(0, vault_excess_cents - total_payout_cents), f"ref_rsv_invitee_{clean_invitee}_{int(now)}", f"Reserve debit: referral welcome reward funded for {clean_invitee}", now)
-                )
+                    cur.execute(
+                        "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
+                        (amt, now, recip)
+                    )
+                    cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)", (recip,))
+                    bal_row = cur.fetchone()
+                    bal_after = bal_row[0] if bal_row else 0
 
-                # Mark referral as rewarded
-                cur.execute(
-                    "UPDATE cbm_referrals SET status = 'REWARDED', rewarded_at = ? WHERE LOWER(invitee_account) = LOWER(?)",
-                    (now, clean_invitee)
-                )
+                    cur.execute(
+                        "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
+                        (recip, amt, bal_after, f"ref_{recip}_{clean_invitee}_{int(now)}_{amt}", note, now)
+                    )
+                    vault_excess_cents -= amt
+                    cur.execute(
+                        "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'RESERVE_DEBIT', ?, ?, ?, ?, ?)",
+                        ("reserves", amt, max(0, vault_excess_cents), f"ref_rsv_{recip}_{clean_invitee}_{int(now)}_{amt}", f"Reserve debit: {note}", now)
+                    )
+
+                new_status = 'TIER3' if new_t3_at else ('TIER2' if new_t2_at else ('TIER1' if new_t1_at else 'PENDING'))
+                cur.execute("""
+                    UPDATE cbm_referrals
+                    SET status = ?,
+                        tier1_rewarded_at = ?,
+                        tier2_rewarded_at = ?,
+                        tier3_rewarded_at = ?,
+                        perpetual_commission_gold = ?,
+                        rewarded_at = COALESCE(rewarded_at, ?)
+                    WHERE LOWER(invitee_account) = LOWER(?)
+                """, (new_status, new_t1_at, new_t2_at, new_t3_at, new_perp_comm, now, clean_invitee))
                 conn.commit()
                 print(
-                    f"[CBM Referral] Settled: {inviter} <- 500G | {clean_invitee} <- 500G "
-                    f"| Reserve debit: 1,000G from vault_excess ({vault_excess_cents/100:.2f}G remaining before payout)"
+                    f"[CBM Referral] Settled milestone/commission for {inviter} <- {clean_invitee}: "
+                    f"{total_payout_cents/100:.2f}G distributed across {len(payouts)} payouts."
                 )
                 self.recompute_treasury()
             else:
@@ -5912,21 +5976,60 @@ class CBMDatabase:
         """Returns referral program statistics for a given inviter account."""
         clean = (inviter_account or "").strip()
         if not clean:
-            return {"total": 0, "pending": 0, "rewarded": 0, "total_gold_earned": 0.0}
+            return {
+                "total": 0, "pending": 0, "tier1": 0, "tier2": 0, "tier3": 0,
+                "total_gold_earned": 0.0, "referrals": []
+            }
         conn = self._get_sqlite_conn()
         cur = conn.cursor()
-        cur.execute(
-            "SELECT status, COUNT(*) FROM cbm_referrals WHERE LOWER(inviter_account) = LOWER(?) GROUP BY status",
-            (clean,)
-        )
+        cur.execute("""
+            SELECT invitee_account, status, invitee_deposited_gold, invitee_donated_gold,
+                   tier1_rewarded_at, tier2_rewarded_at, tier3_rewarded_at,
+                   COALESCE(perpetual_commission_gold, 0.0), created_at
+            FROM cbm_referrals
+            WHERE LOWER(inviter_account) = LOWER(?)
+            ORDER BY created_at DESC
+        """, (clean,))
         rows = cur.fetchall()
-        stats = {"total": 0, "pending": 0, "qualified": 0, "rewarded": 0, "total_gold_earned": 0.0}
-        for status, count in rows:
-            stats["total"] += count
-            key = status.lower()
-            if key in stats:
-                stats[key] = count
-        stats["total_gold_earned"] = round(stats["rewarded"] * 500.0, 2)
+        stats = {
+            "total": len(rows),
+            "pending": 0,
+            "tier1": 0,
+            "tier2": 0,
+            "tier3": 0,
+            "total_gold_earned": 0.0,
+            "referrals": []
+        }
+        for r in rows:
+            inv_acc, st, dep, don, t1, t2, t3, perp, c_at = r
+            earned = 0.0
+            if t1: earned += 15.0
+            if t2: earned += 35.0
+            if t3: earned += 100.0
+            earned += perp
+            stats["total_gold_earned"] += earned
+
+            if t3:
+                stats["tier3"] += 1
+            elif t2:
+                stats["tier2"] += 1
+            elif t1:
+                stats["tier1"] += 1
+            else:
+                stats["pending"] += 1
+
+            stats["referrals"].append({
+                "invitee_account": inv_acc,
+                "status": st,
+                "deposited_gold": round(dep, 2),
+                "donated_gold": round(don, 2),
+                "tier1_qualified": bool(t1),
+                "tier2_qualified": bool(t2),
+                "tier3_qualified": bool(t3),
+                "gold_earned": round(earned, 2),
+                "created_at": c_at
+            })
+        stats["total_gold_earned"] = round(stats["total_gold_earned"], 2)
         return stats
 
 

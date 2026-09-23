@@ -2070,7 +2070,7 @@
         <div class="panel-headline">
           <div>
             <h3>Refer &amp; Earn</h3>
-            <p>Invite players to the Clan Bank Manager. You and your referral both earn <strong>500 Gold</strong> once they deposit &gt;2,000 Gold and donate &gt;200 Gold to the War Chest.</p>
+            <p>Invite players to the Clan Bank. Earn up to <strong>150 Gold</strong> in milestone bounties per active referral, plus an ongoing <strong>10% Patron Share</strong> on all War Chest donations.</p>
           </div>
           <button class="btn-game btn-game-secondary btn-game-sm" onclick="loadReferralTab()">🔄 Refresh</button>
         </div>
@@ -2078,45 +2078,79 @@
         <!-- Invite Link Box -->
         <div id="referralInviteBox" style="margin: 18px 0 0; display:none;">
           <div style="background: var(--surface-2, #1a1f2e); border: 1px solid var(--border, #2a2f45); border-radius: 10px; padding: 18px 20px;">
-            <div style="font-size: 13px; color: var(--text-dim, #8892aa); margin-bottom: 8px;">Your referral invite link</div>
+            <div style="font-size: 13px; color: var(--text-dim, #8892aa); margin-bottom: 8px;">Your unique referral invite link</div>
             <div style="display: flex; gap: 10px; align-items: center;">
               <input id="referralInviteInput" type="text" readonly
                 style="flex: 1; background: var(--surface-3, #111827); border: 1px solid var(--border, #2a2f45); border-radius: 6px; padding: 9px 12px; color: #fff; font-size: 13px; font-family: monospace;">
               <button class="btn-game btn-game-primary btn-game-sm" onclick="copyReferralLink()">📋 Copy</button>
             </div>
-            <div style="font-size: 11px; color: var(--text-dim, #8892aa); margin-top: 8px;">Share this link. When a friend registers and hits the qualification thresholds, 500 Gold is automatically credited to both accounts.</div>
+            <div style="font-size: 11px; color: var(--text-dim, #8892aa); margin-top: 8px;">Share this link. Bounties and commissions are automatically credited to your Clan Bank balance as your referrals hit milestones.</div>
           </div>
         </div>
 
         <!-- Stats Row -->
-        <div id="referralStatsRow" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-top: 18px;">
+        <div id="referralStatsRow" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 18px;">
           <div class="game-stat-card" style="text-align:center;">
             <div class="stat-value" id="refStatTotal">—</div>
             <div class="stat-label">Total Referrals</div>
           </div>
           <div class="game-stat-card" style="text-align:center;">
-            <div class="stat-value" id="refStatPending" style="color: var(--paypal-yellow, #f5c518);">—</div>
-            <div class="stat-label">Pending</div>
+            <div class="stat-value" id="refStatTier1" style="color: #38bdf8;">—</div>
+            <div class="stat-label">Tier 1 (Initiates)</div>
           </div>
           <div class="game-stat-card" style="text-align:center;">
-            <div class="stat-value" id="refStatRewarded" style="color: #10b981;">—</div>
-            <div class="stat-label">Rewarded</div>
+            <div class="stat-value" id="refStatTier2" style="color: #a855f7;">—</div>
+            <div class="stat-label">Tier 2 (Supporters)</div>
+          </div>
+          <div class="game-stat-card" style="text-align:center;">
+            <div class="stat-value" id="refStatTier3" style="color: #10b981;">—</div>
+            <div class="stat-label">Tier 3 (Benefactors)</div>
           </div>
           <div class="game-stat-card" style="text-align:center;">
             <div class="stat-value" id="refStatGold" style="color: var(--paypal-gold, #f5c518);">—</div>
-            <div class="stat-label">Gold Earned</div>
+            <div class="stat-label">Total Gold Earned</div>
           </div>
         </div>
 
-        <!-- How it works -->
-        <div style="margin-top: 24px; background: var(--surface-2, #1a1f2e); border: 1px solid var(--border, #2a2f45); border-radius: 10px; padding: 18px 20px;">
-          <div style="font-weight: 600; font-size: 14px; margin-bottom: 12px;">How it works</div>
-          <ol style="margin: 0; padding-left: 20px; color: var(--text-dim, #8892aa); font-size: 13px; line-height: 2;">
-            <li>Copy your invite link and share it with a friend.</li>
-            <li>Your friend registers using that link.</li>
-            <li>Once they <strong style="color:#fff;">deposit &gt;2,000 Gold</strong> AND <strong style="color:#fff;">donate &gt;200 Gold</strong> to the War Chest, both accounts are automatically credited <strong style="color:#f5c518;">500 Gold</strong>.</li>
-            <li>There is no cap on how many players you can refer.</li>
-          </ol>
+        <!-- Tiered Reward Structure Cards -->
+        <div style="margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px;">
+          <div style="background: var(--surface-2, #1a1f2e); border: 1px solid var(--border, #2a2f45); border-radius: 10px; padding: 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px;">Tier 1 &bull; Member Onboarding</div>
+            <div style="font-size: 18px; font-weight: 700; color: #fff; margin: 6px 0;">15 Gold Bounty</div>
+            <div style="font-size: 12px; color: var(--text-dim, #8892aa); line-height: 1.5;">Requires referral to deposit &ge;500G and donate &ge;100G. Referral receives <strong>10G Welcome Bonus</strong>.</div>
+          </div>
+          <div style="background: var(--surface-2, #1a1f2e); border: 1px solid var(--border, #2a2f45); border-radius: 10px; padding: 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: #a855f7; text-transform: uppercase; letter-spacing: 0.5px;">Tier 2 &bull; Active Supporter</div>
+            <div style="font-size: 18px; font-weight: 700; color: #fff; margin: 6px 0;">35 Gold Bounty</div>
+            <div style="font-size: 12px; color: var(--text-dim, #8892aa); line-height: 1.5;">Requires referral to deposit &ge;1,000G and donate &ge;300G to the Clan War Chest.</div>
+          </div>
+          <div style="background: var(--surface-2, #1a1f2e); border: 1px solid var(--border, #2a2f45); border-radius: 10px; padding: 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.5px;">Tier 3 &bull; Clan Benefactor</div>
+            <div style="font-size: 18px; font-weight: 700; color: #fff; margin: 6px 0;">100 Gold + 10% Share</div>
+            <div style="font-size: 12px; color: var(--text-dim, #8892aa); line-height: 1.5;">Requires deposit &ge;2,500G &amp; donation &ge;1,000G. Unlocks <strong>10% lifetime commission</strong> on all further donations!</div>
+          </div>
+        </div>
+
+        <!-- Referred Members Table -->
+        <div id="referralMembersContainer" style="margin-top: 24px; display:none;">
+          <div style="font-weight: 600; font-size: 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <span>Referred Members Activity</span>
+            <span id="referralCountBadge" style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 10px;"></span>
+          </div>
+          <div style="overflow-x: auto; border: 1px solid var(--border, #2a2f45); border-radius: 8px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
+              <thead>
+                <tr style="background: var(--surface-3, #111827); color: var(--text-dim, #8892aa); border-bottom: 1px solid var(--border, #2a2f45);">
+                  <th style="padding: 10px 14px;">Member</th>
+                  <th style="padding: 10px 14px;">Deposited</th>
+                  <th style="padding: 10px 14px;">Donated</th>
+                  <th style="padding: 10px 14px;">Tier Status</th>
+                  <th style="padding: 10px 14px; text-align: right;">Your Earnings</th>
+                </tr>
+              </thead>
+              <tbody id="referralMembersTableBody"></tbody>
+            </table>
+          </div>
         </div>
 
         <div id="referralNotLoggedIn" style="display:none; margin-top: 18px; padding: 18px; background: var(--surface-2, #1a1f2e); border-radius: 10px; text-align: center; color: var(--text-dim, #8892aa); font-size: 13px;">
@@ -2411,7 +2445,7 @@
       if (inviteBox) inviteBox.style.display = 'none';
       if (notLoggedIn) notLoggedIn.style.display = 'none';
       if (errorBox) errorBox.style.display = 'none';
-      ['refStatTotal','refStatPending','refStatRewarded','refStatGold'].forEach(id => {
+      ['refStatTotal','refStatTier1','refStatTier2','refStatTier3','refStatGold'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = '…';
       });
@@ -2445,10 +2479,42 @@
         // Populate stats
         const s = data.referral_stats || {};
         const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-        setVal('refStatTotal',    s.total    ?? 0);
-        setVal('refStatPending',  s.pending  ?? 0);
-        setVal('refStatRewarded', s.rewarded ?? 0);
-        setVal('refStatGold',     (s.total_gold_earned ?? 0).toFixed(0) + ' G');
+        setVal('refStatTotal', s.total ?? 0);
+        setVal('refStatTier1', s.tier1 ?? 0);
+        setVal('refStatTier2', s.tier2 ?? 0);
+        setVal('refStatTier3', s.tier3 ?? 0);
+        setVal('refStatGold', (s.total_gold_earned ?? 0).toFixed(2) + ' G');
+
+        // Render table of referred members
+        const container = document.getElementById('referralMembersContainer');
+        const tbody = document.getElementById('referralMembersTableBody');
+        const badge = document.getElementById('referralCountBadge');
+        if (container && tbody) {
+          const refs = s.referrals || [];
+          if (refs.length > 0) {
+            if (badge) badge.textContent = refs.length + ' Members';
+            tbody.innerHTML = refs.map(r => {
+              let tierBadge = '<span style="color:#8892aa;">Pending</span>';
+              if (r.tier3_qualified) {
+                tierBadge = '<span style="color:#10b981; font-weight:600;">Tier 3 (Benefactor)</span>';
+              } else if (r.tier2_qualified) {
+                tierBadge = '<span style="color:#a855f7; font-weight:600;">Tier 2 (Supporter)</span>';
+              } else if (r.tier1_qualified) {
+                tierBadge = '<span style="color:#38bdf8; font-weight:600;">Tier 1 (Initiate)</span>';
+              }
+              return `<tr style="border-bottom: 1px solid var(--border, #2a2f45);">
+                <td style="padding: 10px 14px; font-weight:600; color:#fff;">${escapeHtml(r.invitee_account)}</td>
+                <td style="padding: 10px 14px; color:#8892aa;">${r.deposited_gold.toFixed(1)} G</td>
+                <td style="padding: 10px 14px; color:#ffd700;">${r.donated_gold.toFixed(1)} G</td>
+                <td style="padding: 10px 14px;">${tierBadge}</td>
+                <td style="padding: 10px 14px; text-align:right; font-weight:600; color:#10b981;">+${r.gold_earned.toFixed(1)} G</td>
+              </tr>`;
+            }).join('');
+            container.style.display = 'block';
+          } else {
+            container.style.display = 'none';
+          }
+        }
 
         // Build invite link
         const baseUrl = window.location.origin;

@@ -54,6 +54,12 @@
       totalDonated: 0,
       verified: false
     },
+    donorPerks: {
+      totalDonated: 0,
+      helloKittyUnlocked: false,
+      polandUnlocked: false,
+      verified: false
+    },
     patternImage: null,
     patternTexture: null,
     mipmaps: null,
@@ -109,6 +115,13 @@
           var parsed = JSON.parse(trialData);
           state.trial = parsed;
         }
+        var perkKey = 'terrix_cbm_donor_perks_' + currentAcc.toLowerCase();
+        var perkData = localStorage.getItem(perkKey);
+        if (perkData) {
+          try {
+            state.donorPerks = JSON.parse(perkData);
+          } catch(e) {}
+        }
       }
 
       // Settings persistence
@@ -129,11 +142,11 @@
         state.fabPosition = JSON.parse(storedFab);
       }
 
-      // Default auto-equip pattern if owned or trial active
+      // Default auto-equip pattern if owned or trial/donor perk active
       if (!state.equippedPattern) {
         if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
           state.equippedPattern = 'hello_kitty';
-        } else if (state.ownedPatterns['poland']) {
+        } else if (state.ownedPatterns['poland'] || (state.donorPerks && state.donorPerks.polandUnlocked)) {
           state.equippedPattern = 'poland';
         }
       }
@@ -167,6 +180,8 @@
       if (currentAcc) {
         var trialKey = 'terrix_cbm_trial_' + currentAcc.toLowerCase();
         localStorage.setItem(trialKey, JSON.stringify(state.trial));
+        var perkKey = 'terrix_cbm_donor_perks_' + currentAcc.toLowerCase();
+        localStorage.setItem(perkKey, JSON.stringify(state.donorPerks));
       }
 
       localStorage.setItem('terrix_settings', JSON.stringify(state.settings));
@@ -284,12 +299,21 @@
           }
         }
 
-        var eligible = isDonor && totalGold >= 200.0;
+        var eligibleHelloKitty = isDonor && totalGold >= 200.0;
+        var eligiblePoland = isDonor && totalGold >= 500.0;
+
         state.trial.verified = isDonor;
         state.trial.totalDonated = totalGold;
-        state.trial.eligible = eligible;
+        state.trial.eligible = eligibleHelloKitty;
 
-        if (eligible) {
+        state.donorPerks = {
+          verified: isDonor,
+          totalDonated: totalGold,
+          helloKittyUnlocked: eligibleHelloKitty,
+          polandUnlocked: eligiblePoland
+        };
+
+        if (eligibleHelloKitty) {
           if (typeof state.trial.matchesRemaining !== 'number') {
             state.trial.matchesRemaining = MAX_TRIAL_MATCHES;
           }
@@ -299,6 +323,9 @@
               state.equippedPattern = 'hello_kitty';
             }
           }
+        }
+        if (eligiblePoland && !state.equippedPattern && !state.ownedPatterns['hello_kitty']) {
+          state.equippedPattern = 'poland';
         }
         savePersistedState();
         updateShopUI();
@@ -1312,14 +1339,52 @@
     var isEquipped = state.equippedPattern === 'hello_kitty';
     var trial = state.trial;
 
-    // Perk Banner
-    if (trial.eligible) {
+    // Multi-tier Donor Perk Banner
+    var donorPerks = state.donorPerks || {};
+    if (donorPerks.polandUnlocked) {
       perkContainer.innerHTML = [
         '<div class="terrix-perk-banner">',
-        '  <h4>Verified CBM Donor Perk Active</h4>',
-        '  <p>Your verified account has donated <b>' + trial.totalDonated.toFixed(1) + ' Gold</b> to the Clan Bank. You qualify for an <b>Unlimited Free Trial</b> of the Hello Kitty territory pattern.</p>',
+        '  <h4>Verified CBM Elite Donor Perks Active</h4>',
+        '  <p>Your verified account has donated <b>' + donorPerks.totalDonated.toFixed(1) + ' Gold</b> to the Clan Bank. Both <b>Hello Kitty</b> (Tier 1 &ge;200G) and <b>Poland Flag</b> (Tier 2 &ge;500G) patterns are unlocked as permanent donor perks!</p>',
+        '  <div style="display: flex; gap: 8px; flex-wrap: wrap;">',
+        '    <button class="terrix-action-btn gold" id="tx-perk-equip-poland-btn">' +
+               (state.equippedPattern === 'poland' ? 'Poland Pattern Equipped &check;' : 'Equip Poland Pattern') +
+             '</button>',
+        '    <button class="terrix-action-btn secondary" id="tx-activate-trial-btn">' +
+               (state.equippedPattern === 'hello_kitty' ? 'Hello Kitty Equipped &check;' : 'Equip Hello Kitty Pattern') +
+             '</button>',
+        '  </div>',
+        '</div>'
+      ].join('\n');
+
+      var perkPolandBtn = document.getElementById('tx-perk-equip-poland-btn');
+      if (perkPolandBtn) {
+        perkPolandBtn.onclick = function() {
+          state.equippedPattern = 'poland';
+          savePersistedState();
+          showNotification("Poland Pattern equipped via CBM Tier 2 Donor Perk!");
+          updateShopUI();
+        };
+      }
+
+      var trialBtn = document.getElementById('tx-activate-trial-btn');
+      if (trialBtn) {
+        trialBtn.onclick = function() {
+          trial.active = true;
+          state.equippedPattern = 'hello_kitty';
+          savePersistedState();
+          showNotification("Hello Kitty Pattern equipped via CBM Tier 1 Donor Perk!");
+          updateShopUI();
+        };
+      }
+    } else if (donorPerks.helloKittyUnlocked || trial.eligible) {
+      var neededForPoland = Math.max(0, 500.0 - (donorPerks.totalDonated || trial.totalDonated || 0)).toFixed(1);
+      perkContainer.innerHTML = [
+        '<div class="terrix-perk-banner">',
+        '  <h4>Verified CBM Donor Perk Active (Tier 1)</h4>',
+        '  <p>Your verified account has donated <b>' + (donorPerks.totalDonated || trial.totalDonated || 0).toFixed(1) + ' Gold</b> to the Clan Bank. Hello Kitty territory pattern is unlocked! Donate <b>' + neededForPoland + ' more Gold</b> to unlock Tier 2: Poland Flag Pattern.</p>',
         '  <button class="terrix-action-btn gold" id="tx-activate-trial-btn">' +
-             (trial.active ? 'Trial Active (Unlimited Matches)' : 'Activate Unlimited Free Trial') +
+             (trial.active && state.equippedPattern === 'hello_kitty' ? 'Hello Kitty Equipped &check;' : 'Equip Hello Kitty Pattern') +
            '</button>',
         '</div>'
       ].join('\n');
@@ -1330,10 +1395,19 @@
           trial.active = true;
           state.equippedPattern = 'hello_kitty';
           savePersistedState();
-          showNotification("Hello Kitty Pattern equipped via Verified CBM Unlimited Trial!");
+          showNotification("Hello Kitty Pattern equipped via CBM Tier 1 Donor Perk!");
           updateShopUI();
         };
       }
+    } else if (donorPerks.totalDonated > 0) {
+      var neededKitty = Math.max(0, 200.0 - donorPerks.totalDonated).toFixed(1);
+      var neededPoland = Math.max(0, 500.0 - donorPerks.totalDonated).toFixed(1);
+      perkContainer.innerHTML = [
+        '<div class="terrix-perk-banner">',
+        '  <h4>CBM Donor Perk Progress</h4>',
+        '  <p>Your account has donated <b>' + donorPerks.totalDonated.toFixed(1) + ' Gold</b> to the Clan Bank. Donate <b>' + neededKitty + ' more Gold</b> for Hello Kitty (Tier 1), or <b>' + neededPoland + ' more Gold</b> for Poland Flag (Tier 2).</p>',
+        '</div>'
+      ].join('\n');
     } else {
       perkContainer.innerHTML = '';
     }
@@ -1421,6 +1495,7 @@
     if (!btnContainer) return;
 
     var isOwned = !!state.ownedPatterns['poland'];
+    var isDonorPerk = !!(state.donorPerks && state.donorPerks.polandUnlocked);
     var isEquipped = state.equippedPattern === 'poland';
     var buttonsHtml = '';
 
@@ -1436,9 +1511,24 @@
         slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
           '<span>&#10004;</span> Verified Purchase &bull; Order ' + rid + '</div>';
       }
+    } else if (isDonorPerk) {
+      if (isEquipped) {
+        buttonsHtml = '<button class="terrix-action-btn green" id="tx-poland-equip-btn">Equipped &check; (CBM Donor Perk)</button>' +
+                      '<button class="terrix-action-btn secondary" id="tx-poland-unequip-btn">Unequip</button>';
+      } else {
+        buttonsHtml = '<button class="terrix-action-btn gold" id="tx-poland-equip-btn">Equip Poland Pattern (CBM Donor Perk)</button>';
+      }
+      if (slipContainer) {
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
+          '<span>&#10004;</span> Verified CBM Tier 2 Donor Perk (&ge; 500 Gold Donated)</div>';
+      }
     } else {
+      var donorProgress = (state.donorPerks && state.donorPerks.totalDonated > 0)
+        ? '<div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">CBM Donor Perk Progress: ' + state.donorPerks.totalDonated.toFixed(1) + ' / 500.0 Gold donated</div>'
+        : '';
       buttonsHtml = '<button class="terrix-action-btn gold" id="tx-poland-buy-btn">Get Order Slip (1,000 Gold)</button>' +
-                    '<button class="terrix-action-btn secondary" id="tx-poland-direct-pay-btn">One-Click In-Game Pay (CBM Proxy)</button>';
+                    '<button class="terrix-action-btn secondary" id="tx-poland-direct-pay-btn">One-Click In-Game Pay (CBM Proxy)</button>' +
+                    donorProgress;
       if (state.activeOrder && (state.activeOrder.product_id === PRODUCT_ID_POLAND || state.activeOrder.product_id === 'prod_poland') && state.activeOrder.status === "PENDING") {
         renderOrderSlipUI(state.activeOrder);
       } else if (slipContainer) {
@@ -1574,7 +1664,7 @@
     if (!state.equippedPattern) {
       if (state.ownedPatterns['hello_kitty'] || (state.trial && state.trial.active && state.trial.matchesRemaining > 0)) {
         state.equippedPattern = 'hello_kitty';
-      } else if (state.ownedPatterns['poland']) {
+      } else if (state.ownedPatterns['poland'] || (state.donorPerks && state.donorPerks.polandUnlocked)) {
         state.equippedPattern = 'poland';
       }
     }
@@ -1590,13 +1680,19 @@
     var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 0;
     if (tileCount <= 0) return;
 
-    var canUse = !!state.ownedPatterns[state.equippedPattern] || (state.equippedPattern === 'hello_kitty' && state.trial && state.trial.active);
+    var canUse = !!state.ownedPatterns[state.equippedPattern] ||
+                 (state.equippedPattern === 'hello_kitty' && state.trial && state.trial.active) ||
+                 (state.equippedPattern === 'poland' && state.donorPerks && state.donorPerks.polandUnlocked);
     if (!canUse) return;
 
     if (!state.currentMatchDeducted) {
       state.currentMatchDeducted = true;
       if (state.equippedPattern === 'poland') {
-        showNotification("Poland Flag Territory Pattern Active!");
+        if (state.donorPerks && state.donorPerks.polandUnlocked && !state.ownedPatterns['poland']) {
+          showNotification("Poland Flag Territory Pattern Active (CBM Donor Perk)!");
+        } else {
+          showNotification("Poland Flag Territory Pattern Active!");
+        }
       } else if (state.trial && state.trial.active) {
         showNotification("Hello Kitty Territory Pattern Active (Trial)!");
       } else {

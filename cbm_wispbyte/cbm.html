@@ -214,6 +214,41 @@
       text-transform: uppercase;
     }
 
+    /* Community Telemetry & Social Proof Pills */
+    .community-stats-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .community-stat-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      padding: 5px 12px;
+      font-size: 12px;
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      transition: var(--transition);
+    }
+
+    .community-stat-pill:hover {
+      border-color: var(--border-bright);
+      background: var(--panel-hover);
+    }
+
+    .community-stat-pill strong {
+      color: #fff;
+    }
+
+    .stat-pill-icon {
+      font-size: 13px;
+    }
+
     /* Main Container */
     main {
       max-width: var(--maxw);
@@ -919,6 +954,18 @@
           <span>VAULT: <strong class="mono" id="navVaultAcc" style="color: #fff;">DdcBC</strong></span>
         </div>
 
+        <!-- Live Member Count Badge -->
+        <div class="vault-hud-badge" title="Registered Clan Bank Members">
+          <span>👥</span>
+          <span><strong class="mono" id="navMemberCount" style="color: #fff;">--</strong> Members</span>
+        </div>
+
+        <!-- Live Volume Transacted Badge -->
+        <div class="vault-hud-badge" title="Cumulative Settled Ledger Volume">
+          <span>⚡</span>
+          <span><strong class="mono text-gold" id="navVolumeTotal" style="color: var(--paypal-yellow);">--</strong> Vol</span>
+        </div>
+
         <!-- Direct Links to Dedicated Pages -->
         <a href="/vault.html" class="vault-hud-badge"
           style="text-decoration:none; color:var(--success); border-color:rgba(0,207,146,0.3);">
@@ -963,6 +1010,24 @@
           <h1>Clan Bank Manager</h1>
           <p>Audited reserve custody, automated deposit reconciliation, and member account management for Territorial.io
             clans.</p>
+          <div class="community-stats-row">
+            <div class="community-stat-pill" title="Total Registered Clan Accounts">
+              <span class="stat-pill-icon">👥</span>
+              <span><strong id="heroMemberCount" class="mono">--</strong> Members</span>
+            </div>
+            <div class="community-stat-pill" title="Members holding active gold deposits">
+              <span class="stat-pill-icon">🟢</span>
+              <span><strong id="heroActiveDepositors" class="mono">--</strong> Active Savers</span>
+            </div>
+            <div class="community-stat-pill" title="Cumulative all-time gold settled across all deposits, withdrawals and loans">
+              <span class="stat-pill-icon">⚡</span>
+              <span><strong id="heroVolumeTotal" class="mono text-gold">--</strong> Transacted</span>
+            </div>
+            <div class="community-stat-pill" title="Gold volume transacted in the last 24 hours">
+              <span class="stat-pill-icon">🕒</span>
+              <span><strong id="heroVolume24h" class="mono text-green">--</strong> 24h Vol</span>
+            </div>
+          </div>
         </div>
       </div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
@@ -2638,6 +2703,29 @@
         if (data.vault_account) {
           document.getElementById('navVaultAcc').innerText = data.vault_account;
           document.getElementById('vaultCopyTarget').innerText = data.vault_account;
+        }
+
+        if (data.community) {
+          const c = data.community;
+          const fmt = (n) => typeof n === 'number' ? n.toLocaleString() : (n || 0);
+
+          const navMembers = document.getElementById('navMemberCount');
+          if (navMembers) navMembers.innerText = fmt(c.total_members);
+
+          const navVol = document.getElementById('navVolumeTotal');
+          if (navVol) navVol.innerText = (c.total_volume_gold || 0).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' 🧈';
+
+          const heroMem = document.getElementById('heroMemberCount');
+          if (heroMem) heroMem.innerText = fmt(c.total_members);
+
+          const heroActive = document.getElementById('heroActiveDepositors');
+          if (heroActive) heroActive.innerText = fmt(c.active_depositors);
+
+          const heroVol = document.getElementById('heroVolumeTotal');
+          if (heroVol) heroVol.innerText = (c.total_volume_gold || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' 🧈';
+
+          const hero24h = document.getElementById('heroVolume24h');
+          if (hero24h) hero24h.innerText = (c.volume_24h_gold || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' 🧈';
         }
 
         if (data.lending_facility) {

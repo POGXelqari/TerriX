@@ -3045,6 +3045,58 @@ class CBMDatabase:
         res_dict["vault_excess_gold"] = res_dict["vault_excess_cents"] / 100.0
         return res_dict
 
+    def get_community_metrics(self) -> Dict[str, Any]:
+        """
+        Returns high-level social proof and community adoption telemetry:
+        - total_members: Count of registered CBM accounts (excluding system accounts)
+        - active_depositors: Count of accounts with deposited_cents > 0
+        - total_volume_gold: Cumulative all-time gold transacted across the ledger
+        - volume_24h_gold: Gold transacted in the last 24 hours
+        - total_transactions: Total count of ledger operations
+        """
+        try:
+            conn = self._get_sqlite_conn()
+            cur = conn.cursor()
+
+            system_accounts = "('treasury', 'war_chest', 'bank', 'vault', 'reserves', 'system')"
+
+            cur.execute(f"SELECT count(*) FROM cbm_accounts WHERE LOWER(account_name) NOT IN {system_accounts};")
+            row = cur.fetchone()
+            total_members = row[0] if row else 0
+
+            cur.execute(f"SELECT count(*) FROM cbm_accounts WHERE LOWER(account_name) NOT IN {system_accounts} AND deposited_cents > 0;")
+            row = cur.fetchone()
+            active_depositors = row[0] if row else 0
+
+            now_ts = time.time()
+            ts_24h_ago = now_ts - 86400
+
+            cur.execute("SELECT count(*), COALESCE(SUM(amount_cents), 0) FROM cbm_ledger;")
+            tx_row = cur.fetchone()
+            total_txs = tx_row[0] if tx_row else 0
+            total_vol_cents = tx_row[1] if tx_row else 0
+
+            cur.execute("SELECT COALESCE(SUM(amount_cents), 0) FROM cbm_ledger WHERE created_at >= ?;", (ts_24h_ago,))
+            vol_24h_row = cur.fetchone()
+            vol_24h_cents = vol_24h_row[0] if vol_24h_row else 0
+
+            return {
+                "total_members": int(total_members),
+                "active_depositors": int(active_depositors),
+                "total_transactions": int(total_txs),
+                "total_volume_gold": round(total_vol_cents / 100.0, 2),
+                "volume_24h_gold": round(vol_24h_cents / 100.0, 2)
+            }
+        except Exception as ex:
+            print(f"[!] Warning in get_community_metrics: {ex}")
+            return {
+                "total_members": 0,
+                "active_depositors": 0,
+                "total_transactions": 0,
+                "total_volume_gold": 0.0,
+                "volume_24h_gold": 0.0
+            }
+
     def _calculate_treasury_metrics(self, vault_total_cents: int) -> Dict[str, Any]:
         try:
             return self._do_calculate_treasury_metrics(vault_total_cents)

@@ -207,6 +207,7 @@ def refresh_status_cache():
                     "progress_percent": facility.get("progress_percent"),
                     "status_message": facility.get("status_message")
                 },
+                "community": db.get_community_metrics(),
                 "top_donors": db.get_top_donors(limit=5),
                 "recent_transactions": recent_txs
             }
@@ -233,6 +234,13 @@ def refresh_status_cache():
                     "vault_excess_gold": 0.0,
                     "bank_reserves_gold": 0.0,
                     "solvency_ratio_percent": 100.0
+                },
+                "community": {
+                    "total_members": 0,
+                    "active_depositors": 0,
+                    "total_transactions": 0,
+                    "total_volume_gold": 0.0,
+                    "volume_24h_gold": 0.0
                 },
                 "top_donors": [],
                 "recent_transactions": []

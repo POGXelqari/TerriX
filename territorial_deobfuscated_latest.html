@@ -126,10 +126,10 @@ uiSurface.platformActions.du();}camera.dv();}createSystems();startGameLoop();set
 function SettingsPanel(){this.dw=1761;
 var dx=2;
 var dy=16;
-var dz=52;
+var dz=53;
 this.rVersion=25;this.e0=0;this.applyToGame=function(){this.e1=2;
 var e2="";this.o=dx+"."+dy+"."+dz;
-this.e3="22 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
+this.e3="24 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
 this.aA=this.hostname.indexOf("territorial.io")>=0;this.e4=this.hostname.indexOf("github.io")>=0;
 this.e5=this.hostname.indexOf("game.territorial.io")>=0;this.aB=e6();this.e7=(new Date()).getTime()%1048576;
 console.log("hostname: ["+this.hostname+"] validHostname: "+(+this.aA)+" validMod: "+(+this.e4));
@@ -200,12 +200,12 @@ sitekey:"0x4AAAAAAEI8HZoG8nJMzxt1",action:"enter_lobby",appearance:"interaction-
 callback:function(MountainAttackTargetFinder){console.log("turnstile success "+Math.floor(performance.now()-ep));
 eq=MountainAttackTargetFinder;er=performance.now();gameConfig.turnstile.f4();MountainAttackHelper();},"expired-callback":function(){MountainAttackHelper();
 console.log("turnstile expired "+Math.floor(performance.now()-ep));},"error-callback":function(){
-MountainAttackHelper();console.log("turnstile callback error "+Math.floor(performance.now()-ep));
-gameConfig.turnstile.em=-1;}});return true;};this.close=function(){
-MountainAttackHelper();};
+MountainAttackHelper();console.log("turnstile callback error "+Math.floor(performance.now()-ep));gameConfig.turnstile.em=-1;
+}});return true;};this.close=function(){MountainAttackHelper();};
 
-function MountainAttackHelper(){if(es===null||en===null){return;}eo=0;window.turnstile.remove(en);es.remove();
-es=null;en=null;}this.f4=function(){if(!ez(8)){return;}if(!audioSystem.f6){return;}if(!gameServer.z.responsePacketBuilder(gameServer.z.mapId)){
+function MountainAttackHelper(){if(es===null||en===null){return;}eo=0;
+try{window.turnstile.remove(en);es.remove();}catch(e){console.log("turnstile remove failed "+e);
+}es=null;en=null;}this.f4=function(){if(!ez(8)){return;}if(!audioSystem.f6){return;}if(!gameServer.z.responsePacketBuilder(gameServer.z.mapId)){
 return;}ev=performance.now()+1000*60*ew-1000*10;et=minimapRenderer.f0.f1(connectionMgr.buffer.data[105].value,5);
 eu=loadingSystem.mountainAttackTargetFinder;gameServer.eg.f8(eq);eq="";console.log("sendTokenToLobby success");
 };

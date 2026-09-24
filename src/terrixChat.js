@@ -4,14 +4,16 @@
  * ====================================================================
  * Features:
  * 1. Unmoveable 3D Circle Button on HUD with speech bubble icon.
- * 2. Hotkey '/' listener to immediately focus chat input (Esc to dismiss).
- * 3. Text-only Territorial.io UI style speech bubbles anchored to player
+ * 2. Self-healing DOM lifecycle with MutationObserver & staggered resurrection
+ *    ladder (guarantees HUD button survives Territorial.io page transitions).
+ * 3. Hotkey '/' listener to immediately focus chat input (Esc to dismiss).
+ * 4. Text-only Territorial.io UI style speech bubbles anchored to player
  *    territory centroid on the world canvas (ws) that follow camera panning,
  *    zooming, and territory movement, fading out after ~6 seconds.
- * 4. Dual Authentication: CBM Member Credentials (verified badge & clan tag)
+ * 5. Dual Authentication: CBM Member Credentials (verified badge & clan tag)
  *    and Anonymous Territorial.io in-game identity.
- * 5. Automatic deterministic match room synchronization over CBM Disposable Chat API.
- * 6. High concurrency & low CPU standard: freezes polling when document.hidden.
+ * 6. Automatic deterministic match room synchronization over CBM Disposable Chat API.
+ * 7. High concurrency & low CPU standard: freezes polling when document.hidden.
  * ====================================================================
  */
 
@@ -88,7 +90,7 @@
       if (context && context.playerData && context.playerData.rawPlayerNames) {
         var names = context.playerData.rawPlayerNames;
         if (names && names.length > 0) {
-          // Take first 8 player names sorted to derive a deterministic room hash
+          // Take first 12 player names sorted to derive a deterministic room hash
           var sample = [];
           for (var i = 0; i < Math.min(names.length, 12); i++) {
             if (names[i]) sample.push(String(names[i]).trim());
@@ -202,7 +204,7 @@
       payload.sender_clan = '';
     }
 
-    // Attempt to attach local player index
+    // Attach local player index if available
     if (window.__TERRIX_LAST_CTX__) {
       var lIdx = getLocalPlayerIndex(window.__TERRIX_LAST_CTX__);
       if (typeof lIdx === 'number') payload.player_index = lIdx;
@@ -387,155 +389,212 @@
     ctx.restore();
   }
 
-  // Create HUD Elements (Unmoveable 3D Button + Chat Inbox Box)
-  function setupDOM() {
-    // 1. Inject Stylesheet
-    var styleId = 'terrix-chat-styles';
-    if (!document.getElementById(styleId)) {
-      var style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = [
-        '/* Unmoveable 3D Circle Chat Button */',
-        '.terrix-chat-fab {',
-        '  position: fixed;',
-        '  bottom: 84px;',
-        '  right: 20px;',
-        '  width: 44px;',
-        '  height: 44px;',
-        '  border-radius: 50%;',
-        '  background: linear-gradient(135deg, #16243d, #0e1626);',
-        '  border: 2px solid rgba(0, 112, 224, 0.45);',
-        '  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.25);',
-        '  color: #ffffff;',
-        '  display: flex;',
-        '  align-items: center;',
-        '  justify-content: center;',
-        '  cursor: pointer;',
-        '  z-index: 999998;',
-        '  user-select: none;',
-        '  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;',
-        '}',
-        '.terrix-chat-fab:hover {',
-        '  transform: scale(1.08);',
-        '  border-color: #60a5fa;',
-        '  box-shadow: 0 6px 20px rgba(0, 112, 224, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.35);',
-        '}',
-        '.terrix-chat-fab:active {',
-        '  transform: scale(0.96);',
-        '}',
-        '',
-        '/* Floating Chat Inbox Bar */',
-        '.terrix-chat-bar {',
-        '  position: fixed;',
-        '  bottom: 84px;',
-        '  left: 50%;',
-        '  transform: translateX(-50%);',
-        '  width: 480px;',
-        '  max-width: calc(100vw - 32px);',
-        '  background: rgba(14, 22, 38, 0.94);',
-        '  backdrop-filter: blur(16px);',
-        '  -webkit-backdrop-filter: blur(16px);',
-        '  border: 1px solid rgba(0, 112, 224, 0.35);',
-        '  border-radius: 9999px;',
-        '  padding: 6px 14px;',
-        '  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.65);',
-        '  display: none;',
-        '  align-items: center;',
-        '  gap: 10px;',
-        '  z-index: 999999;',
-        '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;',
-        '}',
-        '.terrix-chat-bar.open {',
-        '  display: flex;',
-        '  animation: txChatFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);',
-        '}',
-        '@keyframes txChatFadeIn {',
-        '  from { opacity: 0; transform: translate(-50%, 10px); }',
-        '  to { opacity: 1; transform: translate(-50%, 0); }',
-        '}',
-        '.terrix-chat-badge {',
-        '  font-size: 11px;',
-        '  font-weight: 700;',
-        '  padding: 3px 8px;',
-        '  border-radius: 9999px;',
-        '  white-space: nowrap;',
-        '}',
-        '.tx-badge-cbm {',
-        '  background: rgba(0, 112, 224, 0.2);',
-        '  color: #60a5fa;',
-        '  border: 1px solid rgba(0, 112, 224, 0.4);',
-        '}',
-        '.tx-badge-anon {',
-        '  background: rgba(255, 255, 255, 0.08);',
-        '  color: #d1d5db;',
-        '  border: 1px solid rgba(255, 255, 255, 0.15);',
-        '}',
-        '.terrix-chat-input {',
-        '  flex: 1;',
-        '  background: transparent;',
-        '  border: none;',
-        '  outline: none;',
-        '  color: #ffffff;',
-        '  font-size: 13.5px;',
-        '  font-family: inherit;',
-        '}',
-        '.terrix-chat-input::placeholder {',
-        '  color: #6b7280;',
-        '}',
-        '.terrix-chat-send-btn {',
-        '  background: #0070e0;',
-        '  border: none;',
-        '  border-radius: 50%;',
-        '  width: 32px;',
-        '  height: 32px;',
-        '  display: flex;',
-        '  align-items: center;',
-        '  justify-content: center;',
-        '  color: #ffffff;',
-        '  cursor: pointer;',
-        '  transition: background 0.15s ease, transform 0.1s ease;',
-        '  flex-shrink: 0;',
-        '}',
-        '.terrix-chat-send-btn:hover {',
-        '  background: #005ea6;',
-        '  transform: scale(1.05);',
-        '}',
-        '.terrix-chat-close-btn {',
-        '  background: transparent;',
-        '  border: none;',
-        '  color: #9ca3af;',
-        '  font-size: 18px;',
-        '  cursor: pointer;',
-        '  line-height: 1;',
-        '  padding: 0 4px;',
-        '}',
-        '.terrix-chat-close-btn:hover {',
-        '  color: #ffffff;',
-        '}'
-      ].join('\n');
-      (document.head || document.body).appendChild(style);
+  // ====================================================================
+  // Robust Self-Healing DOM Initialization & Watchers
+  // ====================================================================
+
+  var CHAT_CSS = [
+    '/* Unmoveable 3D Circle Chat Button on HUD */',
+    '.terrix-chat-fab {',
+    '  position: fixed !important;',
+    '  bottom: 88px !important;',
+    '  right: 24px !important;',
+    '  width: 48px !important;',
+    '  height: 48px !important;',
+    '  border-radius: 50% !important;',
+    '  background: radial-gradient(circle at 35% 30%, #1e2c45 0%, #0e1626 70%, #080d16 100%) !important;',
+    '  border: 2px solid rgba(0, 112, 224, 0.65) !important;',
+    '  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 112, 224, 0.35), inset 0 1px 2px rgba(255, 255, 255, 0.4) !important;',
+    '  color: #ffffff !important;',
+    '  display: flex !important;',
+    '  align-items: center !important;',
+    '  justify-content: center !important;',
+    '  cursor: pointer !important;',
+    '  z-index: 999999 !important;',
+    '  user-select: none !important;',
+    '  pointer-events: auto !important;',
+    '  touch-action: manipulation !important;',
+    '  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s ease, box-shadow 0.15s ease !important;',
+    '}',
+    '.terrix-chat-fab:hover {',
+    '  transform: scale(1.08) translateY(-2px) !important;',
+    '  border-color: #60a5fa !important;',
+    '  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.85), 0 4px 14px rgba(0, 112, 224, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.5) !important;',
+    '}',
+    '.terrix-chat-fab:active {',
+    '  transform: scale(0.95) !important;',
+    '}',
+    '.terrix-chat-fab.active {',
+    '  border-color: #38bdf8 !important;',
+    '  box-shadow: 0 0 16px rgba(56, 189, 248, 0.7), 0 8px 24px rgba(0, 0, 0, 0.85) !important;',
+    '  transform: scale(1.05) !important;',
+    '}',
+    '',
+    '/* Floating Chat Inbox Bar */',
+    '.terrix-chat-bar {',
+    '  position: fixed !important;',
+    '  bottom: 88px !important;',
+    '  left: 50% !important;',
+    '  transform: translateX(-50%) !important;',
+    '  width: 480px !important;',
+    '  max-width: calc(100vw - 32px) !important;',
+    '  background: rgba(14, 22, 38, 0.96) !important;',
+    '  backdrop-filter: blur(16px) !important;',
+    '  -webkit-backdrop-filter: blur(16px) !important;',
+    '  border: 1.5px solid rgba(0, 112, 224, 0.45) !important;',
+    '  border-radius: 9999px !important;',
+    '  padding: 6px 14px !important;',
+    '  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.8), 0 0 15px rgba(0, 112, 224, 0.2) !important;',
+    '  display: none !important;',
+    '  align-items: center !important;',
+    '  gap: 10px !important;',
+    '  z-index: 1000000 !important;',
+    '  pointer-events: auto !important;',
+    '  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;',
+    '}',
+    '.terrix-chat-bar.open {',
+    '  display: flex !important;',
+    '  animation: txChatFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;',
+    '}',
+    '@keyframes txChatFadeIn {',
+    '  from { opacity: 0; transform: translate(-50%, 10px); }',
+    '  to { opacity: 1; transform: translate(-50%, 0); }',
+    '}',
+    '@media (max-height: 600px) {',
+    '  .terrix-chat-fab {',
+    '    bottom: 48px !important;',
+    '    right: 16px !important;',
+    '    width: 42px !important;',
+    '    height: 42px !important;',
+    '  }',
+    '  .terrix-chat-bar {',
+    '    bottom: 50px !important;',
+    '    width: calc(100vw - 32px) !important;',
+    '  }',
+    '}',
+    '.terrix-chat-badge {',
+    '  font-size: 11px !important;',
+    '  font-weight: 700 !important;',
+    '  padding: 3px 8px !important;',
+    '  border-radius: 9999px !important;',
+    '  white-space: nowrap !important;',
+    '}',
+    '.tx-badge-cbm {',
+    '  background: rgba(0, 112, 224, 0.25) !important;',
+    '  color: #60a5fa !important;',
+    '  border: 1px solid rgba(0, 112, 224, 0.5) !important;',
+    '}',
+    '.tx-badge-anon {',
+    '  background: rgba(255, 255, 255, 0.08) !important;',
+    '  color: #d1d5db !important;',
+    '  border: 1px solid rgba(255, 255, 255, 0.2) !important;',
+    '}',
+    '.terrix-chat-input {',
+    '  flex: 1 !important;',
+    '  background: transparent !important;',
+    '  border: none !important;',
+    '  outline: none !important;',
+    '  color: #ffffff !important;',
+    '  font-size: 13.5px !important;',
+    '  font-family: inherit !important;',
+    '}',
+    '.terrix-chat-input::placeholder {',
+    '  color: #6b7280 !important;',
+    '}',
+    '.terrix-chat-send-btn {',
+    '  background: #0070e0 !important;',
+    '  border: none !important;',
+    '  border-radius: 50% !important;',
+    '  width: 32px !important;',
+    '  height: 32px !important;',
+    '  display: flex !important;',
+    '  align-items: center !important;',
+    '  justify-content: center !important;',
+    '  color: #ffffff !important;',
+    '  cursor: pointer !important;',
+    '  transition: background 0.15s ease, transform 0.1s ease !important;',
+    '  flex-shrink: 0 !important;',
+    '}',
+    '.terrix-chat-send-btn:hover {',
+    '  background: #005ea6 !important;',
+    '  transform: scale(1.05) !important;',
+    '}',
+    '.terrix-chat-close-btn {',
+    '  background: transparent !important;',
+    '  border: none !important;',
+    '  color: #9ca3af !important;',
+    '  font-size: 18px !important;',
+    '  cursor: pointer !important;',
+    '  line-height: 1 !important;',
+    '  padding: 0 4px !important;',
+    '}',
+    '.terrix-chat-close-btn:hover {',
+    '  color: #ffffff !important;',
+    '}'
+  ].join('\n');
+
+  // Idempotent, self-healing DOM injector
+  function ensureChatDOM() {
+    var docBody = document.body;
+    if (!docBody) {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', ensureChatDOM, { once: true });
+      } else {
+        setTimeout(ensureChatDOM, 30);
+      }
+      return;
     }
 
-    // 2. Unmoveable 3D Circle Button
-    if (!document.getElementById('terrix-chat-fab')) {
-      var fab = document.createElement('div');
+    // 1. Ensure Stylesheet
+    var style = document.getElementById('terrix-chat-styles');
+    if (!style || !document.contains(style)) {
+      if (style && style.parentNode) style.parentNode.removeChild(style);
+      style = document.createElement('style');
+      style.id = 'terrix-chat-styles';
+      style.textContent = CHAT_CSS;
+      (document.head || docBody).appendChild(style);
+    }
+
+    // 2. Ensure Unmoveable 3D Circle Button
+    var fab = document.getElementById('terrix-chat-fab');
+    if (!fab || !docBody.contains(fab)) {
+      if (fab && fab.parentNode) fab.parentNode.removeChild(fab);
+      fab = document.createElement('div');
       fab.id = 'terrix-chat-fab';
-      fab.className = 'terrix-chat-fab';
-      fab.title = 'In-Match Chat (Hotkey: /)';
+      fab.className = 'terrix-chat-fab' + (state.inboxOpen ? ' active' : '');
+      fab.title = 'In-Match Chat (Press /)';
       fab.innerHTML = [
-        '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">',
-        '  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>',
-        '</svg>'
+        '<div style="position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center;">',
+        '  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">',
+        '    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>',
+        '  </svg>',
+        '  <div style="position:absolute; bottom:3px; right:3px; width:9px; height:9px; background:#0070e0; border:2px solid #080d16; border-radius:50%; box-shadow:0 0 6px rgba(0,112,224,0.8);"></div>',
+        '</div>'
       ].join('');
-      fab.addEventListener('click', toggleChatInbox);
-      document.body.appendChild(fab);
+
+      // Prevent clicks/touches from leaking through to the Territorial.io canvas
+      ['pointerdown', 'mousedown', 'touchstart'].forEach(function(evt) {
+        fab.addEventListener(evt, function(e) {
+          e.stopPropagation();
+        });
+      });
+
+      fab.onclick = function(e) {
+        e.stopPropagation();
+        toggleChatInbox();
+      };
+      docBody.appendChild(fab);
     }
 
-    // 3. Floating Chat Inbox Bar
-    if (!document.getElementById('terrix-chat-bar')) {
-      var bar = document.createElement('div');
+    // 3. Ensure Floating Chat Inbox Bar
+    var bar = document.getElementById('terrix-chat-bar');
+    if (!bar || !docBody.contains(bar)) {
+      if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
+      bar = document.createElement('div');
       bar.id = 'terrix-chat-bar';
       bar.className = 'terrix-chat-bar';
+      if (state.inboxOpen) bar.classList.add('open');
+
       bar.innerHTML = [
         '<span id="tx-chat-auth-badge" class="terrix-chat-badge tx-badge-anon">Guest</span>',
         '<input type="text" id="tx-chat-input" class="terrix-chat-input" placeholder="Type a message (or :gold:, :gg:)... Press Enter" maxlength="200" autocomplete="off" spellcheck="false" />',
@@ -545,32 +604,63 @@
         '<button type="button" class="terrix-chat-close-btn" id="tx-chat-close-btn" title="Close (Esc)">&times;</button>'
       ].join('');
 
-      document.body.appendChild(bar);
+      // Prevent clicks/touches from leaking through to the Territorial.io canvas
+      ['pointerdown', 'mousedown', 'touchstart'].forEach(function(evt) {
+        bar.addEventListener(evt, function(e) {
+          e.stopPropagation();
+        });
+      });
+
+      docBody.appendChild(bar);
 
       var input = bar.querySelector('#tx-chat-input');
       var sendBtn = bar.querySelector('#tx-chat-send-btn');
       var closeBtn = bar.querySelector('#tx-chat-close-btn');
 
-      sendBtn.addEventListener('click', function() {
-        submitInput();
-      });
-
-      closeBtn.addEventListener('click', function() {
-        closeChatInbox();
-      });
-
-      input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
+      if (sendBtn) {
+        sendBtn.onclick = function(e) {
+          e.stopPropagation();
           submitInput();
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
+        };
+      }
+
+      if (closeBtn) {
+        closeBtn.onclick = function(e) {
+          e.stopPropagation();
           closeChatInbox();
-        }
-      });
+        };
+      }
+
+      if (input) {
+        // Prevent all typing keystrokes from leaking into Territorial.io game hotkeys
+        ['keydown', 'keyup', 'keypress'].forEach(function(evt) {
+          input.addEventListener(evt, function(e) {
+            e.stopPropagation();
+          });
+        });
+
+        input.onkeydown = function(e) {
+          e.stopPropagation();
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            submitInput();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeChatInbox();
+          }
+        };
+      }
     }
 
-    // 4. Hotkey '/' Listener
+    updateAuthBadge();
+  }
+
+  // Bind Keyboard & Dismissal Listeners once on window
+  function bindGlobalKeyboard() {
+    if (window.__TERRIX_CHAT_KEY_BOUND__) return;
+    window.__TERRIX_CHAT_KEY_BOUND__ = true;
+
+    // Use capture phase so TerriX Chat hotkey '/' is never swallowed by game scripts
     window.addEventListener('keydown', function(e) {
       if (e.key === '/' && !state.inboxOpen) {
         var active = document.activeElement;
@@ -579,11 +669,81 @@
           return; // Let user type '/' inside regular text inputs
         }
         e.preventDefault();
+        e.stopPropagation();
         openChatInbox();
       } else if (e.key === 'Escape' && state.inboxOpen) {
+        e.preventDefault();
+        e.stopPropagation();
         closeChatInbox();
       }
+    }, true);
+
+    // Dismiss chat bar when clicking outside on the map
+    document.addEventListener('pointerdown', function(e) {
+      if (state.inboxOpen) {
+        var bar = document.getElementById('terrix-chat-bar');
+        var fab = document.getElementById('terrix-chat-fab');
+        if (bar && !bar.contains(e.target) && (!fab || !fab.contains(e.target))) {
+          closeChatInbox();
+        }
+      }
+    }, true);
+  }
+
+  // MutationObserver & Lifecycle DOM Watchers
+  var domObserver = null;
+  var scheduledRecheckTimer = null;
+
+  function scheduleDomRepair() {
+    if (scheduledRecheckTimer) return;
+    scheduledRecheckTimer = setTimeout(function() {
+      scheduledRecheckTimer = null;
+      ensureChatDOM();
+    }, 40);
+  }
+
+  function startDOMWatchers() {
+    var target = document.body || document.documentElement;
+    var Obs = window.MutationObserver || (typeof MutationObserver !== 'undefined' ? MutationObserver : null);
+    if (Obs && target) {
+      if (domObserver) domObserver.disconnect();
+      domObserver = new Obs(function(mutations) {
+        for (var i = 0; i < mutations.length; i++) {
+          var m = mutations[i];
+          if (m.removedNodes && m.removedNodes.length > 0) {
+            for (var j = 0; j < m.removedNodes.length; j++) {
+              var n = m.removedNodes[j];
+              if (n.id === 'terrix-chat-fab' ||
+                  n.id === 'terrix-chat-bar' ||
+                  n.id === 'terrix-chat-styles' ||
+                  (n.classList && n.classList.contains('terrix-chat-fab'))) {
+                scheduleDomRepair();
+                return;
+              }
+            }
+          }
+        }
+      });
+      domObserver.observe(target, { childList: true, subtree: true });
+    }
+
+    // Staged resurrection ladder across initial page load & game startup
+    var loadCheckIntervals = [50, 150, 300, 600, 1000, 1800, 3000, 5000, 8000, 12000, 16000];
+    loadCheckIntervals.forEach(function(delay) {
+      setTimeout(ensureChatDOM, delay);
     });
+
+    // Window lifecycle triggers
+    window.addEventListener('load', ensureChatDOM);
+    window.addEventListener('resize', ensureChatDOM);
+    document.addEventListener('visibilitychange', function() {
+      if (document.visibilityState === 'visible') {
+        ensureChatDOM();
+      }
+    });
+
+    // Periodic heartbeat check
+    setInterval(ensureChatDOM, 2500);
   }
 
   function updateAuthBadge() {
@@ -603,20 +763,33 @@
 
   function openChatInbox() {
     state.inboxOpen = true;
+    ensureChatDOM();
     updateAuthBadge();
+
+    var fab = document.getElementById('terrix-chat-fab');
+    if (fab) fab.classList.add('active');
+
     var bar = document.getElementById('terrix-chat-bar');
     if (bar) {
       bar.classList.add('open');
       var input = document.getElementById('tx-chat-input');
       if (input) {
         input.value = '';
-        setTimeout(function() { input.focus(); }, 20);
+        input.focus();
+        setTimeout(function() {
+          if (state.inboxOpen && document.activeElement !== input) {
+            input.focus();
+          }
+        }, 40);
       }
     }
   }
 
   function closeChatInbox() {
     state.inboxOpen = false;
+    var fab = document.getElementById('terrix-chat-fab');
+    if (fab) fab.classList.remove('active');
+
     var bar = document.getElementById('terrix-chat-bar');
     if (bar) bar.classList.remove('open');
     var input = document.getElementById('tx-chat-input');
@@ -638,13 +811,40 @@
     if (text && text.trim()) {
       sendMessage(text);
       input.value = '';
-      closeChatInbox();
     }
+    closeChatInbox();
+  }
+
+  // Hook into TerriX Engine Frame Callback
+  function hookEngineFrame() {
+    if (window.__TERRIX_ENGINE__ && typeof window.__TERRIX_ENGINE__.onRenderFrame === 'function') {
+      if (!window.__TERRIX_CHAT_RENDER_HOOKED__) {
+        window.__TERRIX_CHAT_RENDER_HOOKED__ = true;
+        window.__TERRIX_ENGINE__.onRenderFrame(renderSpeechBubbles);
+        console.log('[TerriX Chat] Successfully registered speech bubble render frame hook.');
+      }
+      return true;
+    }
+    return false;
   }
 
   // Initialize Chat Subsystem
+  var isInitialized = false;
   function init() {
-    setupDOM();
+    if (isInitialized) return;
+    if (!document.body) {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init, { once: true });
+      } else {
+        setTimeout(init, 30);
+      }
+      return;
+    }
+    isInitialized = true;
+
+    ensureChatDOM();
+    bindGlobalKeyboard();
+    startDOMWatchers();
 
     // Start background poll timer
     if (!state.pollTimer) {
@@ -652,17 +852,31 @@
     }
 
     // Register with TerriX Engine Frame Hook
-    var checkEngineInterval = setInterval(function() {
-      if (window.__TERRIX_ENGINE__ && typeof window.__TERRIX_ENGINE__.onRenderFrame === 'function') {
-        clearInterval(checkEngineInterval);
-        window.__TERRIX_ENGINE__.onRenderFrame(renderSpeechBubbles);
-        console.log('[TerriX Chat] Successfully registered speech bubble render frame hook.');
-      }
-    }, 100);
+    if (!hookEngineFrame()) {
+      var checkEngineInterval = setInterval(function() {
+        if (hookEngineFrame()) {
+          clearInterval(checkEngineInterval);
+        }
+      }, 100);
+    }
+
+    // Expose public controller on window.__fx.chat
+    window.__fx = window.__fx || {};
+    window.__fx.chat = {
+      open: openChatInbox,
+      close: closeChatInbox,
+      toggle: toggleChatInbox,
+      send: sendMessage,
+      ensureDOM: ensureChatDOM,
+      getRoomId: function() { return state.currentRoomId; },
+      state: state
+    };
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+  if (document.body) {
+    init();
+  } else if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, { once: true });
   } else {
     init();
   }

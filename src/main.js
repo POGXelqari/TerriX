@@ -53,5 +53,7 @@ __fx.lobbyReminders = lobbyReminders;
 __fx.pingFilter = pingFilter;
 __fx.nameFilter = nameFilter;
 __fx.followedAccounts = followedAccounts;
+__fx.chat = window.__fx.chat;
 
 console.log('Successfully loaded FX Client');
+

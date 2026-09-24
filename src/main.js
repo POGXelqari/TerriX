@@ -20,6 +20,7 @@ import pingFilter from './pingFilter.js';
 import nameFilter from './nameFilter.js';
 import followedAccounts from './followedAccounts.js';
 import './terrixCosmetics.js';
+import './terrixChat.js';
 
 window.__fx = window.__fx || {};
 const __fx = window.__fx;

@@ -788,6 +788,29 @@
       </a>
       <a class="sidebar-nav-item" href="#widgets-guide">🔌 Embed Widget Guide</a>
 
+      <div class="sidebar-section-title">Disposable Chatroom API</div>
+      <a class="sidebar-nav-item" href="#ep-chat-create">
+        <span class="method-badge badge-post">POST</span> /api/cbm/chat/create
+      </a>
+      <a class="sidebar-nav-item" href="#ep-chat-send">
+        <span class="method-badge badge-post">POST</span> /api/cbm/chat/send
+      </a>
+      <a class="sidebar-nav-item" href="#ep-chat-messages">
+        <span class="method-badge badge-get">GET</span> /api/cbm/chat/messages
+      </a>
+      <a class="sidebar-nav-item" href="#ep-chat-stickers">
+        <span class="method-badge badge-get">GET</span> /api/cbm/chat/stickers
+      </a>
+      <a class="sidebar-nav-item" href="#ep-chat-stickers-create">
+        <span class="method-badge badge-post">POST</span> /api/cbm/chat/stickers/create
+      </a>
+      <a class="sidebar-nav-item" href="#ep-chat-upload">
+        <span class="method-badge badge-post">POST</span> /api/cbm/chat/upload
+      </a>
+      <a class="sidebar-nav-item" href="#ep-chat-end">
+        <span class="method-badge badge-post">POST</span> /api/cbm/chat/end
+      </a>
+
       <div class="sidebar-section-title">SDKs & Extensions</div>
       <a class="sidebar-nav-item" href="#discord-sdk">🤖 Discord Bot SDK</a>
       <a class="sidebar-nav-item" href="/api/cbm/dev/sdk/download" download="cbm_discord_sdk.py" style="color: #60a5fa; font-weight: 600; display: flex; align-items: center; gap: 6px;">
@@ -1142,6 +1165,206 @@ async def balance(interaction: discord.Interaction, player_name: str):
         </table>
         <div style="margin-top: 8px;">
           <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/products/verify', JSON.stringify({order_id: 'ord_example', token: 'token_example'}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Disposable Chatroom API Section Header -->
+      <div class="glass-card" id="chat-overview" style="border-left: 3px solid #60a5fa;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <h3 style="font-size: 18px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 8px;">
+            <span>💬 Temporary Disposable Chatroom API</span>
+            <span class="brand-badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">Ephemeral &amp; Moderated</span>
+          </h3>
+          <span style="font-size: 12px; font-family: var(--font-mono); color: var(--text-dim);">Max 100 Messages FIFO</span>
+        </div>
+        <p style="font-size: 14px; color: var(--text-dim); line-height: 1.6; margin-bottom: 12px;">
+          A high-performance, real-time disposable messaging platform built for in-match communication and ephemeral group lobbies. All chat histories, uploaded media, and sessions are <strong>permanently and irrevocably destroyed</strong> upon room closure or after 30 minutes of inactivity.
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px;">
+          <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; font-weight: 700; color: #60a5fa; text-transform: uppercase;">🛡️ Impenetrable Moderation</div>
+            <div style="font-size: 12.5px; color: var(--text-dim); margin-top: 4px;">Zero-width character stripping, Cyrillic/Greek homoglyph normalization, XSS escaping, and toxic pattern blocking.</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; font-weight: 700; color: #f59e0b; text-transform: uppercase;">🔒 SSRF-Safe URL Previews</div>
+            <div style="font-size: 12.5px; color: var(--text-dim); margin-top: 4px;">Private/loopback/cloud metadata IP filter and 64KB read limit on OpenGraph link embed generation.</div>
+          </div>
+          <div style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="font-size: 11px; font-weight: 700; color: #34d399; text-transform: uppercase;">⚡ Verified Media Caps</div>
+            <div style="font-size: 12.5px; color: var(--text-dim); margin-top: 4px;">Images &le; 4MB, Videos &le; 10MB, Files &le; 5MB. Verified binary magic byte headers; dangerous extensions blacklisted.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Endpoint: Create or Join Disposable Room -->
+      <div class="glass-card endpoint-doc" id="ep-chat-create">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/cbm/chat/create</span>
+        </div>
+        <p class="endpoint-desc">
+          Constructs or joins an ephemeral disposable chatroom. Automatically initializes a 100-message FIFO ring buffer and dedicated ephemeral storage enclave.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>room_id</code></td><td>string</td><td>Unique match or room identifier (e.g. <code>match_na1_94821</code>)</td></tr>
+            <tr><td><code>creator_name</code></td><td>string</td><td>Name of player or system creating the room</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/cbm/chat/create', JSON.stringify({room_id: 'match_test_room', creator_name: 'Player1'}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Send Chat Message -->
+      <div class="glass-card endpoint-doc" id="ep-chat-send">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/cbm/chat/send</span>
+        </div>
+        <p class="endpoint-desc">
+          Sends an authenticated message to the disposable room. Supports <strong>Dual Authentication</strong>: CBM Member credentials (with verified badge and clan tag) or Anonymous Territorial.io player name. Subject to burst rate-limiting (4 msgs / 3s), duplicate suppression, and automated toxicity inspection.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>room_id</code></td><td>string</td><td>Target room identifier (required)</td></tr>
+            <tr><td><code>content</code></td><td>string</td><td>Message text (max 500 characters, supports sticker shortcodes like <code>:gold:</code>)</td></tr>
+            <tr><td><code>sender_name</code></td><td>string</td><td>Territorial.io in-game name (used for Anonymous Territorial Auth)</td></tr>
+            <tr><td><code>sender_clan</code></td><td>string</td><td>Clan tag for anonymous player (optional)</td></tr>
+            <tr><td><code>cbm_username</code></td><td>string</td><td>Optional CBM username for authenticated member badge</td></tr>
+            <tr><td><code>cbm_pin</code></td><td>string</td><td>Optional CBM 6-digit access PIN (verifies member authenticity)</td></tr>
+            <tr><td><code>cbm_password</code></td><td>string</td><td>Optional CBM password fallback</td></tr>
+            <tr><td><code>player_index</code></td><td>integer</td><td>Optional Territorial.io player index for in-game canvas speech bubble positioning</td></tr>
+            <tr><td><code>attachments</code></td><td>array</td><td>Optional list of uploaded attachment metadata objects</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/cbm/chat/send', JSON.stringify({room_id: 'match_test_room', sender_name: 'Player1', sender_clan: 'ANTI-OG', content: 'Good game everyone! :gg: :gold:', player_index: 0}, null, 2))">Try in Playground (Anonymous) ↗</button>
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/cbm/chat/send', JSON.stringify({room_id: 'match_test_room', cbm_username: 'Commander Pike', cbm_pin: '123456', content: 'CBM Verified Broadcast :crown:', player_index: 0}, null, 2))" style="margin-left: 6px;">Try CBM Auth ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Poll Messages -->
+      <div class="glass-card endpoint-doc" id="ep-chat-messages">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/cbm/chat/messages</span>
+        </div>
+        <p class="endpoint-desc">
+          Retrieves recent messages from the 100-message FIFO buffer. Returns <code>auth_type</code> (<code>CBM_MEMBER</code> or <code>TERRITORIAL_ANONYMOUS</code>) and <code>is_cbm_verified</code> boolean flag. Provide <code>since_id</code> to receive only delta updates.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Query Param</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>room_id</code></td><td>string</td><td>Room identifier (required)</td></tr>
+            <tr><td><code>since_id</code></td><td>string</td><td>Optional last received message ID for incremental syncing</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/cbm/chat/messages?room_id=match_test_room', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Custom Stickers & Emojis Catalog -->
+      <div class="glass-card endpoint-doc" id="ep-chat-stickers">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/cbm/chat/stickers</span>
+        </div>
+        <p class="endpoint-desc">
+          Returns the catalog of built-in system stickers and any temporary user-generated content (UGC) stickers created for this room.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Query Param</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>room_id</code></td><td>string</td><td>Optional room identifier to include room-specific UGC stickers</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/cbm/chat/stickers?room_id=match_test_room', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Create Temporary UGC Custom Sticker / Emoji -->
+      <div class="glass-card endpoint-doc" id="ep-chat-stickers-create">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/cbm/chat/stickers/create</span>
+        </div>
+        <p class="endpoint-desc">
+          Creates a <strong>Temporary User-Generated Custom Sticker or Emoji</strong> for this disposable room. Supports static (PNG, JPG, WEBP) and animated (GIF, animated WEBP) images up to 512 KB. Automatically and permanently destroyed when the room session ends.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>room_id</code></td><td>string</td><td>Target room identifier (required)</td></tr>
+            <tr><td><code>shortcode</code></td><td>string</td><td>Emoji shortcode, e.g. <code>:my_flag:</code> (required, 3-24 chars)</td></tr>
+            <tr><td><code>name</code></td><td>string</td><td>Human-readable display name</td></tr>
+            <tr><td><code>image_data</code></td><td>string</td><td>Base64 encoded image data (max 512 KB)</td></tr>
+            <tr><td><code>creator_name</code></td><td>string</td><td>Optional creator display name</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/cbm/chat/stickers/create', JSON.stringify({room_id: 'match_test_room', shortcode: ':cool_star:', name: 'Cool Star', creator_name: 'Player1', image_data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Upload Media Attachment -->
+      <div class="glass-card endpoint-doc" id="ep-chat-upload">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/cbm/chat/upload</span>
+        </div>
+        <p class="endpoint-desc">
+          Uploads an ephemeral attachment to the disposable chat enclave. Validates binary magic bytes and file limits (Images &le; 4MB, Videos &le; 10MB, Files &le; 5MB).
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>room_id</code></td><td>string</td><td>Target room identifier (required)</td></tr>
+            <tr><td><code>filename</code></td><td>string</td><td>Original filename (e.g. <code>screenshot.png</code>)</td></tr>
+            <tr><td><code>category</code></td><td>string</td><td>One of <code>image</code>, <code>video</code>, or <code>file</code></td></tr>
+            <tr><td><code>file_data</code></td><td>string</td><td>Base64-encoded file binary data</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/cbm/chat/upload', JSON.stringify({room_id: 'match_test_room', filename: 'tactics.txt', category: 'file', file_data: 'Q2xhbiBCYW5rIE1hbmFnZXI='}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: End & Permanently Delete Chatroom -->
+      <div class="glass-card endpoint-doc" id="ep-chat-end">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/cbm/chat/end</span>
+        </div>
+        <p class="endpoint-desc">
+          Permanently and irrevocably terminates the chatroom session. Unlinks all ephemeral uploaded media from disk and purges the FIFO buffer from memory immediately.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>room_id</code></td><td>string</td><td>Target room identifier to destroy (required)</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/cbm/chat/end', JSON.stringify({room_id: 'match_test_room'}, null, 2))">Try in Playground ↗</button>
         </div>
       </div>
 

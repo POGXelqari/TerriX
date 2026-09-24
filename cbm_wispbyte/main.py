@@ -46,6 +46,7 @@ from account_manager import CBMAccountManager
 from tunnel_manager import CloudflareTunnelManager
 from gold_api_client import TerritorialGoldClient, extract_profile_metadata
 from rate_limiter import rate_limiter
+from chat_engine import chat_engine, CUSTOM_STICKERS
 
 PORT = int(os.environ.get("SERVER_PORT") or os.environ.get("PORT") or 10093)
 VAULT_ACCOUNT = os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
@@ -994,6 +995,90 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             products = db.list_products_by_owner(acc_name, include_archived=True)
             return self._send_json(200, {"status": "ok", "products": products})
 
+        # Temporary Disposable Chatroom Endpoints (GET)
+        elif path == "/api/cbm/chat/messages":
+            room_id = (params.get("room_id") or params.get("id") or "").strip()
+            since_id = (params.get("since_id") or "").strip() or None
+            if not room_id:
+                return self._send_json(400, {"status": "error", "message": "room_id parameter required."})
+
+            room = chat_engine.get_room(room_id)
+            if not room:
+                return self._send_json(200, {
+                    "status": "ok",
+                    "room_id": room_id,
+                    "messages": [],
+                    "count": 0,
+                    "is_active": False
+                })
+
+            messages = room.get_messages(since_id=since_id)
+            return self._send_json(200, {
+                "status": "ok",
+                "room_id": room_id,
+                "messages": messages,
+                "count": len(messages),
+                "is_active": not room.is_ended
+            })
+
+        elif path == "/api/cbm/chat/stickers":
+            room_id = (params.get("room_id") or "").strip()
+            room = chat_engine.get_room(room_id) if room_id else None
+            stickers = room.get_stickers() if room else CUSTOM_STICKERS
+            return self._send_json(200, {
+                "status": "ok",
+                "room_id": room_id if room else None,
+                "stickers": stickers
+            })
+
+        elif path == "/api/cbm/chat/media":
+            room_id = (params.get("room_id") or "").strip()
+            filename = (params.get("file") or params.get("filename") or "").strip()
+            if not room_id or not filename:
+                return self._send_json(400, {"status": "error", "message": "room_id and file parameters required."})
+
+            room = chat_engine.get_room(room_id)
+            if not room or room.is_ended:
+                return self._send_json(404, {"status": "error", "message": "Chatroom has ended or does not exist."})
+
+            # Security: Prevent path traversal
+            safe_name = os.path.basename(filename)
+            file_path = os.path.join(room.storage_dir, safe_name)
+            if not os.path.isfile(file_path):
+                return self._send_json(404, {"status": "error", "message": "File not found."})
+
+            ext = os.path.splitext(safe_name)[1].lower()
+            mimes = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".webp": "image/webp",
+                ".gif": "image/gif",
+                ".mp4": "video/mp4",
+                ".webm": "video/webm",
+                ".pdf": "application/pdf",
+                ".txt": "text/plain; charset=utf-8",
+                ".json": "application/json",
+                ".zip": "application/zip",
+                ".csv": "text/csv"
+            }
+            content_type = mimes.get(ext, "application/octet-stream")
+
+            try:
+                with open(file_path, "rb") as f:
+                    data = f.read()
+
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            except Exception as ex:
+                return self._send_json(500, {"status": "error", "message": str(ex)})
+
         # --- Public Scoped REST API v1 (GET Endpoints) ---
         elif path.startswith("/api/v1/"):
             # 1. Live Bank Status Telemetry
@@ -1215,7 +1300,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         path = parsed[0].rstrip("/")
 
         # 1. Payload size boundaries (Anti-DoS / OOM protection)
-        max_allowed_len = 1572864 if path == "/api/cbm/dev/products/upload-image" else 65536
+        if path in ("/api/cbm/chat/upload", "/api/cbm/chat/stickers/create", "/api/cbm/chat/sticker/create"):
+            max_allowed_len = 15728640  # 15 MB for base64 encoded media uploads
+        elif path == "/api/cbm/dev/products/upload-image":
+            max_allowed_len = 1572864   # 1.5 MB for product icons
+        else:
+            max_allowed_len = 65536     # 64 KB default
+
         try:
             length = int(self.headers.get("Content-Length", 0))
         except (ValueError, TypeError):
@@ -1226,7 +1317,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         if length > max_allowed_len:
             try:
-                if length <= 10485760:
+                if length <= 20971520:
                     _ = self.rfile.read(length)
             except Exception:
                 pass
@@ -2744,6 +2835,197 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"status": "ok", "message": f"Referral link established: {inviter_account} -> {invitee_account}"})
             else:
                 return self._send_json(409, {"status": "conflict", "message": "Referral already exists, is a self-referral, or invitee is already referred."})
+
+        # Temporary Disposable Chatroom Endpoints (POST)
+        elif path == "/api/cbm/chat/create":
+            room_id = (body.get("room_id") or "").strip()
+            creator_name = (body.get("creator_name") or body.get("sender_name") or "Anonymous").strip()
+            room = chat_engine.get_or_create_room(room_id, creator_name=creator_name)
+            return self._send_json(200, {
+                "status": "ok",
+                "room_id": room.room_id,
+                "created_at": room.created_at,
+                "max_messages": 100,
+                "limits": {
+                    "max_content_length": 500,
+                    "max_image_bytes": 4 * 1024 * 1024,
+                    "max_video_bytes": 10 * 1024 * 1024,
+                    "max_file_bytes": 5 * 1024 * 1024
+                }
+            })
+
+        elif path == "/api/cbm/chat/send":
+            room_id = (body.get("room_id") or "").strip()
+            if not room_id:
+                return self._send_json(400, {"status": "error", "message": "room_id is required."})
+
+            room = chat_engine.get_room(room_id)
+            if not room:
+                room = chat_engine.get_or_create_room(room_id, creator_name=body.get("sender_name", "Anonymous"))
+
+            # Dual Authentication: CBM Member Auth vs. Anonymous Territorial.io Auth
+            auth_type = "TERRITORIAL_ANONYMOUS"
+            is_cbm_verified = False
+            cbm_role = None
+            cbm_auth = body.get("cbm_auth") or {}
+            cbm_user = (body.get("cbm_username") or cbm_auth.get("username") or "").strip()
+            cbm_pwd = body.get("cbm_password") or cbm_auth.get("password") or ""
+            cbm_pin = body.get("cbm_pin") or cbm_auth.get("pin") or ""
+
+            if cbm_user and (cbm_pwd or cbm_pin):
+                raw_acc = db._get_account_raw(cbm_user)
+                if raw_acc:
+                    canon_name = raw_acc.get("account_name", cbm_user)
+                    auth_ok = False
+                    if cbm_pin and db.has_account_pin(canon_name):
+                        auth_ok = db.verify_account_pin(canon_name, str(cbm_pin))
+                    elif cbm_pwd and db.has_account_password(canon_name):
+                        auth_ok = db.verify_account_password(canon_name, cbm_pwd)
+
+                    if auth_ok:
+                        auth_type = "CBM_MEMBER"
+                        is_cbm_verified = True
+                        sender_name = canon_name
+                        sender_clan = raw_acc.get("clan_tag", "ANTI-OG")
+                        cbm_role = raw_acc.get("role", "member")
+                    else:
+                        return self._send_json(401, {
+                            "status": "unauthorized",
+                            "message": f"CBM Member authentication failed for '{cbm_user}'. Incorrect PIN or password."
+                        })
+                else:
+                    return self._send_json(404, {
+                        "status": "error",
+                        "message": f"CBM account '{cbm_user}' not found."
+                    })
+            else:
+                # Anonymous Territorial.io Player
+                sender_name = (body.get("sender_name") or body.get("player_name") or "Anonymous").strip()
+                sender_clan = (body.get("sender_clan") or body.get("clan") or "").strip()
+
+            # Token-bucket burst rate limiting per IP + sender
+            rate_key = f"{client_ip}_{sender_name}"
+            if not room.check_rate_limit(rate_key):
+                return self._send_json(429, {
+                    "status": "error",
+                    "message": "Chat rate limit exceeded. Please wait a moment before sending more messages."
+                }, headers={"Retry-After": "3"})
+
+            content = body.get("content", "")
+            player_index = body.get("player_index")
+            try:
+                if player_index is not None:
+                    player_index = int(player_index)
+            except (ValueError, TypeError):
+                player_index = None
+
+            attachments = body.get("attachments", [])
+            if not isinstance(attachments, list):
+                attachments = []
+
+            ok, msg_or_err = room.add_message(
+                sender_name=sender_name,
+                sender_clan=sender_clan,
+                content=content,
+                player_index=player_index,
+                attachments=attachments,
+                auth_type=auth_type,
+                is_cbm_verified=is_cbm_verified,
+                cbm_role=cbm_role
+            )
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": msg_or_err})
+
+            return self._send_json(200, {
+                "status": "ok",
+                "message": msg_or_err
+            })
+
+        # Temporary User-Generated Custom Stickers & Emojis Endpoint (POST)
+        elif path in ("/api/cbm/chat/stickers/create", "/api/cbm/chat/sticker/create"):
+            room_id = (body.get("room_id") or "").strip()
+            shortcode = (body.get("shortcode") or body.get("code") or "").strip()
+            name = (body.get("name") or "").strip()
+            img_b64 = body.get("image_data") or body.get("image_bytes") or body.get("data") or ""
+            creator_name = (body.get("creator_name") or body.get("sender_name") or "Anonymous").strip()
+
+            if not room_id or not shortcode or not img_b64:
+                return self._send_json(400, {"status": "error", "message": "room_id, shortcode (e.g. :pepe:), and image_data (base64) are required."})
+
+            room = chat_engine.get_room(room_id)
+            if not room or room.is_ended:
+                return self._send_json(404, {"status": "error", "message": "Chatroom has ended or does not exist."})
+
+            try:
+                if "," in img_b64:
+                    img_b64 = img_b64.split(",", 1)[1]
+                import base64
+                img_bytes = base64.b64decode(img_b64)
+            except Exception as e:
+                return self._send_json(400, {"status": "error", "message": f"Invalid base64 image data: {e}"})
+
+            ok, sticker_or_err = room.register_custom_sticker(
+                shortcode=shortcode,
+                name=name or shortcode.strip(":"),
+                image_bytes=img_bytes,
+                creator_name=creator_name
+            )
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": sticker_or_err})
+
+            return self._send_json(200, {
+                "status": "ok",
+                "sticker": sticker_or_err,
+                "message": f"Temporary custom sticker '{shortcode}' created for room '{room_id}'."
+            })
+
+        elif path == "/api/cbm/chat/upload":
+            room_id = (body.get("room_id") or "").strip()
+            filename = (body.get("filename") or "").strip()
+            file_data_b64 = body.get("file_data") or body.get("data") or ""
+            category = (body.get("category") or "file").strip().lower()
+
+            if not room_id or not filename or not file_data_b64:
+                return self._send_json(400, {"status": "error", "message": "room_id, filename, and file_data (base64) are required."})
+
+            if category not in ("image", "video", "file"):
+                category = "file"
+
+            try:
+                # Strip data URL scheme prefix if present
+                if "," in file_data_b64:
+                    file_data_b64 = file_data_b64.split(",", 1)[1]
+                import base64
+                file_bytes = base64.b64decode(file_data_b64)
+            except Exception as e:
+                return self._send_json(400, {"status": "error", "message": f"Invalid base64 payload: {e}"})
+
+            ok, att_or_err = chat_engine.save_attachment(
+                room_id=room_id,
+                filename=filename,
+                file_bytes=file_bytes,
+                category=category
+            )
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": att_or_err})
+
+            return self._send_json(200, {
+                "status": "ok",
+                "attachment": att_or_err
+            })
+
+        elif path == "/api/cbm/chat/end":
+            room_id = (body.get("room_id") or "").strip()
+            if not room_id:
+                return self._send_json(400, {"status": "error", "message": "room_id is required."})
+
+            ended = chat_engine.end_room(room_id)
+            return self._send_json(200, {
+                "status": "ok",
+                "room_id": room_id,
+                "ended": ended,
+                "message": f"Disposable chatroom '{room_id}' and all ephemeral media permanently deleted."
+            })
 
         else:
             return self._send_json(404, {"status": "error", "message": "Not found"})

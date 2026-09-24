@@ -48,6 +48,9 @@
     lastMessageId: null,
     activeBubbles: [], // [{ id, sender_name, sender_clan, content, player_index, auth_type, is_cbm_verified, spawnTime, lastPos }]
     pollTimer: null,
+    // Persistent tracking nodes per player: pIdx -> { tileX, tileY, initialized, lastUpdate }
+    playerAnchors: {},
+    lastFrameTime: performance.now(),
     cachedPlayerPositions: {} // pIdx -> { x, y }
   };
 
@@ -226,136 +229,243 @@
     }
   }
 
-  // Render Speech Bubbles on World Canvas (ws)
+  // ====================================================================
+  // Optimized Speech Bubble Positioning & LERP Engine
+  // ====================================================================
+
+  function getPlayerTargetTile(pIdx, context) {
+    var pd = (context && context.playerData) || window.ah;
+    if (!pd) return null;
+
+    // 1. Prefer engine nametag coordinates if accessible (window.ag / aLp, aLq)
+    if (window.ag && window.ag.aLp && window.ag.aLq && typeof window.ag.aLp[pIdx] === 'number') {
+      var lx = window.ag.aLp[pIdx];
+      var ly = window.ag.aLq[pIdx];
+      var lw = window.ag.aLr ? (window.ag.aLr[pIdx] || 0) : 0;
+      if (lx > 0 && ly > 0) {
+        return { x: lx + (lw / 2.0), y: ly - 2.0 };
+      }
+    }
+
+    // 2. Fallback to territory bounding box centroid
+    var minXArr = pd.jS || pd.minX;
+    var minYArr = pd.jU || pd.minY;
+    var maxXArr = pd.jT || pd.maxX;
+    var pTerritories = pd.jS ? pd.hN : (pd.playerTerritories || pd.hN);
+
+    if (minXArr && minYArr && maxXArr) {
+      var minX = minXArr[pIdx];
+      var minY = minYArr[pIdx];
+      var maxX = maxXArr[pIdx];
+      var tCount = (pTerritories && typeof pTerritories[pIdx] === 'number') ? pTerritories[pIdx] : 0;
+
+      if (typeof minX === 'number' && typeof maxX === 'number' && typeof minY === 'number' && tCount > 0 && maxX >= minX) {
+        return {
+          x: (minX + maxX) / 2.0,
+          y: minY - 4.0 // Slightly above upper border
+        };
+      }
+    }
+    return null;
+  }
+
+  function updatePlayerAnchor(pIdx, context, dt) {
+    if (!state.playerAnchors[pIdx]) {
+      state.playerAnchors[pIdx] = { tileX: 0, tileY: 0, initialized: false };
+    }
+    var anchor = state.playerAnchors[pIdx];
+    var target = getPlayerTargetTile(pIdx, context);
+
+    if (target) {
+      if (!anchor.initialized) {
+        anchor.tileX = target.x;
+        anchor.tileY = target.y;
+        anchor.initialized = true;
+      } else {
+        // Framerate-independent exponential smoothing (speed = 14.0)
+        var factor = 1.0 - Math.exp(-14.0 * dt);
+        anchor.tileX += (target.x - anchor.tileX) * factor;
+        anchor.tileY += (target.y - anchor.tileY) * factor;
+      }
+    }
+    return anchor.initialized ? anchor : null;
+  }
+
   function renderSpeechBubbles(context) {
     window.__TERRIX_LAST_CTX__ = context;
     if (!context || !context.ws) return;
 
     var ws = context.ws;
-    var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
-    var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
-    var pd = context.playerData;
+    var pd = context.playerData || window.ah;
     var now = performance.now();
+    var dt = Math.min(Math.max((now - (state.lastFrameTime || now)) / 1000.0, 0.001), 0.1);
+    state.lastFrameTime = now;
 
     updateMatchRoomId(context);
 
     if (state.activeBubbles.length === 0) return;
 
-    // Bounding Box Arrays from Engine
-    var minXArr = pd ? (pd.jS || pd.minX) : null;
-    var minYArr = pd ? (pd.jU || pd.minY) : null;
-    var maxXArr = pd ? (pd.jT || pd.maxX) : null;
-    var maxYArr = pd ? (pd.jV || pd.maxY) : null;
-    var pTerritories = pd ? (pd.jS ? pd.hN : (pd.playerTerritories || pd.hN)) : null;
+    // Camera parameters
+    var zoom = (typeof context.im === 'number') ? context.im : ((typeof window.im === 'number') ? window.im : 1.0);
+    var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
+    var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
 
+    // Group bubbles by sender to calculate vertical stacking
+    var playerStacks = {};
     var survivingBubbles = [];
 
+    // Filter out expired bubbles
     for (var i = 0; i < state.activeBubbles.length; i++) {
       var b = state.activeBubbles[i];
-      var age = now - b.spawnTime;
-      if (age > BUBBLE_LIFETIME_MS) continue; // Bubble expired
-
-      // Compute Alpha Fade
-      var alpha = 1.0;
-      if (age > BUBBLE_FADE_START_MS) {
-        alpha = Math.max(0.0, 1.0 - ((age - BUBBLE_FADE_START_MS) / (BUBBLE_LIFETIME_MS - BUBBLE_FADE_START_MS)));
+      if (now - b.spawnTime <= BUBBLE_LIFETIME_MS) {
+        survivingBubbles.push(b);
       }
+    }
+    state.activeBubbles = survivingBubbles;
 
-      // Resolve Player Index
-      var pIdx = b.player_index;
-      if (pIdx === null || pIdx === undefined) {
-        if (pd && pd.rawPlayerNames) {
-          for (var p = 0; p < pd.rawPlayerNames.length; p++) {
-            if (pd.rawPlayerNames[p] && pd.rawPlayerNames[p].indexOf(b.sender_name) !== -1) {
-              pIdx = p;
-              b.player_index = p;
-              break;
-            }
+    // Sort surviving bubbles chronologically
+    state.activeBubbles.sort(function(a, b) { return a.spawnTime - b.spawnTime; });
+
+    // Switch context to Screen Space for crisp rendering
+    ws.save();
+    ws.setTransform(1, 0, 0, 1, 0, 0);
+
+    var screenW = ws.canvas ? ws.canvas.width : window.innerWidth;
+    var screenH = ws.canvas ? ws.canvas.height : window.innerHeight;
+
+    for (var j = 0; j < state.activeBubbles.length; j++) {
+      var bubble = state.activeBubbles[j];
+      var age = now - bubble.spawnTime;
+
+      // Resolve player index
+      var pIdx = bubble.player_index;
+      if ((pIdx === null || pIdx === undefined) && pd && pd.rawPlayerNames) {
+        for (var p = 0; p < pd.rawPlayerNames.length; p++) {
+          if (pd.rawPlayerNames[p] && pd.rawPlayerNames[p].indexOf(bubble.sender_name) !== -1) {
+            pIdx = p;
+            bubble.player_index = p;
+            break;
           }
         }
       }
 
-      // Calculate Anchor Coordinates
-      var anchorX = null;
-      var anchorY = null;
+      // Calculate anchor coordinates
+      var rawScreenX, rawScreenY;
+      var hasAnchor = false;
 
-      if (pIdx !== null && pIdx !== undefined && minXArr && minYArr && maxXArr) {
-        var minX = minXArr[pIdx];
-        var minY = minYArr[pIdx];
-        var maxX = maxXArr[pIdx];
-        var tCount = (pTerritories && typeof pTerritories[pIdx] === 'number') ? pTerritories[pIdx] : 0;
-
-        if (typeof minX === 'number' && typeof maxX === 'number' && typeof minY === 'number' && tCount > 0 && maxX >= minX) {
-          var cx = (minX + maxX) / 2.0;
-          var cy = minY;
-          anchorX = ox + cx;
-          anchorY = oy + cy - 14;
-          state.cachedPlayerPositions[pIdx] = { x: anchorX, y: anchorY };
+      if (pIdx !== null && pIdx !== undefined) {
+        var smoothAnchor = updatePlayerAnchor(pIdx, context, dt);
+        if (smoothAnchor) {
+          rawScreenX = (smoothAnchor.tileX + ox) * zoom;
+          rawScreenY = (smoothAnchor.tileY + oy) * zoom;
+          hasAnchor = true;
         }
       }
 
-      if (anchorX === null && pIdx !== null && state.cachedPlayerPositions[pIdx]) {
-        anchorX = state.cachedPlayerPositions[pIdx].x;
-        anchorY = state.cachedPlayerPositions[pIdx].y;
+      if (!hasAnchor) {
+        // Fallback: screen center stack
+        rawScreenX = screenW / 2.0;
+        rawScreenY = (screenH / 2.0) - 80;
       }
 
-      if (anchorX === null) {
-        // Fallback: Default to canvas center offset
-        anchorX = (ws.canvas.width / 2.0);
-        anchorY = (ws.canvas.height / 2.0) - 100 - (i * 45);
+      // Track vertical stacking for this player
+      var stackKey = (pIdx !== null && pIdx !== undefined) ? ('p_' + pIdx) : 'global';
+      if (!playerStacks[stackKey]) {
+        playerStacks[stackKey] = 0;
       }
+      var verticalOffset = playerStacks[stackKey];
 
-      // Render Territorial.io UI style speech bubble on canvas
-      drawTerritorialBubble(ws, anchorX, anchorY, b, alpha);
-      survivingBubbles.push(b);
+      // Draw bubble and update the stack height for next bubble
+      var bubbleHeight = drawTerritorialBubble(ws, rawScreenX, rawScreenY, bubble, age, verticalOffset, screenW, screenH);
+      playerStacks[stackKey] += bubbleHeight + 8; // 8px spacing between stacked bubbles
     }
 
-    state.activeBubbles = survivingBubbles;
+    ws.restore();
   }
 
-  // Draw clean, high-performance Territorial.io UI style speech bubble
-  function drawTerritorialBubble(ctx, x, y, bubble, alpha) {
+  function drawTerritorialBubble(ctx, targetX, targetY, bubble, age, stackOffset, screenW, screenH) {
     ctx.save();
-    ctx.globalAlpha = alpha;
 
-    var fontText = 'bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    var fontHeader = '700 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.font = fontText;
+    // 1. Entrance / Exit Animations
+    var alpha = 1.0;
+    var scale = 1.0;
+    var driftY = 0;
 
-    var textMetrics = ctx.measureText(bubble.content);
-    var textWidth = Math.max(textMetrics.width, 40);
+    // Pop-in scale (0-180ms)
+    if (age < 180) {
+      var progress = age / 180.0;
+      scale = 0.82 + (0.18 * Math.sin(progress * Math.PI / 2.0));
+      alpha = progress;
+    }
+    // Float & Fade-out
+    if (age > BUBBLE_FADE_START_MS) {
+      var fadeProgress = (age - BUBBLE_FADE_START_MS) / (BUBBLE_LIFETIME_MS - BUBBLE_FADE_START_MS);
+      alpha = Math.max(0.0, 1.0 - fadeProgress);
+      driftY = -12.0 * fadeProgress; // Gently float upwards
+    }
 
+    ctx.globalAlpha = Math.max(0.0, Math.min(1.0, alpha));
+
+    // 2. Text Metrics & Dynamic Sizing
+    var fontText = 'bold 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    var fontHeader = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+    ctx.font = fontHeader;
     var headerText = (bubble.sender_clan ? '[' + bubble.sender_clan + '] ' : '') + bubble.sender_name;
     if (bubble.is_cbm_verified) headerText = '✓ ' + headerText;
-    ctx.font = fontHeader;
-    var headerMetrics = ctx.measureText(headerText);
-    var headerWidth = headerMetrics.width;
+    var headerWidth = ctx.measureText(headerText).width;
 
-    var bubbleWidth = Math.min(Math.max(textWidth, headerWidth) + 20, 260);
-    var bubbleHeight = 42;
-    var bx = Math.round(x - (bubbleWidth / 2.0));
-    var by = Math.round(y - bubbleHeight - 8);
+    ctx.font = fontText;
+    var textMetrics = ctx.measureText(bubble.content);
+    var textWidth = Math.max(textMetrics.width, 42);
 
-    // 1. Drop shadow for readability on bright map terrain
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-    ctx.shadowBlur = 10;
+    var bubbleWidth = Math.min(Math.max(textWidth, headerWidth) + 24, 300);
+    var bubbleHeight = 44;
+
+    // Base position with stack offset and drift
+    var totalYOffset = bubbleHeight + 10 + stackOffset - driftY;
+    var idealX = targetX;
+    var idealY = targetY - totalYOffset;
+
+    // 3. Viewport Clamping (Keep within visible screen)
+    var padding = 12;
+    var bx = Math.min(Math.max(idealX - (bubbleWidth / 2.0), padding), screenW - bubbleWidth - padding);
+    var by = Math.min(Math.max(idealY, padding), screenH - bubbleHeight - padding);
+
+    // Apply pop-in scale around bubble center
+    if (scale !== 1.0) {
+      var centerX = bx + (bubbleWidth / 2.0);
+      var centerY = by + (bubbleHeight / 2.0);
+      ctx.translate(centerX, centerY);
+      ctx.scale(scale, scale);
+      ctx.translate(-centerX, -centerY);
+    }
+
+    // 4. Drop Shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+    ctx.shadowBlur = 12;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
 
-    // 2. Draw Rounded Bubble Body
+    // 5. Rounded Bubble Geometry with Dynamic Needle
+    var r = 9;
+    var pointerX = Math.min(Math.max(targetX, bx + 16), bx + bubbleWidth - 16);
+    var drawPointer = (stackOffset === 0 && (targetY - (by + bubbleHeight)) > 2 && (targetY - (by + bubbleHeight)) < 160);
+
     ctx.beginPath();
-    var r = 8;
     ctx.moveTo(bx + r, by);
     ctx.lineTo(bx + bubbleWidth - r, by);
     ctx.quadraticCurveTo(bx + bubbleWidth, by, bx + bubbleWidth, by + r);
     ctx.lineTo(bx + bubbleWidth, by + bubbleHeight - r);
     ctx.quadraticCurveTo(bx + bubbleWidth, by + bubbleHeight, bx + bubbleWidth - r, by + bubbleHeight);
-    
-    // Bottom triangle pointer
-    var triW = 6;
-    ctx.lineTo(x + triW, by + bubbleHeight);
-    ctx.lineTo(x, by + bubbleHeight + 7);
-    ctx.lineTo(x - triW, by + bubbleHeight);
+
+    // Bottom pointer needle (only on bottom-most bubble in the stack)
+    if (drawPointer) {
+      var needleW = 6;
+      ctx.lineTo(pointerX + needleW, by + bubbleHeight);
+      ctx.lineTo(targetX, Math.min(targetY, by + bubbleHeight + 8));
+      ctx.lineTo(pointerX - needleW, by + bubbleHeight);
+    }
 
     ctx.lineTo(bx + r, by + bubbleHeight);
     ctx.quadraticCurveTo(bx, by + bubbleHeight, bx, by + bubbleHeight - r);
@@ -363,30 +473,31 @@
     ctx.quadraticCurveTo(bx, by, bx + r, by);
     ctx.closePath();
 
-    // Fill
+    // Fill bubble body
     ctx.fillStyle = 'rgba(10, 16, 28, 0.94)';
     ctx.fill();
 
-    // Reset shadow for crisp border & text
+    // Reset shadow for crisp border and text
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    // Border: Neon Blue if CBM Verified Member, Crisp Silver/White if Anonymous
+    // 6. Modern Stroke Border (Cyan/Blue for Verified CBM, Silver for Anon)
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = bubble.is_cbm_verified ? 'rgba(0, 112, 224, 0.85)' : 'rgba(255, 255, 255, 0.35)';
+    ctx.strokeStyle = bubble.is_cbm_verified ? 'rgba(0, 112, 224, 0.9)' : 'rgba(255, 255, 255, 0.35)';
     ctx.stroke();
 
-    // 3. Sender Header (Clan & Name)
+    // 7. Render Header Text
     ctx.font = fontHeader;
-    ctx.fillStyle = bubble.is_cbm_verified ? '#60a5fa' : '#9ca3af';
-    ctx.fillText(headerText, bx + 10, by + 15, bubbleWidth - 20);
+    ctx.fillStyle = bubble.is_cbm_verified ? '#38bdf8' : '#9ca3af';
+    ctx.fillText(headerText, bx + 12, by + 16, bubbleWidth - 24);
 
-    // 4. Message Text Content
+    // 8. Render Message Text
     ctx.font = fontText;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(bubble.content, bx + 10, by + 32, bubbleWidth - 20);
+    ctx.fillText(bubble.content, bx + 12, by + 34, bubbleWidth - 24);
 
     ctx.restore();
+    return bubbleHeight;
   }
 
   // ====================================================================

@@ -21,10 +21,9 @@
 
 "use strict";
     (function () {
-function a(){var b;
-var c;
+function a(){var b;var c;
 
-function d(e){c="";try{var f=g(e);if(f===0||e.lineno<2){console.log("Error: External Code");
+function d(e){c="";try{var f=g(e);if(f===0||e.lineno<=3){console.log("Error: External Code | "+f);
 return;}window.removeEventListener("error",d);c=e.lineno+" "+e.colno+"|"+f;
 if(performance.memory){var h=[];h.push(Math.floor(performance.memory.jsHeapSizeLimit/100000));
 h.push(Math.floor(performance.memory.totalJSHeapSize/100000));
@@ -89,10 +88,10 @@ uiSurface.platformActions.du();}camera.dv();}createSystems();startGameLoop();set
 function SettingsPanel(){this.dw=1761;
 var dx=2;
 var dy=16;
-var dz=53;
+var dz=54;
 this.rVersion=25;this.e0=0;this.applyToGame=function(){this.e1=2;
 var e2="";this.o=dx+"."+dy+"."+dz;
-this.e3="24 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
+this.e3="25 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
 this.aA=this.hostname.indexOf("territorial.io")>=0;this.e4=this.hostname.indexOf("github.io")>=0;
 this.e5=this.hostname.indexOf("game.territorial.io")>=0;this.aB=e6();this.e7=(new Date()).getTime()%1048576;
 console.log("hostname: ["+this.hostname+"] validHostname: "+(+this.aA)+" validMod: "+(+this.e4));

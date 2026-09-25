@@ -1,8 +1,8 @@
 "use strict";
     (function () {
 var S=["div","100%","⬅️ ","absolute","canvas","0.75em","none","<br>","inherit","0.8em","rgb(","center","auto","rgba(","   ","flex","hidden","span","1em","0.5em","email","Data"," / ","territorial.io","click","pre","password","input","iVBORw0KGgoAAAANSUhEUgAAADAAAAAKAQMAAADILU8PAAAABlBMVEUAAAD///+l2Z/dAAAAOklEQVQI12P48efPH5v/DEDyT81/hjMHDhxIkWA4AqV+/PgBpf5JgOWA1B0gdUyC4cefA3+A1AcwBQAlGyu1reW1ZgAAAABJRU5ErkJggg==","function","undefined","middle","break-word","Escape","50%","0.6em","underline","text","scroll","pointer","bold","Value","Enter","1.5em","0.4em","' target='_blank'>","🔄 Reload","string","rgba(0,0,0,0.8)","pre-wrap","orange","number","nowrap","mouseleave","keydown","inline-block","game.territorial.io","focus","fixed","button","blur","aria-label","Space","Reload","Redacted ","Player ","Gold Seizure","<a href='","</a>","100,100,100","1.2em","1.0em","0px","0.3em","0.0em 0.9em"," voted with ","  • ","   Gold: ","⚠️ ","wheel","true","translate(-50%, -50%)","top","tls7","system-ui","style","rgba(140,10,10,0.75)","rgba(100,0,0,0.8)","rgba(10,140,10,0.75)","rgba(0,100,0,0.8)","rgba(0,","rgb(10,220,10)","placeholder","mouseover","mouseout","long","logo","loading","italic ","https://territorial.io/","file","error","en-US","dotted","data:image/png;base64,","column","break-all","blur(4px)","aria-pressed","arena","account","accept","_blank","[Redacted Message]","Zombie","Seed","Remove Punishments","Patreon","Interest","False Reporter","Close","Cheater","Bot ","Block Account","Battle Royale","Ban IP","Back","Audit Log","Arial Black, system-ui","@room","255,255,255","1v1","1px 1px 0 lightgray","1px -1px 0 lightgray,","1 Minute","1 Hour","1 Day","0em","000","0.4em 0em","0.2em","0,0,0","/wiki/transactions","/wiki/clans","/privacy",". Duration: x","-1px 1px 0 lightgray,","-1px -1px 0 lightgray,",",0,0.85)"," solid white;}"," Rank: "," / 180"," / 160"," -> ","   Contest"];
-function a(){var b;
-var c;function d(e){c="";try{var f=g(e);if(f===0||e.lineno<2){console.log("Error: External Code");
+function a(){var b;var c;
+function d(e){c="";try{var f=g(e);if(f===0||e.lineno<=3){console.log("Error: External Code | "+f);
 return;}window.removeEventListener(S[101],d);c=e.lineno+" "+e.colno+"|"+f;
 if(performance.memory){var h=[];h.push(Math.floor(performance.memory.jsHeapSizeLimit/100000));
 h.push(Math.floor(performance.memory.totalJSHeapSize/100000));
@@ -48,9 +48,9 @@ bu=new dg();bv=new dh();bw=new di();}function dj(){m.dk();a1.dk();i.dl();bm.dk()
 bA.dm();ba=new dn();ba.dk();bD.dk();bY.dk();b1.dk();bI.dk();bJ.dk();bV.dk();u.dk();bb=new dp();
 i.dk();bi.dk();bf.dk();bZ.dk();bc=new dq();az.dk();af.dr();bX.dk();aq.dk();ab.dk();aU.dk();
 aj.dk();bM.dk();ac.dk();bi.ds=true;setTimeout(function(){bV.a8(2,14071);},0);u.v(5,5);if(!bL.dt()){
-a1.a2.du();}i.dv();}bz();dj();m.n=1;}function dM(){this.dw=1761;var dx=2;var dy=16;var dz=53;
+a1.a2.du();}i.dv();}bz();dj();m.n=1;}function dM(){this.dw=1761;var dx=2;var dy=16;var dz=54;
 this.rVersion=25;this.e0=0;this.dk=function(){this.e1=2;var e2="";this.o=dx+"."+dy+"."+dz;
-this.e3="24 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
+this.e3="25 Sep 2026 ["+this.o+e2+"]";this.hostname=window.location.hostname.toLowerCase();
 this.aA=this.hostname.indexOf(S[23])>=0;this.e4=this.hostname.indexOf("github.io")>=0;
 this.e5=this.hostname.indexOf(S[56])>=0;this.aB=e6();this.e7=(new Date()).getTime()%1048576;
 console.log("hostname: ["+this.hostname+"] validHostname: "+(+this.aA)+" validMod: "+(+this.e4));

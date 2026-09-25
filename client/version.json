@@ -1,8 +1,8 @@
 {
   "upstream_version": "2.16.51",
   "asset_version": 1761,
-  "upstream_hash": "efda4c10562dc08f24254dcbc19a2910a2e85e77300e0249e260f769b514dd3a",
-  "last_build_time": "2026-09-24T18:06:14Z",
+  "upstream_hash": "53f6a465fe689668ab75659081bbf613719083a3a4f04988f549d2821fb49c8d",
+  "last_build_time": "2026-09-25T12:06:28Z",
   "active_mods": [
     "01_cosmetics_shop.js"
   ],

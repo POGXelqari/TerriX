@@ -19,6 +19,7 @@ class CBMLoanEngine:
     OVERDUE_PENALTY_INTEREST_PERCENT = 50.0  # 50% forced interest rate after exceeding 14 days
     ACCOUNT_BUFFER_GOLD = 20.0  # 20 Gold buffer to protect against nightly gold deletion
     ACCOUNT_BUFFER_CENTS = 2000  # 2,000 cents
+    DEFAULT_MAX_SINGLE_LOAN_CENTS = 500000  # Default staging ceiling for simulation mode (5,000.00 Gold)
 
     @classmethod
     def evaluate_lending_facility(cls, bank_reserves_cents: int) -> Dict[str, Any]:
@@ -31,6 +32,7 @@ class CBMLoanEngine:
         # Rule: if 0.05% does not exceed 1,000 Gold, loans cannot be requested at all
         is_active = potential_ceiling > cls.ACTIVATION_THRESHOLD_GOLD
         min_reserves_required = cls.ACTIVATION_THRESHOLD_GOLD / cls.LOAN_PERCENT_LIMIT  # 2,000,000.0 Gold
+        progress_pct = min(100.0, round((reserves_gold / min_reserves_required) * 100.0, 3))
 
         return {
             "is_active": is_active,
@@ -40,7 +42,8 @@ class CBMLoanEngine:
             "max_loan_gold": math.floor(potential_ceiling) if is_active else 0,
             "activation_threshold_gold": cls.ACTIVATION_THRESHOLD_GOLD,
             "min_reserves_required_gold": min_reserves_required,
-            "reserves_progress_percent": min(100.0, round((reserves_gold / min_reserves_required) * 100.0, 3)),
+            "reserves_progress_percent": progress_pct,
+            "progress_percent": progress_pct,
             "standard_term_days": cls.STANDARD_TERM_DAYS,
             "overdue_penalty_interest_percent": cls.OVERDUE_PENALTY_INTEREST_PERCENT,
             "account_buffer_gold": cls.ACCOUNT_BUFFER_GOLD,

@@ -29,11 +29,16 @@ import html
 import uuid
 import shutil
 import socket
+import ipaddress
+import http.client
+import ssl
 import urllib.parse
 import urllib.request
 import threading
+import hashlib
+import base64
 from collections import deque
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 # Configuration & Limits
 MAX_MESSAGES_WINDOW = 100
@@ -150,33 +155,185 @@ def normalize_text_for_moderation(text: str) -> str:
     return t + " " + t_collapsed + " " + t_compressed
 
 
-def is_toxic_content(text: str) -> Tuple[bool, str]:
-    """Inspects text against compiled slur and toxic patterns."""
-    normalized = normalize_text_for_moderation(text)
-    for pattern in _COMPILED_SLURS:
-        if pattern.search(text) or pattern.search(normalized):
-            return True, "Message blocked by automated moderation policy."
+class VerdictCache:
+    """
+    Thread-safe in-memory LRU/TTL cache for moderation verdicts.
+    Keyed by SHA-256 hash of normalized text and media flag.
+    Max entries: 5,000 | TTL: 3,600s (1 hour).
+    """
+    def __init__(self, max_entries: int = 5000, ttl_seconds: float = 3600.0):
+        self.max_entries = max_entries
+        self.ttl_seconds = ttl_seconds
+        self._cache: Dict[str, Tuple[bool, str, List[str], float]] = {}  # key -> (is_safe, reason, categories, timestamp)
+        self._lock = threading.Lock()
+
+    def _get_key(self, text: str, has_media: bool = False) -> str:
+        norm = (text or "").strip().lower()
+        key_bytes = f"{norm}:media={has_media}".encode("utf-8")
+        return hashlib.sha256(key_bytes).hexdigest()
+
+    def get(self, text: str, has_media: bool = False) -> Optional[Tuple[bool, str, List[str]]]:
+        now = time.time()
+        key = self._get_key(text, has_media)
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry:
+                is_safe, reason, categories, ts = entry
+                if (now - ts) <= self.ttl_seconds:
+                    return is_safe, reason, categories
+                else:
+                    self._cache.pop(key, None)
+        return None
+
+    def set(self, text: str, is_safe: bool, reason: str = "", categories: Optional[List[str]] = None, has_media: bool = False) -> None:
+        now = time.time()
+        key = self._get_key(text, has_media)
+        with self._lock:
+            if len(self._cache) >= self.max_entries:
+                # Evict oldest 500 entries when capacity is reached
+                sorted_keys = sorted(self._cache.keys(), key=lambda k: self._cache[k][3])
+                for k in sorted_keys[:500]:
+                    self._cache.pop(k, None)
+            self._cache[key] = (is_safe, reason, categories or [], now)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
+
+verdict_cache = VerdictCache()
+
+
+def check_message_safety(
+    text: str,
+    attachments: Optional[List[Dict[str, Any]]] = None,
+    image_b64: Optional[Union[str, bytes]] = None,
+    use_cache: bool = True
+) -> Dict[str, Any]:
+    """
+    Tiered Moderation Pipeline:
+      Layer 1: Local Heuristic Filter (Zero-latency homoglyph & regex normalizer)
+      Layer 2: In-Memory Verdict Cache (SHA-256 LRU cache for gaming phrases)
+      Layer 3: Nemotron 3.5 Content Safety (NVIDIA NIM 4B Multimodal Model)
+    """
+    raw_text = (text or "").strip()
+    has_media = bool(image_b64 or (attachments and any(a.get("type") == "image" for a in attachments)))
+
+    # Step 1: Layer 1 Local Heuristic Filter
+    if raw_text:
+        normalized = normalize_text_for_moderation(raw_text)
+        for pattern in _COMPILED_SLURS:
+            if pattern.search(raw_text) or pattern.search(normalized):
+                reason = "Message blocked by automated moderation policy."
+                categories = ["Slur / Toxic Language"]
+                if use_cache:
+                    verdict_cache.set(raw_text, is_safe=False, reason=reason, categories=categories, has_media=has_media)
+                return {
+                    "is_safe": False,
+                    "reason": reason,
+                    "categories": categories,
+                    "layer": "L1_HEURISTIC"
+                }
+
+    # Step 2: Layer 2 Verdict Cache Check (Only for text without fresh dynamic image upload)
+    if use_cache and raw_text and not image_b64:
+        cached = verdict_cache.get(raw_text, has_media=has_media)
+        if cached is not None:
+            is_safe, reason, categories = cached
+            return {
+                "is_safe": is_safe,
+                "reason": reason,
+                "categories": categories,
+                "layer": "L2_CACHE"
+            }
+
+    # Extract image_b64 from attachments if not explicitly provided
+    first_image_b64 = image_b64
+    if not first_image_b64 and attachments:
+        for att in attachments:
+            if isinstance(att, dict) and att.get("image_b64"):
+                first_image_b64 = att["image_b64"]
+                break
+
+    # Step 3: Layer 3 Nemotron 3.5 Content Safety (NVIDIA NIM)
+    try:
+        from ai_service import check_content_safety as nim_safety
+        eval_res = nim_safety(text=raw_text, image_b64=first_image_b64, timeout=1.5)
+        is_safe = eval_res.get("is_safe", True)
+        categories = eval_res.get("categories", [])
+        msg = eval_res.get("message", "")
+        if not is_safe and not msg:
+            cat_str = ", ".join(categories) if categories else "Policy Violation"
+            msg = f"Message blocked by automated AI safety policy: {cat_str}"
+
+        # Cache verdict if not fallback
+        if use_cache and raw_text and not eval_res.get("fallback", False) and not first_image_b64:
+            verdict_cache.set(raw_text, is_safe=is_safe, reason=msg, categories=categories, has_media=has_media)
+
+        fallback = eval_res.get("fallback", False)
+        layer = "L1_FAILOVER" if fallback else "L3_NEMOTRON_3.5"
+
+        return {
+            "is_safe": is_safe,
+            "reason": msg,
+            "categories": categories,
+            "layer": layer,
+            "fallback": fallback,
+            "model": eval_res.get("model", "nvidia/nemotron-3.5-content-safety")
+        }
+    except Exception as e:
+        # Graceful circuit breaker failover to L1 result (which passed)
+        return {
+            "is_safe": True,
+            "reason": "",
+            "categories": [],
+            "layer": "L1_FAILOVER",
+            "error": str(e)
+        }
+
+
+def is_toxic_content(
+    text: str,
+    attachments: Optional[List[Dict[str, Any]]] = None,
+    image_b64: Optional[Union[str, bytes]] = None
+) -> Tuple[bool, str]:
+    """
+    Inspects text and media against L1 slurs, L2 verdict cache, and L3 Nemotron-3.5-Content-Safety.
+    Returns (is_toxic, reason_message).
+    """
+    res = check_message_safety(text, attachments=attachments, image_b64=image_b64)
+    if not res.get("is_safe", True):
+        return True, res.get("reason", "Message blocked by automated AI safety policy.")
     return False, ""
 
 
 def is_ip_private_or_loopback(host: str) -> bool:
-    """SSRF protection: Verifies host does not resolve to private/loopback/cloud metadata IP."""
+    """SSRF protection: Verifies host does not resolve to private/loopback/link-local/cloud metadata IP (IPv4 and IPv6)."""
     try:
-        ip = socket.gethostbyname(host)
-        # Parse octets
-        parts = [int(x) for x in ip.split('.')]
-        if parts[0] == 127:                         # Loopback
+        try:
+            ip_obj = ipaddress.ip_address(host)
+            return (
+                ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+                or ip_obj.is_multicast or ip_obj.is_reserved or ip_obj.is_unspecified
+                or str(ip_obj) == "169.254.169.254"
+            )
+        except ValueError:
+            pass
+
+        addr_info = socket.getaddrinfo(host, None, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+        if not addr_info:
             return True
-        if parts[0] == 10:                          # 10.0.0.0/8
-            return True
-        if parts[0] == 192 and parts[1] == 168:     # 192.168.0.0/16
-            return True
-        if parts[0] == 172 and (16 <= parts[1] <= 31): # 172.16.0.0/12
-            return True
-        if parts[0] == 169 and parts[1] == 254:     # Link-local / Cloud metadata (169.254.169.254)
-            return True
-        if parts[0] == 0:
-            return True
+
+        for item in addr_info:
+            sockaddr = item[4]
+            ip_str = sockaddr[0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            if (
+                ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+                or ip_obj.is_multicast or ip_obj.is_reserved or ip_obj.is_unspecified
+                or str(ip_obj) == "169.254.169.254"
+            ):
+                return True
         return False
     except Exception:
         return True
@@ -185,30 +342,75 @@ def is_ip_private_or_loopback(host: str) -> bool:
 def fetch_opengraph_metadata(url: str) -> Optional[Dict[str, str]]:
     """
     Safely scrapes OpenGraph metadata with strict SSRF protection, size caps, and timeouts.
+    Pins connection directly to resolved validated IP to prevent DNS rebinding TOCTOU.
     """
     try:
         parsed = urllib.parse.urlparse(url)
-        if parsed.scheme not in ("http", "https"):
+        scheme = (parsed.scheme or "").lower()
+        if scheme not in ("http", "https"):
             return None
         hostname = (parsed.hostname or "").lower()
         if not hostname or hostname in _BLOCKED_DOMAINS:
             return None
-        if is_ip_private_or_loopback(hostname):
+
+        # Validate and resolve IP addresses
+        try:
+            port = parsed.port or (443 if scheme == "https" else 80)
+            addr_info = socket.getaddrinfo(hostname, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+        except Exception:
             return None
 
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "CBM-Chat-LinkPreview/1.0 (+https://cbm.wispbyte.org)",
-                "Accept": "text/html,application/xhtml+xml"
-            }
-        )
-        with urllib.request.urlopen(req, timeout=1.8) as response:
-            content_type = response.headers.get("Content-Type", "")
-            if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+        if not addr_info:
+            return None
+
+        validated_ip = None
+        for item in addr_info:
+            sockaddr = item[4]
+            ip_str = sockaddr[0]
+            try:
+                ip_obj = ipaddress.ip_address(ip_str)
+                if (
+                    ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+                    or ip_obj.is_multicast or ip_obj.is_reserved or ip_obj.is_unspecified
+                    or str(ip_obj) == "169.254.169.254"
+                ):
+                    return None
+                if not validated_ip:
+                    validated_ip = ip_str
+            except Exception:
                 return None
-            # Read at most 64KB to prevent memory exhaustion
-            raw_html = response.read(65536).decode("utf-8", errors="ignore")
+
+        if not validated_ip:
+            return None
+
+        path = parsed.path or "/"
+        if parsed.query:
+            path += f"?{parsed.query}"
+
+        # Connect directly to the validated IP to prevent DNS rebinding TOCTOU
+        if scheme == "https":
+            ssl_ctx = ssl.create_default_context()
+            conn = http.client.HTTPSConnection(validated_ip, port=port, context=ssl_ctx, timeout=1.8)
+            conn._server_hostname = hostname
+        else:
+            conn = http.client.HTTPConnection(validated_ip, port=port, timeout=1.8)
+
+        headers = {
+            "Host": hostname,
+            "User-Agent": "CBM-Chat-LinkPreview/1.0 (+https://cbm.wispbyte.org)",
+            "Accept": "text/html,application/xhtml+xml"
+        }
+        conn.request("GET", path, headers=headers)
+        response = conn.getresponse()
+
+        content_type = response.getheader("Content-Type", "")
+        if "text/html" not in content_type and "application/xhtml+xml" not in content_type:
+            conn.close()
+            return None
+
+        # Read at most 64KB to prevent memory exhaustion
+        raw_html = response.read(65536).decode("utf-8", errors="ignore")
+        conn.close()
 
         # Parse OG tags with regex
         def get_meta(prop_name: str) -> str:
@@ -396,7 +598,8 @@ class DisposableChatRoom:
         attachments: Optional[List[Dict[str, Any]]] = None,
         auth_type: str = "TERRITORIAL_ANONYMOUS",
         is_cbm_verified: bool = False,
-        cbm_role: Optional[str] = None
+        cbm_role: Optional[str] = None,
+        is_whitelisted: bool = False
     ) -> Tuple[bool, Any]:
         """
         Validates, moderates, parses, and pushes a message to the FIFO ring buffer.
@@ -424,9 +627,9 @@ class DisposableChatRoom:
                 return False, "Duplicate message rejected (slow down)."
             self.last_messages_by_sender[clean_sender] = (raw_content, now)
 
-            # Impenetrable Moderation Check
-            if raw_content:
-                toxic, reason = is_toxic_content(raw_content)
+            # Impenetrable Moderation Check (Tiered Pipeline: L1 Heuristics -> L2 Cache -> L3 Nemotron 3.5)
+            if raw_content or attachments:
+                toxic, reason = is_toxic_content(raw_content, attachments=attachments)
                 if toxic:
                     return False, reason
 
@@ -461,6 +664,7 @@ class DisposableChatRoom:
                 "player_index": player_index,
                 "auth_type": auth_type,                 # "CBM_MEMBER" or "TERRITORIAL_ANONYMOUS"
                 "is_cbm_verified": bool(is_cbm_verified),
+                "is_whitelisted": bool(is_whitelisted),
                 "cbm_role": html.escape(cbm_role[:20]) if cbm_role else None,
                 "content": escaped_content,
                 "stickers": detected_stickers,
@@ -615,6 +819,14 @@ class DisposableChatEngine:
         # Magic byte verification
         if not verify_magic_bytes(file_bytes, ext):
             return False, "File failed binary signature / magic byte authenticity inspection."
+
+        # Layer 3 Multimodal Media Guardrail for Image Uploads (Nemotron 3.5 Content Safety)
+        if category == "image" or ext in (".png", ".jpg", ".jpeg", ".webp"):
+            img_b64 = base64.b64encode(file_bytes).decode("ascii")
+            safety_res = check_message_safety(text="", image_b64=img_b64)
+            if not safety_res.get("is_safe", True):
+                cats = ", ".join(safety_res.get("categories", [])) or "Violating Media Content"
+                return False, f"Image upload blocked by automated AI safety policy: {cats}"
 
         # Save to room storage folder
         clean_base = re.sub(r'[^a-zA-Z0-9_\-\.]', '_', filename)

@@ -261,9 +261,11 @@ def extract_profile_metadata(account_data: Dict[str, Any]) -> Tuple[str, str, st
 
 
 if __name__ == "__main__":
-    # Self-test demonstration
-    client = TerritorialGoldClient("DdcBC", "KdHPiUcxsmsOs_Z")
-    print("[*] Fetching recent public transactions involving DdcBC or B8bbq...")
-    history = client.get_public_transactions(filter_account="DdcBC")
+    # Self-test demonstration (credentials loaded securely from environment)
+    test_user = os.environ.get("TERRITORIAL_CLIENT_ACCOUNT", "test_user")
+    test_pass = os.environ.get("TERRITORIAL_CLIENT_PASSWORD", "")
+    client = TerritorialGoldClient(test_user, test_pass)
+    print(f"[*] Fetching recent public transactions involving {test_user}...")
+    history = client.get_public_transactions(filter_account=test_user)
     for tx in history:
         print(f"    [{tx['timestamp_iso']}] {tx['sender']} -> {tx['receiver']}: {tx['amount_gold']} Gold (Fee: {tx['fee_gold']})")

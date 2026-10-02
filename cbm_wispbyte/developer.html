@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CBM Developer Platform & Discord SDK — Territorial.io</title>
-  <link rel="icon" href="/cbm-logo.png" type="image/png">
+  <link rel="icon" href="/cbm-logo-new.png" type="image/png">
   <style>
     :root {
       --bg: #080d16;
@@ -694,7 +694,7 @@
   <!-- Floating Frosted Pill Header -->
   <header class="site-header">
     <a href="/developer.html" class="brand-group">
-      <img src="/cbm-logo.png" alt="CBM Shield" class="brand-logo" onerror="this.src='/cbm-logo.png'">
+      <img src="/cbm-logo-new.png" width="30" height="30" alt="CBM Shield" class="brand-logo" onerror="this.src='/cbm-logo-new.png'">
       <div class="brand-title">
         CBM <span>Dev</span>
         <span class="brand-badge">API v1.0</span>
@@ -719,6 +719,11 @@
 
   <!-- Hero Headline Section -->
   <section class="hero-section">
+    <div style="display: flex; justify-content: center; margin-bottom: 16px;">
+      <div style="width: 58px; height: 58px; aspect-ratio: 1/1; border-radius: 16px; background: radial-gradient(circle at 35% 30%, rgba(0, 112, 224, 0.35), rgba(10, 14, 24, 0.8)); border: 1px solid rgba(0, 112, 224, 0.5); box-shadow: inset 0 1px 2px rgba(120, 190, 255, 0.4), 0 8px 24px rgba(0, 112, 224, 0.25); display: flex; align-items: center; justify-content: center;">
+        <img src="/developer-platform-icon.png" width="42" height="42" alt="Developer Platform" style="object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.6));">
+      </div>
+    </div>
     <div class="status-badge-pill">
       <span class="status-dot"></span>
       <span>API v1.0 • 1 Credit = 1.00 Gold • Direct In-Game Settlement</span>
@@ -748,6 +753,7 @@
       <a class="sidebar-nav-item active" href="#overview">Overview</a>
       <a class="sidebar-nav-item" href="#credit-billing">API Credits & Billing</a>
       <a class="sidebar-nav-item" href="#keys-desk">API Keys</a>
+      <a class="sidebar-nav-item" href="#sso-desk">🛡️ SSO Apps &amp; Banners</a>
 
       <div class="sidebar-section-title">API Endpoints (v1)</div>
       <a class="sidebar-nav-item" href="#ep-bank-status">
@@ -772,6 +778,26 @@
         <span class="method-badge badge-get">GET</span> /api/v1/donors/leaderboard
       </a>
 
+      <div class="sidebar-section-title">AI Inference (NVIDIA NIM)</div>
+      <a class="sidebar-nav-item" href="#ep-ai-chat">
+        <span class="method-badge badge-post">POST</span> /api/v1/ai/chat
+      </a>
+      <a class="sidebar-nav-item" href="#ep-ai-sessions-create">
+        <span class="method-badge badge-post">POST</span> /api/v1/ai/sessions
+      </a>
+      <a class="sidebar-nav-item" href="#ep-ai-sessions-list">
+        <span class="method-badge badge-get">GET</span> /api/v1/ai/sessions
+      </a>
+      <a class="sidebar-nav-item" href="#ep-ai-sessions-detail">
+        <span class="method-badge badge-get">GET</span> /api/v1/ai/sessions/{id}
+      </a>
+      <a class="sidebar-nav-item" href="#ep-ai-status">
+        <span class="method-badge badge-get">GET</span> /api/v1/ai/status/{id}
+      </a>
+      <a class="sidebar-nav-item" href="#ep-ai-models">
+        <span class="method-badge badge-get">GET</span> /api/v1/ai/models
+      </a>
+
       <div class="sidebar-section-title">Products & Marketplace</div>
       <a class="sidebar-nav-item" href="#products-desk">📦 My Products</a>
       <a class="sidebar-nav-item" href="#ep-products-create">
@@ -791,6 +817,9 @@
       <div class="sidebar-section-title">Disposable Chatroom API</div>
       <a class="sidebar-nav-item" href="#ep-chat-create">
         <span class="method-badge badge-post">POST</span> /api/cbm/chat/create
+      </a>
+      <a class="sidebar-nav-item" href="#ep-chat-check">
+        <span class="method-badge badge-post">POST</span> /api/cbm/chat/check
       </a>
       <a class="sidebar-nav-item" href="#ep-chat-send">
         <span class="method-badge badge-post">POST</span> /api/cbm/chat/send
@@ -876,6 +905,133 @@
         </div>
       </div>
 
+      <!-- SSO Apps & Banners Desk -->
+      <div class="glass-card" id="sso-desk">
+        <div class="desk-header">
+          <div>
+            <h2 class="desk-title">Authoritative SSO &amp; OAuth 2.0 Applications</h2>
+            <p style="font-size: 13px; color: var(--text-dim); margin-top: 4px;">
+              Manage client applications, configure OAuth/OIDC redirect URIs, and generate pre-configured clickable banner embeds for third-party websites and tools.
+            </p>
+          </div>
+          <button class="btn-pill btn-glow" onclick="openOAuthAppModal()">+ Register SSO App</button>
+        </div>
+
+        <div style="background: rgba(0, 112, 224, 0.08); border: 1px solid rgba(0, 112, 224, 0.25); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 18px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div>
+            🛡️ <strong>Authoritative SSO Provider:</strong> Standard OpenID Connect (OIDC) &amp; OAuth 2.0 with PKCE (RFC 7636). Third-party platforms authenticate players using CBM credentials and render official SSO banners.
+          </div>
+          <button class="btn-pill btn-ghost" onclick="loadOAuthApps()" style="padding: 4px 10px; font-size: 11px;">↻ Refresh</button>
+        </div>
+
+        <!-- OAuth Applications Table -->
+        <div class="keys-table-wrap" style="margin-bottom: 24px;">
+          <table class="keys-table">
+            <thead>
+              <tr>
+                <th>App Name</th>
+                <th>Client ID</th>
+                <th>Type</th>
+                <th>Redirect URIs</th>
+                <th>Allowed Scopes</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="oauth-apps-tbody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                  Log into CBM to view your registered OAuth 2.0 applications.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Clickable SSO Banner Embed Generator -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(0, 112, 224, 0.2); border-radius: var(--radius-lg); padding: 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px;">Clickable SSO Banner Generator</h3>
+              <p style="font-size: 12.5px; color: var(--text-dim); margin: 0;">
+                Pre-generate embed snippets configured for your application. Place the official CBM banner on any third-party website, documentation, or game client.
+              </p>
+            </div>
+            <span style="font-size: 11px; padding: 4px 10px; background: rgba(0, 112, 224, 0.15); border: 1px solid rgba(0, 112, 224, 0.3); border-radius: var(--radius-pill); color: #60a5fa; font-weight: 600;">
+              Asset: /cbm-sso-banner.png
+            </span>
+          </div>
+
+          <!-- Configuration Controls -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 18px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Select OAuth Application</label>
+              <select id="sso-app-select" class="input-field" onchange="onSSOAppSelectionChange()" style="margin-bottom: 0;">
+                <option value="">-- No App Selected (Demo Mode) --</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Redirect URI</label>
+              <select id="sso-redirect-select" class="input-field" onchange="renderSSOEmbedCodes()" style="margin-bottom: 0;">
+                <option value="https://example.com/oauth/callback">https://example.com/oauth/callback</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Requested Scopes</label>
+              <input type="text" id="sso-scope-input" class="input-field" value="openid profile email" oninput="renderSSOEmbedCodes()" style="margin-bottom: 0;">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">CSRF State Token</label>
+              <input type="text" id="sso-state-input" class="input-field" value="cbm_auth_state" oninput="renderSSOEmbedCodes()" style="margin-bottom: 0;">
+            </div>
+          </div>
+
+          <!-- Live Visual Interactive Banner Preview -->
+          <div style="margin-bottom: 20px; padding: 18px; background: rgba(2, 6, 23, 0.5); border: 1px dashed rgba(0, 112, 224, 0.35); border-radius: var(--radius-md); text-align: center;">
+            <div style="font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin-bottom: 12px;">
+              Live Interactive Banner Preview (Click to test authorization flow)
+            </div>
+            <div style="display: inline-block;">
+              <a id="sso-preview-anchor" href="#" target="_blank" rel="noopener noreferrer" style="display: inline-block; text-decoration: none;">
+                <img id="sso-preview-img" src="/cbm-sso-banner.png" alt="Sign in with Clan Bank Manager" style="max-width: 100%; height: auto; max-height: 84px; border-radius: 8px; border: 1px solid rgba(0, 112, 224, 0.45); box-shadow: 0 4px 18px rgba(0, 112, 224, 0.25); transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 6px 24px rgba(0, 112, 224, 0.45)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 4px 18px rgba(0, 112, 224, 0.25)';">
+              </a>
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 10px;">
+              Target: <span id="sso-preview-url-text" class="mono" style="color: #93c5fd; word-break: break-all;">/api/oauth/authorize</span>
+            </div>
+          </div>
+
+          <!-- Embed Snippets -->
+          <div style="display: flex; flex-direction: column; gap: 14px;">
+            <!-- Option 1: Clickable HTML -->
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="font-size: 12px; font-weight: 700; color: #60a5fa; text-transform: uppercase;">1. Clickable HTML Banner (Websites &amp; Client Portals)</span>
+                <button class="btn-pill btn-ghost" onclick="copySnippetText('sso-html-code')" style="padding: 2px 8px; font-size: 11px;">Copy HTML</button>
+              </div>
+              <pre class="code-box" id="sso-html-code" style="white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px;"></pre>
+            </div>
+
+            <!-- Option 2: Markdown -->
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="font-size: 12px; font-weight: 700; color: #60a5fa; text-transform: uppercase;">2. Markdown Embed (GitHub / Docs / Forums)</span>
+                <button class="btn-pill btn-ghost" onclick="copySnippetText('sso-md-code')" style="padding: 2px 8px; font-size: 11px;">Copy Markdown</button>
+              </div>
+              <pre class="code-box" id="sso-md-code" style="white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px;"></pre>
+            </div>
+
+            <!-- Option 3: Direct Authorization URL -->
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span style="font-size: 12px; font-weight: 700; color: #60a5fa; text-transform: uppercase;">3. Direct Authorization Endpoint URL</span>
+                <button class="btn-pill btn-ghost" onclick="copySnippetText('sso-raw-url')" style="padding: 2px 8px; font-size: 11px;">Copy URL</button>
+              </div>
+              <pre class="code-box" id="sso-raw-url" style="white-space: pre-wrap; word-break: break-all; margin: 0; font-size: 12px;"></pre>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Products & Marketplace Desk -->
       <div class="glass-card" id="products-desk">
         <div class="desk-header">
@@ -916,6 +1072,51 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Sponsorship & Advertising Desk -->
+      <div class="glass-card" id="sponsorships-desk">
+        <div class="desk-header">
+          <div>
+            <h2 class="desk-title">Sponsorship &amp; Advertising Desk</h2>
+            <p style="font-size: 13px; color: var(--text-dim); margin-top: 4px;">
+              Acquire limited-availability promotional slots across high-traffic CBM portals.
+            </p>
+          </div>
+          <button class="btn-pill btn-ghost" onclick="loadSponsorshipsTable()">↻ Refresh Slots</button>
+        </div>
+
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 18px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div>
+            🏛️ <strong>60/40 Capital Covenant:</strong> Exactly <strong>60%</strong> of all sponsorship lease fees inject directly into Unencumbered Central Bank Reserves, with the remaining <strong>40%</strong> funding the Community Referral &amp; Rewards Pool.
+          </div>
+          <span style="font-size: 11px; color: var(--emerald); font-weight: 700; text-transform: uppercase;">Limited Inventory Standard</span>
+        </div>
+
+        <div class="keys-table-wrap">
+          <table class="keys-table">
+            <thead>
+              <tr>
+                <th>Slot Identifier</th>
+                <th>Placement &amp; Description</th>
+                <th>Weekly Floor Price</th>
+                <th>Revenue Split (60/40)</th>
+                <th>Occupancy Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="sponsorships-tbody">
+              <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                  Loading real-time sponsorship inventory...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- First-Party Sponsored Developer Placement (SLOT_DISCORD - Zero-CLS) -->
+        <div id="cbmDevAdContainer" class="cbm-ad-container-discord" style="width: 100%; max-width: 300px; min-height: 250px; aspect-ratio: 300/250; margin: 20px auto 0 auto; position: relative;"></div>
       </div>
 
       <!-- Endpoint 1: Bank Status -->
@@ -1008,6 +1209,237 @@
         </table>
         <div style="margin-top: 8px;">
           <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/donations/declare', '{\n  &quot;account_name&quot;: &quot;Alice&quot;,\n  &quot;amount_gold&quot;: 10.0,\n  &quot;message&quot;: &quot;Glory to the clan!&quot;\n}')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: AI Chat Completion -->
+      <div class="glass-card endpoint-doc" id="ep-ai-chat">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/v1/ai/chat</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-pill); background: rgba(0, 112, 224, 0.12); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.3); margin-left: auto;">NVIDIA NIM • Nemotron-3</span>
+        </div>
+        <p class="endpoint-desc">
+          Executes AI reasoning chat completions using NVIDIA NIM infrastructure (default: <code>nvidia/nemotron-3-ultra-550b-a55b</code>, also supporting <code>moonshotai/kimi-k3</code>). Supports Server-Sent Events (SSE) streaming (<code>"stream": true</code>), synchronous completions with automated NVCF 202 status polling, and non-blocking asynchronous jobs (<code>"async": true</code>). Metered via API Credits (1 Credit = 1.00 Gold debited from member deposit balance and converted into unencumbered Clan Reserves) with automatic failure refund.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>JSON Body Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>messages</code></td>
+              <td>array | string</td>
+              <td>Array of <code>{"role": "user"|"assistant"|"system", "content": "..."}</code> or single prompt string.</td>
+            </tr>
+            <tr>
+              <td><code>model</code></td>
+              <td>string</td>
+              <td>Target model identifier (optional, default: <code>nvidia/nemotron-3-ultra-550b-a55b</code>).</td>
+            </tr>
+            <tr>
+              <td><code>max_tokens</code></td>
+              <td>number</td>
+              <td>Max response tokens (default: <code>1024</code>, max: <code>16384</code>).</td>
+            </tr>
+            <tr>
+              <td><code>temperature</code></td>
+              <td>number</td>
+              <td>Sampling temperature (default: <code>0.7</code>, range: 0.0 - 2.0).</td>
+            </tr>
+            <tr>
+              <td><code>session_id</code></td>
+              <td>string</td>
+              <td>Optional. Active chat session UUID. Maintains multi-turn conversation memory, automatically assembles sliding-window history context, and records assistant replies.</td>
+            </tr>
+            <tr>
+              <td><code>end_session</code></td>
+              <td>boolean</td>
+              <td>Optional. If <code>true</code>, completes inference and permanently prunes the session and associated message history.</td>
+            </tr>
+            <tr>
+              <td><code>ttl_seconds</code></td>
+              <td>number</td>
+              <td>Optional (default: <code>3600</code>). Inactivity TTL in seconds before auto-pruning by background garbage collection.</td>
+            </tr>
+            <tr>
+              <td><code>stream</code></td>
+              <td>boolean</td>
+              <td>Optional. If <code>true</code>, streams responses in real-time using Server-Sent Events (<code>text/event-stream</code>).</td>
+            </tr>
+            <tr>
+              <td><code>async</code></td>
+              <td>boolean</td>
+              <td>Optional. If <code>true</code>, enqueues non-blocking job returning <code>job_id</code> for asynchronous retrieval.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/ai/chat', '{\n  &quot;model&quot;: &quot;nvidia/nemotron-3-ultra-550b-a55b&quot;,\n  &quot;messages&quot;: [\n    {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;Analyze current clan treasury liquidity and recommend optimal loan interest rates.&quot;}\n  ],\n  &quot;max_tokens&quot;: 512,\n  &quot;temperature&quot;: 0.7\n}')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Create AI Chat Session -->
+      <div class="glass-card endpoint-doc" id="ep-ai-sessions-create">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/v1/ai/sessions</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-pill); background: rgba(0, 112, 224, 0.12); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.3); margin-left: auto;">Stateful Memory</span>
+        </div>
+        <p class="endpoint-desc">
+          Creates a stateful multi-turn AI session with configurable sliding-window context history, idle expiration TTL, and optional persistent system prompt.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>JSON Body Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>title</code></td>
+              <td>string</td>
+              <td>Optional. Human-readable title for the chat session.</td>
+            </tr>
+            <tr>
+              <td><code>system_prompt</code></td>
+              <td>string</td>
+              <td>Optional. Persistent system instructions applied to every turn in the session.</td>
+            </tr>
+            <tr>
+              <td><code>model</code></td>
+              <td>string</td>
+              <td>Optional (default: <code>nvidia/nemotron-3-ultra-550b-a55b</code>). Model assigned to session.</td>
+            </tr>
+            <tr>
+              <td><code>ttl_seconds</code></td>
+              <td>number</td>
+              <td>Optional (default: <code>3600</code>, max: <code>604800</code>). Inactivity expiration in seconds.</td>
+            </tr>
+            <tr>
+              <td><code>max_turns</code></td>
+              <td>number</td>
+              <td>Optional (default: <code>20</code>, max: <code>100</code>). Maximum turns preserved in sliding context window.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/ai/sessions', '{\n  &quot;title&quot;: &quot;Treasury Advisor Session&quot;,\n  &quot;system_prompt&quot;: &quot;You are an expert quantitative advisor on clan bank reserves.&quot;,\n  &quot;ttl_seconds&quot;: 7200\n}')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: List AI Chat Sessions -->
+      <div class="glass-card endpoint-doc" id="ep-ai-sessions-list">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/ai/sessions</span>
+        </div>
+        <p class="endpoint-desc">
+          Lists all active AI chat sessions owned by the authenticated developer account. Automatically triggers opportunistic garbage collection of expired sessions.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Query Parameter</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>limit</code></td>
+              <td>number</td>
+              <td>Optional (default: <code>50</code>). Maximum number of sessions to return.</td>
+            </tr>
+            <tr>
+              <td><code>offset</code></td>
+              <td>number</td>
+              <td>Optional (default: <code>0</code>). Pagination offset.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/ai/sessions', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: AI Session Details & History -->
+      <div class="glass-card endpoint-doc" id="ep-ai-sessions-detail">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/ai/sessions/{session_id}</span>
+        </div>
+        <p class="endpoint-desc">
+          Retrieves metadata, active TTL expiration, and chronological message history for a specific AI session. Touches the session to refresh its inactivity TTL. Supports <code>PATCH</code> to update metadata, <code>DELETE</code> or <code>POST /api/v1/ai/sessions/{id}/end</code> for explicit termination, and <code>POST /api/v1/ai/sessions/{id}/clear</code> to wipe message history.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Path / Action</th><th>Method</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>/api/v1/ai/sessions/{id}</code></td>
+              <td>GET</td>
+              <td>Returns session configuration and message turns.</td>
+            </tr>
+            <tr>
+              <td><code>/api/v1/ai/sessions/{id}</code></td>
+              <td>PATCH</td>
+              <td>Updates <code>title</code>, <code>system_prompt</code>, <code>ttl_seconds</code>, or <code>model</code>.</td>
+            </tr>
+            <tr>
+              <td><code>/api/v1/ai/sessions/{id}</code></td>
+              <td>DELETE</td>
+              <td>Permanently deletes session and all historical message records.</td>
+            </tr>
+            <tr>
+              <td><code>/api/v1/ai/sessions/{id}/end</code></td>
+              <td>POST</td>
+              <td>Explicit session termination and cascading deletion (POST alternative for restricted clients).</td>
+            </tr>
+            <tr>
+              <td><code>/api/v1/ai/sessions/{id}/clear</code></td>
+              <td>POST</td>
+              <td>Clears all turns and message history while keeping the session active.</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/ai/sessions/cbm_sess_sample', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: AI Status Polling -->
+      <div class="glass-card endpoint-doc" id="ep-ai-status">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/ai/status/{request_id}</span>
+        </div>
+        <p class="endpoint-desc">
+          Polls NVCF status for queued inferences that returned <code>202 Accepted</code>. Returns <code>200 OK</code> once inference is fulfilled.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Path Parameter</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>request_id</code></td>
+              <td>string</td>
+              <td>NVIDIA Cloud Functions request UUID (from <code>NVCF-REQID</code> header or body).</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/ai/status/sample-uuid', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: AI Model Inventory -->
+      <div class="glass-card endpoint-doc" id="ep-ai-models">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/ai/models</span>
+        </div>
+        <p class="endpoint-desc">
+          Returns active NVIDIA NIM model inventory, runtime health, and API credit pricing telemetry.
+        </p>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/ai/models', '')">Try in Playground ↗</button>
         </div>
       </div>
 
@@ -1219,14 +1651,39 @@ async def balance(interaction: discord.Interaction, player_name: str):
         </div>
       </div>
 
+      <!-- Endpoint: Pre-Flight Safety Moderation -->
+      <div class="glass-card endpoint-doc" id="ep-chat-check">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/cbm/chat/check</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-pill); background: rgba(16, 185, 129, 0.12); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); margin-left: auto;">Nemotron-3.5-Content-Safety</span>
+        </div>
+        <p class="endpoint-desc">
+          Pre-flight content safety check powered by <code>nvidia/nemotron-3.5-content-safety</code> and L1 regex heuristics. Evaluates message text and optional media attachments before submission to verify compliance.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>content</code></td><td>string</td><td>Text content to evaluate (required)</td></tr>
+            <tr><td><code>image_data</code></td><td>string</td><td>Optional base64-encoded image string for multimodal safety classification</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/cbm/chat/check', JSON.stringify({content: 'Great attack on the eastern front!'}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
       <!-- Endpoint: Send Chat Message -->
       <div class="glass-card endpoint-doc" id="ep-chat-send">
         <div class="endpoint-header-row">
           <span class="method-pill badge-post">POST</span>
           <span class="endpoint-path">/api/cbm/chat/send</span>
+          <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: var(--radius-pill); background: rgba(0, 112, 224, 0.12); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.3); margin-left: auto;">AI Moderated Ingress</span>
         </div>
         <p class="endpoint-desc">
-          Sends an authenticated message to the disposable room. Supports <strong>Dual Authentication</strong>: CBM Member credentials (with verified badge and clan tag) or Anonymous Territorial.io player name. Subject to burst rate-limiting (4 msgs / 3s), duplicate suppression, and automated toxicity inspection.
+          Sends an authenticated message to the disposable room. Supports <strong>Dual Authentication</strong>: CBM Member credentials (with verified badge and clan tag) or Anonymous Territorial.io player name. Every message passes through the tiered <code>nvidia/nemotron-3.5-content-safety</code> pipeline (L1 slurs &rarr; L2 SHA-256 verdict cache &rarr; L3 Nemotron 3.5 NIM) before reaching the room buffer and peers.
         </p>
         <table class="params-table">
           <thead>
@@ -1368,6 +1825,83 @@ async def balance(interaction: discord.Interaction, player_name: str):
         </div>
       </div>
 
+      <!-- Endpoint: Ads Inventory -->
+      <div class="glass-card endpoint-doc" id="ep-ads-inventory">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/ads/inventory</span>
+        </div>
+        <p class="endpoint-desc">
+          Queries real-time sponsorship slot availability, dynamic pricing, and covenant allocation telemetry.
+        </p>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/ads/inventory', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Ads Serve -->
+      <div class="glass-card endpoint-doc" id="ep-ads-serve">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/ads/serve</span>
+        </div>
+        <p class="endpoint-desc">
+          Delivers live sponsored banner payload or pre-rendered HTML for high-traffic placements. Automatically tracks impressions.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Query Param</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>slot_id</code></td><td>string</td><td>e.g. <code>SLOT_HERO</code>, <code>SLOT_TELEMETRY</code>, <code>SLOT_DISCORD</code> (Default: <code>SLOT_HERO</code>)</td></tr>
+            <tr><td><code>format</code></td><td>string</td><td><code>json</code> (default) or <code>html</code> for embed-ready markup</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/ads/serve?slot_id=SLOT_HERO', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Sponsorship Purchase -->
+      <div class="glass-card endpoint-doc" id="ep-sponsorship-purchase">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-post">POST</span>
+          <span class="endpoint-path">/api/v1/sponsorships/purchase</span>
+        </div>
+        <p class="endpoint-desc">
+          Books a limited-availability sponsorship lease. Atomically debits buyer's CBM balance and splits revenue via 60/40 covenant.
+        </p>
+        <table class="params-table">
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>slot_id</code></td><td>string</td><td>Target sponsorship slot identifier (required)</td></tr>
+            <tr><td><code>title</code></td><td>string</td><td>Promotional title, max 80 characters (required)</td></tr>
+            <tr><td><code>tagline</code></td><td>string</td><td>Supporting description, max 200 characters (required)</td></tr>
+            <tr><td><code>target_url</code></td><td>string</td><td>Destination URL starting with http:// or https:// (required)</td></tr>
+            <tr><td><code>badge_text</code></td><td>string</td><td>Custom tag label, e.g. "PROMOTED", "PARTNER" (optional)</td></tr>
+          </tbody>
+        </table>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('POST', '/api/v1/sponsorships/purchase', JSON.stringify({slot_id: 'SLOT_HERO', title: 'Example Bot', tagline: 'Automate your clan.', target_url: 'https://example.com'}, null, 2))">Try in Playground ↗</button>
+        </div>
+      </div>
+
+      <!-- Endpoint: Economic Equilibrium Telemetry -->
+      <div class="glass-card endpoint-doc" id="ep-economy-telemetry">
+        <div class="endpoint-header-row">
+          <span class="method-pill badge-get">GET</span>
+          <span class="endpoint-path">/api/v1/economy/telemetry</span>
+        </div>
+        <p class="endpoint-desc">
+          Returns macroeconomic liquidity curves, Liquidity Stress Index (LSI), macro-solvency buffer ratio, and safe-gap loan risk profiles.
+        </p>
+        <div style="margin-top: 8px;">
+          <button class="btn-pill btn-ghost" onclick="setPlaygroundEndpoint('GET', '/api/v1/economy/telemetry', '')">Try in Playground ↗</button>
+        </div>
+      </div>
+
       <!-- Guide: Embed Widget Guide -->
       <div class="glass-card" id="widgets-guide">
         <h3 style="font-size: 17px; font-weight: 700; margin-bottom: 8px; color: #ffffff;">🔌 Embeddable Product Widget Guide</h3>
@@ -1436,7 +1970,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
   <!-- Key Creation Modal -->
   <div class="modal-overlay" id="key-modal">
     <div class="modal-card">
-      <form id="key-create-form" onsubmit="event.preventDefault(); submitKeyCreation();">
+      <form id="key-create-form" method="POST" onsubmit="event.preventDefault(); submitKeyCreation();">
         <h3 class="modal-title">Create API Key</h3>
         <p class="modal-subtitle">Generate credentials for your application or Discord bot.</p>
 
@@ -1485,7 +2019,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
   <!-- Product Creation Modal -->
   <div class="modal-overlay" id="product-modal">
     <div class="modal-card" style="max-width: 560px;">
-      <form id="product-create-form" onsubmit="event.preventDefault(); submitProductCreation();">
+      <form id="product-create-form" method="POST" onsubmit="event.preventDefault(); submitProductCreation();">
         <h3 class="modal-title">Create Marketplace Product</h3>
         <p class="modal-subtitle">Configure an item or service for automated in-game gold checkout.</p>
 
@@ -1576,6 +2110,138 @@ async def balance(interaction: discord.Interaction, player_name: str):
     </div>
   </div>
 
+  <!-- Sponsorship Booking Modal -->
+  <div class="modal-overlay" id="sponsorship-modal">
+    <div class="modal-card" style="max-width: 580px;">
+      <h3 class="modal-title">Book Sponsorship Placement</h3>
+      <p class="modal-subtitle">Lease high-visibility placement. 60% of fees credit to Central Reserves, 40% to Referral Pool.</p>
+
+      <form id="form-sponsorship" onsubmit="submitSponsorshipPurchase(event)">
+        <div class="form-group">
+          <label class="form-label">Selected Placement Slot</label>
+          <select id="sponsor-modal-slot" class="input-field" required onchange="onSponsorSlotChange()">
+            <option value="SLOT_HERO">SLOT_HERO — Vault Header Banner</option>
+            <option value="SLOT_TELEMETRY">SLOT_TELEMETRY — Ledger Stream Feed</option>
+            <option value="SLOT_DISCORD">SLOT_DISCORD — Developer Showcase</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Promotional Title (Headline)</label>
+          <input type="text" id="sponsor-modal-title" class="input-field" maxlength="80" placeholder="e.g. Imperial Bot: Match Tracker" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Promotional Tagline / Copy</label>
+          <input type="text" id="sponsor-modal-tagline" class="input-field" maxlength="200" placeholder="e.g. Free territorial leaderboard alerts and clan telemetry." required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Destination URL</label>
+          <input type="url" id="sponsor-modal-url" class="input-field" placeholder="https://yourclan.com or https://discord.gg/..." required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Badge Label</label>
+          <input type="text" id="sponsor-modal-badge" class="input-field" maxlength="16" placeholder="PROMOTED" value="PROMOTED">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Banner Image URL / Asset Path (Optional)</label>
+          <input type="text" id="sponsor-modal-image" class="input-field" placeholder="/assets/products/... or https://...">
+          <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
+            Must match slot aspect ratio (Hero: 728×90, Telemetry: 600×100, Discord: 300×250). SVG files strictly prohibited.
+          </span>
+        </div>
+
+        <div style="background: rgba(0, 112, 224, 0.08); border: 1px solid rgba(0, 112, 224, 0.25); border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; font-size: 12px; color: var(--text-dim);">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span>Total Lease Cost (7 Days):</span>
+            <strong id="sponsor-modal-cost" class="mono" style="color: var(--gold); font-size: 14px;">500.00 Gold</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; color: var(--text-muted);">
+            <span>Reserve Capital Allocation (60%):</span>
+            <span id="sponsor-modal-split-res" class="mono text-emerald">300.00 Gold</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; color: var(--text-muted);">
+            <span>Referral Pool Allocation (40%):</span>
+            <span id="sponsor-modal-split-ref" class="mono">200.00 Gold</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">CBM Access PIN (If Set)</label>
+          <input type="password" id="sponsor-modal-pin" class="input-field" maxlength="8" placeholder="••••••" autocomplete="off">
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-pill btn-ghost" onclick="closeSponsorshipModal()">Cancel</button>
+          <button type="submit" class="btn-pill btn-glow" id="btn-sponsor-submit">Confirm 7-Day Lease →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- OAuth SSO Application Modal -->
+  <div class="modal-overlay" id="oauth-app-modal">
+    <div class="modal-card" style="max-width: 580px;">
+      <form id="oauth-app-create-form" method="POST" onsubmit="event.preventDefault(); submitCreateOAuthApp(event);">
+        <h3 class="modal-title">Register SSO Application</h3>
+        <p class="modal-subtitle">Provision OAuth 2.0 / OIDC client credentials for your application.</p>
+
+        <div class="form-group">
+          <label class="form-label">Application Name</label>
+          <input type="text" id="oauth-modal-name" class="input-field" placeholder="e.g. Clan War Room, Discord Bot, Leaderboard Portal" required>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-group">
+            <label class="form-label">Client Type</label>
+            <select id="oauth-modal-type" class="input-field">
+              <option value="confidential">Confidential (Backend with Secret)</option>
+              <option value="public">Public (SPA / Native / PKCE)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Allowed Scopes</label>
+            <input type="text" id="oauth-modal-scopes" class="input-field" value="openid profile email" placeholder="openid profile email">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Redirect URIs (One per line or comma-separated)</label>
+          <textarea id="oauth-modal-redirects" class="input-field" rows="2" placeholder="https://mywebsite.com/oauth/callback&#10;http://localhost:8080/callback" required></textarea>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Logo URL (Optional)</label>
+          <input type="url" id="oauth-modal-logo" class="input-field" placeholder="https://example.com/logo.png">
+        </div>
+
+        <!-- Secret Reveal Box (shown post-creation) -->
+        <div id="oauth-secret-reveal-area" style="display: none; background: rgba(0, 112, 224, 0.1); border: 1px dashed var(--blue); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 16px;">
+          <div style="font-size: 12px; font-weight: 700; color: var(--gold); margin-bottom: 8px;">
+            ⚠️ Save your credentials immediately. The Client Secret is shown once and cannot be recovered!
+          </div>
+          <div style="margin-bottom: 8px;">
+            <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase;">Client ID:</div>
+            <div id="oauth-revealed-client-id" class="secret-token-text" style="font-size: 12px; color: #93c5fd;"></div>
+          </div>
+          <div id="oauth-revealed-secret-row" style="margin-bottom: 10px;">
+            <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase;">Client Secret:</div>
+            <div id="oauth-revealed-client-secret" class="secret-token-text" style="font-size: 12px; color: #34d399;"></div>
+          </div>
+          <button type="button" class="btn-pill btn-ghost" onclick="copyOAuthSecret()" style="font-size: 11px; padding: 4px 10px;">📋 Copy Client Secret</button>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-pill btn-ghost" onclick="closeOAuthAppModal()">Close</button>
+          <button type="submit" class="btn-pill btn-glow" id="btn-oauth-app-submit">Create Application →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script>
     let activeEnv = 'live';
     let currentSecretToken = '';
@@ -1657,8 +2323,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
       document.getElementById('btn-modal-submit').style.display = 'inline-flex';
       const stored = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (stored) document.getElementById('modal-acc').value = stored;
-      const storedPin = sessionStorage.getItem('cbm_pin') || '';
-      if (storedPin) document.getElementById('modal-pin').value = storedPin;
+      if (memoryDevPin) document.getElementById('modal-pin').value = memoryDevPin;
       document.getElementById('key-modal').classList.add('open');
     }
 
@@ -1668,7 +2333,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
 
     async function submitKeyCreation() {
       const acc = document.getElementById('modal-acc').value.trim();
-      const pin = document.getElementById('modal-pin').value.trim();
+      const pin = document.getElementById('modal-pin').value.trim() || memoryDevPin;
       const app = document.getElementById('modal-app').value.trim();
       const env = document.getElementById('modal-env').value;
 
@@ -1677,7 +2342,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
       try {
         const res = await fetch('/api/cbm/dev/keys/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getDevAuthHeaders() },
           body: JSON.stringify({ account_name: acc, pin, app_name: app, environment: env })
         });
         const data = await res.json();
@@ -1689,8 +2354,9 @@ async def balance(interaction: discord.Interaction, player_name: str):
           document.getElementById('pg-token').value = data.api_key;
           localStorage.setItem('cbm_active_account', acc);
           localStorage.setItem('cbm_user', acc);
-          if (pin) sessionStorage.setItem('cbm_pin', pin);
+          if (pin) memoryDevPin = pin;
           loadKeysTable(acc, pin);
+          refreshDeveloperOverview();
         } else {
           alert('Error: ' + (data.message || 'Failed to generate key.'));
         }
@@ -1706,11 +2372,24 @@ async def balance(interaction: discord.Interaction, player_name: str):
       });
     }
 
+    let memoryDevPin = '';
+
+    function getDevAuthHeaders() {
+      const headers = {};
+      const token = localStorage.getItem('cbm_session_token');
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      if (memoryDevPin) headers['X-CBM-PIN'] = memoryDevPin;
+      return headers;
+    }
+
     async function refreshDeveloperOverview() {
       const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (!acc) return;
       try {
-        const res = await fetch(`/api/cbm/dev/overview?account=${encodeURIComponent(acc)}`);
+        const pinParam = memoryDevPin ? `&pin=${encodeURIComponent(memoryDevPin)}` : '';
+        const res = await fetch(`/api/cbm/dev/overview?account=${encodeURIComponent(acc)}${pinParam}`, {
+          headers: getDevAuthHeaders()
+        });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
           const ov = data.overview;
@@ -1723,9 +2402,12 @@ async def balance(interaction: discord.Interaction, player_name: str):
     async function loadKeysTable(acc, pin) {
       if (!acc) return;
       const tbody = document.getElementById('keys-tbody');
-      const pinVal = pin !== undefined ? pin : (sessionStorage.getItem('cbm_pin') || '');
+      const pinVal = pin !== undefined ? pin : memoryDevPin;
       try {
-        const res = await fetch(`/api/cbm/dev/keys?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pinVal)}`);
+        const pinParam = pinVal ? `&pin=${encodeURIComponent(pinVal)}` : '';
+        const res = await fetch(`/api/cbm/dev/keys?account=${encodeURIComponent(acc)}${pinParam}`, {
+          headers: getDevAuthHeaders()
+        });
         const data = await res.json();
 
         if (res.status === 401) {
@@ -1736,7 +2418,8 @@ async def balance(interaction: discord.Interaction, player_name: str):
                 <div style="max-width: 320px; margin: 0 auto;">
                   <div style="font-size: 14px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">🔒 Security PIN Required</div>
                   <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 14px;">Enter your 6-digit PIN to view and manage API keys for <strong>${escapeHtml(acc)}</strong>.</p>
-                  <form onsubmit="event.preventDefault(); unlockKeysWithPin('${escapeHtml(acc)}');" style="display: flex; gap: 8px; justify-content: center;">
+                  <form method="POST" onsubmit="event.preventDefault(); unlockKeysWithPin('${escapeHtml(acc)}');" style="display: flex; gap: 8px; justify-content: center;">
+                    <input type="text" name="username" value="${escapeHtml(acc)}" autocomplete="username" style="display:none" tabindex="-1" aria-hidden="true">
                     <input type="password" id="unlock-pin" class="input-field" maxlength="6" placeholder="6-digit PIN" style="margin-bottom: 0; text-align: center; letter-spacing: 3px; font-weight: 700; width: 140px;" autocomplete="current-password" autofocus>
                     <button type="submit" class="btn-pill btn-glow" style="padding: 6px 16px;">Unlock →</button>
                   </form>
@@ -1749,7 +2432,8 @@ async def balance(interaction: discord.Interaction, player_name: str):
         }
 
         if (res.ok && data.status === 'ok') {
-          if (pinVal) sessionStorage.setItem('cbm_pin', pinVal);
+          if (pinVal) memoryDevPin = pinVal;
+          if (data.session_token) localStorage.setItem('cbm_session_token', data.session_token);
           if (!data.keys || data.keys.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 24px; color: var(--text-muted);">No API keys created yet. Click "+ Create New Key" above to generate one.</td></tr>';
             return;
@@ -1762,7 +2446,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
               <td>${k.total_requests}</td>
               <td>${k.credits_consumed_gold.toFixed(2)} Gold</td>
               <td>
-                ${k.is_active ? `<button class="btn-pill btn-ghost" style="padding: 4px 8px; font-size: 11px; color: var(--danger);" onclick="revokeKey('${escapeHtml(k.key_id)}', '${escapeHtml(acc)}')">Revoke</button>` : '<span style="color: var(--text-muted);">Revoked</span>'}
+                ${k.is_active ? `<button type="button" class="btn-pill btn-ghost btn-revoke-key" style="padding: 4px 8px; font-size: 11px; color: var(--danger);" data-key-id="${escapeHtml(k.key_id)}" data-account="${escapeHtml(acc)}">Revoke</button>` : '<span style="color: var(--text-muted);">Revoked</span>'}
               </td>
             </tr>
           `).join('');
@@ -1783,11 +2467,16 @@ async def balance(interaction: discord.Interaction, player_name: str):
         return;
       }
       try {
-        const res = await fetch(`/api/cbm/dev/keys?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pin)}`);
+        const res = await fetch(`/api/cbm/dev/keys?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pin)}`, {
+          headers: getDevAuthHeaders()
+        });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
-          sessionStorage.setItem('cbm_pin', pin);
+          memoryDevPin = pin;
+          if (data.session_token) localStorage.setItem('cbm_session_token', data.session_token);
           loadKeysTable(acc, pin);
+          loadProductsTable(acc, pin);
+          refreshDeveloperOverview();
         } else {
           if (errEl) {
             errEl.innerText = data.message || 'Invalid PIN.';
@@ -1804,18 +2493,19 @@ async def balance(interaction: discord.Interaction, player_name: str):
 
     async function revokeKey(keyId, acc) {
       if (!confirm(`Are you sure you want to revoke key ${keyId}?`)) return;
-      const pin = sessionStorage.getItem('cbm_pin') || prompt('Enter your 6-digit PIN to confirm revocation:') || '';
+      const pin = memoryDevPin || prompt('Enter your 6-digit PIN to confirm revocation:') || '';
       if (!pin) return;
       try {
         const res = await fetch('/api/cbm/dev/keys/revoke', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getDevAuthHeaders() },
           body: JSON.stringify({ account_name: acc, pin, key_id: keyId })
         });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
           alert(data.message);
           loadKeysTable(acc, pin);
+          refreshDeveloperOverview();
         } else {
           alert('Error: ' + (data.message || 'Failed to revoke key.'));
         }
@@ -1838,9 +2528,12 @@ async def balance(interaction: discord.Interaction, player_name: str):
     async function loadProductsTable(acc, pin) {
       if (!acc) return;
       const tbody = document.getElementById('products-tbody');
-      const pinVal = pin !== undefined ? pin : (sessionStorage.getItem('cbm_pin') || '');
+      const pinVal = pin !== undefined ? pin : memoryDevPin;
       try {
-        const res = await fetch(`/api/cbm/dev/products?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pinVal)}`);
+        const pinParam = pinVal ? `&pin=${encodeURIComponent(pinVal)}` : '';
+        const res = await fetch(`/api/cbm/dev/products?account=${encodeURIComponent(acc)}${pinParam}`, {
+          headers: getDevAuthHeaders()
+        });
         const data = await res.json();
 
         if (res.status === 401) {
@@ -1850,7 +2543,8 @@ async def balance(interaction: discord.Interaction, player_name: str):
                 <div style="max-width: 320px; margin: 0 auto;">
                   <div style="font-size: 14px; font-weight: 600; color: #ffffff; margin-bottom: 6px;">🔒 Security PIN Required</div>
                   <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 14px;">Enter your 6-digit PIN to view and manage products for <strong>${escapeHtml(acc)}</strong>.</p>
-                  <form onsubmit="event.preventDefault(); unlockProductsWithPin('${escapeHtml(acc)}');" style="display: flex; gap: 8px; justify-content: center;">
+                  <form method="POST" onsubmit="event.preventDefault(); unlockProductsWithPin('${escapeHtml(acc)}');" style="display: flex; gap: 8px; justify-content: center;">
+                    <input type="text" name="username" value="${escapeHtml(acc)}" autocomplete="username" style="display:none" tabindex="-1" aria-hidden="true">
                     <input type="password" id="unlock-prod-pin" class="input-field" maxlength="6" placeholder="6-digit PIN" style="margin-bottom: 0; text-align: center; letter-spacing: 3px; font-weight: 700; width: 140px;" autocomplete="current-password" autofocus>
                     <button type="submit" class="btn-pill btn-glow" style="padding: 6px 16px;">Unlock →</button>
                   </form>
@@ -1863,7 +2557,8 @@ async def balance(interaction: discord.Interaction, player_name: str):
         }
 
         if (res.ok && data.status === 'ok') {
-          if (pinVal) sessionStorage.setItem('cbm_pin', pinVal);
+          if (pinVal) memoryDevPin = pinVal;
+          if (data.session_token) localStorage.setItem('cbm_session_token', data.session_token);
           if (!data.products || data.products.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 24px; color: var(--text-muted);">No products created yet. Click "+ Create New Product" above to add your first item.</td></tr>';
             return;
@@ -1892,9 +2587,9 @@ async def balance(interaction: discord.Interaction, player_name: str):
                 </td>
                 <td>
                   <div style="display: flex; gap: 6px; align-items: center;">
-                    <button class="btn-pill btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="openWidgetModal('${escapeHtml(p.product_id)}', '${escapeHtml(p.name)}')">Embed Widget</button>
+                    <button type="button" class="btn-pill btn-ghost btn-embed-widget" style="padding: 3px 8px; font-size: 11px;" data-product-id="${escapeHtml(p.product_id)}" data-product-name="${escapeHtml(p.name)}">Embed Widget</button>
                     <a href="/product.html?id=${encodeURIComponent(p.product_id)}" target="_blank" class="btn-pill btn-ghost" style="padding: 3px 8px; font-size: 11px; text-decoration: none;">Checkout ↗</a>
-                    ${p.is_active ? `<button class="btn-pill btn-ghost" style="padding: 3px 8px; font-size: 11px; color: var(--danger);" onclick="archiveProduct('${escapeHtml(p.product_id)}', '${escapeHtml(acc)}')">Archive</button>` : ''}
+                    ${p.is_active ? `<button type="button" class="btn-pill btn-ghost btn-archive-product" style="padding: 3px 8px; font-size: 11px; color: var(--danger);" data-product-id="${escapeHtml(p.product_id)}" data-account="${escapeHtml(acc)}">Archive</button>` : ''}
                   </div>
                 </td>
               </tr>
@@ -1917,12 +2612,16 @@ async def balance(interaction: discord.Interaction, player_name: str):
         return;
       }
       try {
-        const res = await fetch(`/api/cbm/dev/products?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pin)}`);
+        const res = await fetch(`/api/cbm/dev/products?account=${encodeURIComponent(acc)}&pin=${encodeURIComponent(pin)}`, {
+          headers: getDevAuthHeaders()
+        });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
-          sessionStorage.setItem('cbm_pin', pin);
+          memoryDevPin = pin;
+          if (data.session_token) localStorage.setItem('cbm_session_token', data.session_token);
           loadProductsTable(acc, pin);
           loadKeysTable(acc, pin);
+          refreshDeveloperOverview();
         } else {
           if (errEl) {
             errEl.innerText = data.message || 'Invalid PIN.';
@@ -1939,15 +2638,13 @@ async def balance(interaction: discord.Interaction, player_name: str):
 
     function refreshProductsTable() {
       const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
-      const pin = sessionStorage.getItem('cbm_pin') || '';
-      if (acc) loadProductsTable(acc, pin);
+      if (acc) loadProductsTable(acc, memoryDevPin);
     }
 
     function openProductModal() {
       const stored = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (stored) document.getElementById('prod-modal-acc').value = stored;
-      const storedPin = sessionStorage.getItem('cbm_pin') || '';
-      if (storedPin) document.getElementById('prod-modal-pin').value = storedPin;
+      if (memoryDevPin) document.getElementById('prod-modal-pin').value = memoryDevPin;
       document.getElementById('product-modal').classList.add('open');
     }
 
@@ -1957,7 +2654,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
 
     async function submitProductCreation() {
       const acc = document.getElementById('prod-modal-acc').value.trim();
-      const pin = document.getElementById('prod-modal-pin').value.trim();
+      const pin = document.getElementById('prod-modal-pin').value.trim() || memoryDevPin;
       const name = document.getElementById('prod-modal-name').value.trim();
       const price = parseFloat(document.getElementById('prod-modal-price').value);
       const desc = document.getElementById('prod-modal-desc').value.trim();
@@ -1989,7 +2686,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
 
           const upRes = await fetch('/api/cbm/dev/products/upload-image', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...getDevAuthHeaders() },
             body: JSON.stringify({
               account_name: acc,
               pin: pin,
@@ -2010,7 +2707,7 @@ async def balance(interaction: discord.Interaction, player_name: str):
         submitBtn.innerText = 'Saving Product...';
         const res = await fetch('/api/cbm/dev/products/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getDevAuthHeaders() },
           body: JSON.stringify({
             account_name: acc,
             pin: pin,
@@ -2028,8 +2725,9 @@ async def balance(interaction: discord.Interaction, player_name: str):
         if (res.ok && data.status === 'ok') {
           alert('Product created successfully!');
           closeProductModal();
-          if (pin) sessionStorage.setItem('cbm_pin', pin);
+          if (pin) memoryDevPin = pin;
           loadProductsTable(acc, pin);
+          refreshDeveloperOverview();
         } else {
           alert('Error: ' + (data.message || 'Failed to create product.'));
         }
@@ -2069,35 +2767,481 @@ async def balance(interaction: discord.Interaction, player_name: str):
 
     async function archiveProduct(productId, acc) {
       if (!confirm(`Are you sure you want to archive product ${productId}? It will no longer be available for purchase.`)) return;
-      const pin = sessionStorage.getItem('cbm_pin') || prompt('Enter your 6-digit PIN to confirm:') || '';
+      const pin = memoryDevPin || prompt('Enter your 6-digit PIN to confirm:') || '';
       if (!pin) return;
       try {
         const res = await fetch('/api/cbm/dev/products/archive', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getDevAuthHeaders() },
           body: JSON.stringify({ account_name: acc, pin: pin, product_id: productId })
         });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
           alert(data.message);
           loadProductsTable(acc, pin);
+          refreshDeveloperOverview();
         } else {
           alert('Error: ' + (data.message || 'Failed to archive product.'));
         }
-      } catch (err) {
-        alert('Network error: ' + err);
+      } catch (e) {
+        alert('Network error: ' + e);
       }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      // Event delegation for table action buttons
+      document.getElementById('keys-tbody')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-revoke-key');
+        if (btn) {
+          revokeKey(btn.dataset.keyId, btn.dataset.account);
+        }
+      });
+
+      document.getElementById('products-tbody')?.addEventListener('click', (e) => {
+        const embedBtn = e.target.closest('.btn-embed-widget');
+        if (embedBtn) {
+          openWidgetModal(embedBtn.dataset.productId, embedBtn.dataset.productName);
+          return;
+        }
+        const archBtn = e.target.closest('.btn-archive-product');
+        if (archBtn) {
+          archiveProduct(archBtn.dataset.productId, archBtn.dataset.account);
+          return;
+        }
+      });
+
       const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
       if (acc) {
         refreshDeveloperOverview();
-        const pin = sessionStorage.getItem('cbm_pin') || '';
-        loadKeysTable(acc, pin);
-        loadProductsTable(acc, pin);
+        loadKeysTable(acc, memoryDevPin);
+        loadProductsTable(acc, memoryDevPin);
       }
+      loadOAuthApps();
+      loadSponsorshipsTable();
     });
+
+    let cachedOAuthApps = [];
+    let currentOAuthSecret = '';
+
+    function openOAuthAppModal() {
+      document.getElementById('oauth-secret-reveal-area').style.display = 'none';
+      const submitBtn = document.getElementById('btn-oauth-app-submit');
+      submitBtn.style.display = 'inline-flex';
+      submitBtn.disabled = false;
+      submitBtn.innerText = 'Create Application →';
+      document.getElementById('oauth-app-create-form').reset();
+      document.getElementById('oauth-app-modal').classList.add('open');
+    }
+
+    function closeOAuthAppModal() {
+      document.getElementById('oauth-app-modal').classList.remove('open');
+    }
+
+    async function loadOAuthApps() {
+      const tbody = document.getElementById('oauth-apps-tbody');
+      const select = document.getElementById('sso-app-select');
+      const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
+
+      if (!acc) {
+        if (tbody) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                Log into CBM to view your registered OAuth 2.0 applications.
+              </td>
+            </tr>
+          `;
+        }
+        renderSSOEmbedCodes();
+        return;
+      }
+
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">Loading OAuth applications...</td></tr>`;
+      }
+
+      try {
+        const res = await fetch('/api/cbm/oauth/clients', {
+          headers: getDevAuthHeaders()
+        });
+        const data = await res.json();
+
+        if (res.ok && data.status === 'ok') {
+          cachedOAuthApps = data.clients || [];
+
+          if (select) {
+            select.innerHTML = '<option value="">-- Demo / Custom App --</option>';
+            cachedOAuthApps.forEach(c => {
+              const opt = document.createElement('option');
+              opt.value = c.client_id;
+              opt.textContent = `${c.client_name} (${c.client_id.substring(0, 16)}...)`;
+              select.appendChild(opt);
+            });
+          }
+
+          if (tbody) {
+            if (cachedOAuthApps.length === 0) {
+              tbody.innerHTML = `
+                <tr>
+                  <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">
+                    No OAuth applications registered yet. Click <strong>+ Register SSO App</strong> to create your first client.
+                  </td>
+                </tr>
+              `;
+            } else {
+              tbody.innerHTML = cachedOAuthApps.map(c => {
+                const redirects = Array.isArray(c.redirect_uris) ? c.redirect_uris.join(', ') : (c.redirect_uris || '');
+                const typeBadge = c.client_type === 'public'
+                  ? `<span style="background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); padding: 2px 7px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600;">Public PKCE</span>`
+                  : `<span style="background: rgba(0, 112, 224, 0.15); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.3); padding: 2px 7px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600;">Confidential</span>`;
+
+                return `
+                  <tr>
+                    <td><strong style="color: #fff;">${escapeHtml(c.client_name)}</strong></td>
+                    <td>
+                      <code style="color: #93c5fd; font-size: 12px;">${escapeHtml(c.client_id)}</code>
+                      <button class="btn-pill btn-ghost" onclick="navigator.clipboard.writeText('${escapeHtml(c.client_id)}'); alert('Client ID copied!');" style="padding: 2px 6px; font-size: 10px; margin-left: 4px;">Copy</button>
+                    </td>
+                    <td>${typeBadge}</td>
+                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(redirects)}">
+                      <span class="mono" style="font-size: 11.5px; color: var(--text-dim);">${escapeHtml(redirects)}</span>
+                    </td>
+                    <td><span class="mono" style="font-size: 11.5px; color: var(--text-dim);">${escapeHtml(c.allowed_scopes || 'openid profile')}</span></td>
+                    <td>
+                      <button class="btn-pill btn-glow" onclick="selectAppForSSOGenerator('${escapeHtml(c.client_id)}')" style="padding: 3px 10px; font-size: 11px;">⚡ Generate Banner</button>
+                    </td>
+                  </tr>
+                `;
+              }).join('');
+            }
+          }
+
+          if (cachedOAuthApps.length > 0 && select) {
+            select.value = cachedOAuthApps[0].client_id;
+            onSSOAppSelectionChange();
+          } else {
+            renderSSOEmbedCodes();
+          }
+        } else {
+          if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 20px;">${escapeHtml(data.message || 'Failed to load applications.')}</td></tr>`;
+          }
+          renderSSOEmbedCodes();
+        }
+      } catch (err) {
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 20px;">Network error loading apps: ${escapeHtml(err)}</td></tr>`;
+        }
+        renderSSOEmbedCodes();
+      }
+    }
+
+    function selectAppForSSOGenerator(clientId) {
+      const select = document.getElementById('sso-app-select');
+      if (select) {
+        select.value = clientId;
+        onSSOAppSelectionChange();
+      }
+      document.getElementById('sso-desk')?.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function onSSOAppSelectionChange() {
+      const select = document.getElementById('sso-app-select');
+      const redirectSelect = document.getElementById('sso-redirect-select');
+      if (!select || !redirectSelect) return;
+
+      const clientId = select.value;
+      const app = cachedOAuthApps.find(c => c.client_id === clientId);
+
+      redirectSelect.innerHTML = '';
+      if (app && Array.isArray(app.redirect_uris) && app.redirect_uris.length > 0) {
+        app.redirect_uris.forEach(uri => {
+          const opt = document.createElement('option');
+          opt.value = uri;
+          opt.textContent = uri;
+          redirectSelect.appendChild(opt);
+        });
+      } else {
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = 'https://example.com/oauth/callback';
+        defaultOpt.textContent = 'https://example.com/oauth/callback';
+        redirectSelect.appendChild(defaultOpt);
+      }
+
+      if (app && app.allowed_scopes) {
+        const scopeInput = document.getElementById('sso-scope-input');
+        if (scopeInput) scopeInput.value = app.allowed_scopes;
+      }
+
+      renderSSOEmbedCodes();
+    }
+
+    function renderSSOEmbedCodes() {
+      const appSelect = document.getElementById('sso-app-select');
+      const redirectSelect = document.getElementById('sso-redirect-select');
+      const scopeInput = document.getElementById('sso-scope-input');
+      const stateInput = document.getElementById('sso-state-input');
+
+      const clientId = (appSelect && appSelect.value) ? appSelect.value : 'cbm_client_sample_id';
+      const redirectUri = (redirectSelect && redirectSelect.value) ? redirectSelect.value : 'https://example.com/oauth/callback';
+      const scope = (scopeInput && scopeInput.value.trim()) ? scopeInput.value.trim() : 'openid profile email';
+      const state = (stateInput && stateInput.value.trim()) ? stateInput.value.trim() : 'cbm_state_' + Math.random().toString(36).substring(2, 9);
+
+      const origin = window.location.origin || 'https://cbm.wispbyte.org';
+      const authUrl = `${origin}/api/oauth/authorize?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(state)}`;
+      const bannerUrl = `${origin}/cbm-sso-banner.png`;
+
+      // Update Live Preview
+      const previewAnchor = document.getElementById('sso-preview-anchor');
+      const previewUrlText = document.getElementById('sso-preview-url-text');
+      if (previewAnchor) previewAnchor.href = authUrl;
+      if (previewUrlText) previewUrlText.innerText = authUrl;
+
+      // 1. Clickable HTML Banner
+      const htmlSnippet = `<a href="${authUrl}" target="_blank" rel="noopener noreferrer">\n  <img src="${bannerUrl}" alt="Sign in with Clan Bank Manager" style="height: 64px; border-radius: 8px; border: 1px solid rgba(0, 112, 224, 0.4); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'" />\n</a>`;
+      const htmlBox = document.getElementById('sso-html-code');
+      if (htmlBox) htmlBox.textContent = htmlSnippet;
+
+      // 2. Markdown
+      const mdSnippet = `[![Sign in with Clan Bank Manager](${bannerUrl})](${authUrl})`;
+      const mdBox = document.getElementById('sso-md-code');
+      if (mdBox) mdBox.textContent = mdSnippet;
+
+      // 3. Raw URL
+      const urlBox = document.getElementById('sso-raw-url');
+      if (urlBox) urlBox.textContent = authUrl;
+    }
+
+    function copySnippetText(elementId) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      navigator.clipboard.writeText(el.textContent).then(() => {
+        alert('Embed code copied to clipboard!');
+      }).catch(() => {
+        alert('Failed to copy. Please select and copy manually.');
+      });
+    }
+
+    async function submitCreateOAuthApp(event) {
+      event.preventDefault();
+      const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
+      if (!acc) return alert('Please log into CBM first.');
+
+      const clientName = document.getElementById('oauth-modal-name').value.trim();
+      const clientType = document.getElementById('oauth-modal-type').value;
+      const allowedScopes = document.getElementById('oauth-modal-scopes').value.trim() || 'openid profile email';
+      const redirectRaw = document.getElementById('oauth-modal-redirects').value.trim();
+      const logoUrl = document.getElementById('oauth-modal-logo').value.trim() || null;
+
+      if (!clientName) return alert('Please enter an application name.');
+      if (!redirectRaw) return alert('Please enter at least one redirect URI.');
+
+      const redirectUris = redirectRaw.split(/[\r\n,]+/).map(u => u.trim()).filter(Boolean);
+
+      const btn = document.getElementById('btn-oauth-app-submit');
+      btn.disabled = true;
+      btn.innerText = 'Registering...';
+
+      try {
+        const res = await fetch('/api/cbm/oauth/clients/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getDevAuthHeaders()
+          },
+          body: JSON.stringify({
+            client_name: clientName,
+            client_type: clientType,
+            allowed_scopes: allowedScopes,
+            redirect_uris: redirectUris,
+            logo_url: logoUrl
+          })
+        });
+
+        const data = await res.json();
+        btn.disabled = false;
+        btn.innerText = 'Create Application →';
+
+        if (res.ok && data.status === 'ok') {
+          const client = data.client;
+          currentOAuthSecret = client.client_secret || '';
+
+          document.getElementById('oauth-revealed-client-id').textContent = client.client_id;
+          const secretRow = document.getElementById('oauth-revealed-secret-row');
+          const secretVal = document.getElementById('oauth-revealed-client-secret');
+
+          if (client.client_secret) {
+            secretRow.style.display = 'block';
+            secretVal.textContent = client.client_secret;
+          } else {
+            secretRow.style.display = 'none';
+          }
+
+          document.getElementById('oauth-secret-reveal-area').style.display = 'block';
+          btn.style.display = 'none';
+
+          loadOAuthApps();
+        } else {
+          alert('Error: ' + (data.message || 'Failed to register application.'));
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerText = 'Create Application →';
+        alert('Network error: ' + err);
+      }
+    }
+
+    function copyOAuthSecret() {
+      if (!currentOAuthSecret) return;
+      navigator.clipboard.writeText(currentOAuthSecret).then(() => {
+        alert('Client Secret copied to clipboard!');
+      });
+    }
+
+    let currentSponsorSlots = [];
+
+    async function loadSponsorshipsTable() {
+      const tbody = document.getElementById('sponsorships-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Refreshing live slots...</td></tr>`;
+
+      try {
+        const res = await fetch('/api/cbm/ads/inventory');
+        const data = await res.json();
+        if (!res.ok || !data.inventory || !data.inventory.slots) {
+          tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 24px;">Failed to load inventory.</td></tr>`;
+          return;
+        }
+
+        currentSponsorSlots = data.inventory.slots;
+        tbody.innerHTML = currentSponsorSlots.map(s => {
+          const isAvail = s.is_available;
+          const statusBadge = isAvail
+            ? `<span style="background: rgba(16, 185, 129, 0.15); color: var(--emerald); border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700;">VACANT</span>`
+            : `<span style="background: rgba(0, 112, 224, 0.15); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.3); padding: 3px 8px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 700;">LEASED (${Math.ceil(s.time_remaining_seconds / 86400)}d left)</span>`;
+
+          const actionBtn = isAvail
+            ? `<button class="btn-pill btn-glow" style="padding: 4px 12px; font-size: 11px;" onclick="openSponsorshipModal('${s.slot_id}', ${s.current_price_gold})">Book Slot →</button>`
+            : `<button class="btn-pill btn-ghost" style="padding: 4px 12px; font-size: 11px;" disabled>Occupied</button>`;
+
+          return `
+            <tr>
+              <td><code style="color: #60a5fa; font-weight: 700;">${s.slot_id}</code></td>
+              <td>
+                <div style="font-weight: 600; color: #fff;">${s.name}</div>
+                <div style="font-size: 11px; color: var(--text-dim);">${s.description || ''}</div>
+              </td>
+              <td><strong class="mono" style="color: var(--gold);">${Number(s.current_price_gold).toLocaleString(undefined, {minimumFractionDigits: 2})} Gold</strong></td>
+              <td>
+                <div style="font-size: 11px; color: var(--emerald);">60% Reserves (${(s.current_price_gold * 0.6).toFixed(1)} G)</div>
+                <div style="font-size: 11px; color: var(--text-muted);">40% Referral (${(s.current_price_gold * 0.4).toFixed(1)} G)</div>
+              </td>
+              <td>${statusBadge}</td>
+              <td>${actionBtn}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--danger); padding: 24px;">Network error: ${err}</td></tr>`;
+      }
+    }
+
+    function openSponsorshipModal(slotId, priceGold) {
+      const select = document.getElementById('sponsor-modal-slot');
+      if (select && slotId) {
+        select.value = slotId;
+      }
+      onSponsorSlotChange();
+      document.getElementById('sponsorship-modal').classList.add('open');
+    }
+
+    function closeSponsorshipModal() {
+      document.getElementById('sponsorship-modal').classList.remove('open');
+    }
+
+    function onSponsorSlotChange() {
+      const select = document.getElementById('sponsor-modal-slot');
+      const slotId = select ? select.value : 'SLOT_HERO';
+      const slot = currentSponsorSlots.find(s => s.slot_id === slotId);
+      const price = slot ? slot.current_price_gold : 500.0;
+      document.getElementById('sponsor-modal-cost').innerText = `${price.toFixed(2)} Gold`;
+      document.getElementById('sponsor-modal-split-res').innerText = `${(price * 0.6).toFixed(2)} Gold`;
+      document.getElementById('sponsor-modal-split-ref').innerText = `${(price * 0.4).toFixed(2)} Gold`;
+    }
+
+    async function submitSponsorshipPurchase(event) {
+      event.preventDefault();
+      const acc = localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '';
+      if (!acc) {
+        alert('Please log into CBM first to book a sponsorship.');
+        return;
+      }
+
+      const slotId = document.getElementById('sponsor-modal-slot').value;
+      const title = document.getElementById('sponsor-modal-title').value.trim();
+      const tagline = document.getElementById('sponsor-modal-tagline').value.trim();
+      const targetUrl = document.getElementById('sponsor-modal-url').value.trim();
+      const badge = document.getElementById('sponsor-modal-badge').value.trim() || 'PROMOTED';
+      const imageUrl = (document.getElementById('sponsor-modal-image') ? document.getElementById('sponsor-modal-image').value.trim() : '') || null;
+      const pin = document.getElementById('sponsor-modal-pin').value.trim() || memoryDevPin || '';
+
+      const btn = document.getElementById('btn-sponsor-submit');
+      btn.disabled = true;
+      btn.innerText = 'Authorizing Lease...';
+
+      try {
+        const res = await fetch('/api/cbm/sponsorships/purchase', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getDevAuthHeaders()
+          },
+          body: JSON.stringify({
+            account_name: acc,
+            pin: pin,
+            slot_id: slotId,
+            title: title,
+            tagline: tagline,
+            target_url: targetUrl,
+            badge_text: badge,
+            image_url: imageUrl,
+            duration_days: 7
+          })
+        });
+
+        const data = await res.json();
+        btn.disabled = false;
+        btn.innerText = 'Confirm 7-Day Lease →';
+
+        if (res.ok && data.status === 'ok') {
+          alert('Sponsorship leased successfully! Your banner is now live.');
+          closeSponsorshipModal();
+          loadSponsorshipsTable();
+          refreshDeveloperOverview();
+        } else {
+          alert('Error: ' + (data.message || 'Failed to book sponsorship.'));
+        }
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerText = 'Confirm 7-Day Lease →';
+        alert('Network error: ' + err);
+      }
+    }
+
+    function loadDevAd() {
+      fetch('/api/cbm/ads/serve?slot_id=SLOT_DISCORD&format=html&context=website')
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var el = document.getElementById('cbmDevAdContainer');
+          if (el && html) el.innerHTML = html;
+        })
+        .catch(function() {});
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', loadDevAd);
+    } else {
+      loadDevAd();
+    }
   </script>
 </body>
 </html>

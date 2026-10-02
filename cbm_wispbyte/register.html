@@ -320,7 +320,7 @@
   <header class="site-header">
     <div class="header-inner">
       <a href="/cbm.html" class="brand-link">
-        <img src="/cbm-logo.png" alt="CBM Logo" class="logo-img" onerror="this.style.display='none'">
+        <img src="/cbm-logo-new.png" width="38" height="38" alt="CBM Logo" class="logo-img" onerror="this.style.display='none'">
         <div>
           <span class="brand-title">Clan Bank Manager</span>
           <span class="brand-tag">SECURE GATEWAY</span>
@@ -345,15 +345,15 @@
       <div id="alertBox" class="alert-box"></div>
 
       <!-- Referral banner: shown when ?ref= present in URL -->
-      <div id="referralBanner" style="display:none; background: linear-gradient(135deg, #1a2a1a 0%, #0f2417 100%); border: 1px solid #10b981; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px;">
-        <span style="font-size: 22px;">🎁</span>
+      <div id="referralBanner" style="display:none; background: linear-gradient(135deg, #1a2a1a 0%, #0f2417 100%); border: 1px solid #10b981; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; display: flex; align-items: center; gap: 14px;">
+        <img src="/you-were-invited-invitation-image-asset.png" width="54" height="54" alt="Invitation" style="object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5)); flex-shrink: 0;">
         <div>
           <div style="font-weight: 600; font-size: 13px; color: #10b981; margin-bottom: 2px;">You were invited!</div>
           <div style="font-size: 12px; color: #8892aa;">Register with sponsor invite from <strong id="referralBannerName" style="color:#fff;"></strong> to unlock up to <strong style="color:#f5c518;">35 Gold in Welcome Gifts</strong> as you deposit and support the Clan War Chest!</div>
         </div>
       </div>
 
-      <form id="registerForm" onsubmit="handleRegister(event)" autocomplete="on">
+      <form id="registerForm" method="POST" onsubmit="handleRegister(event)" autocomplete="on">
         <div class="avatar-preview-section">
           <div class="avatar-img-box">
             <img id="avatarPreview" src="https://api.dicebear.com/7.x/identicon/svg?seed=cbm-recruit" alt="Profile Preview">
@@ -399,16 +399,21 @@
           </div>
         </div>
 
-        <div class="form-group">
-          <label for="regTerriPass">Territorial.io Account Password (Optional Verification)</label>
-          <input type="text" id="regTerriPass" class="form-input" placeholder="In-game account password" autocomplete="off" style="-webkit-text-security: disc; -moz-text-security: circle;" data-lpignore="true" data-1p-ignore="true">
-          <p class="form-hint">Used once to verify in-game account ownership against game servers (or verify via ledger deposit).</p>
+        <div class="form-hint" style="margin-bottom: 16px; background: rgba(0, 112, 224, 0.1); border: 1px solid var(--border-bright); padding: 10px 12px; border-radius: var(--radius-sm); color: #b8dbfc; font-size: 0.8rem; line-height: 1.45;">
+          <strong>Zero-Password Verification:</strong> CBM operates on a non-custodial protocol model and never asks for or stores game passwords. Your account is verified via public ledger transactions.
         </div>
 
-        <div class="form-group">
-          <label for="regPin">Quick Access PIN (Optional)</label>
-          <input type="text" id="regPin" class="form-input" placeholder="4 to 8 numeric digits" inputmode="numeric" maxlength="8" pattern="[0-9]*" autocomplete="one-time-code" style="-webkit-text-security: disc; -moz-text-security: circle;" data-lpignore="true">
-          <p class="form-hint">Optional 4–8 digit PIN for quick future sign-ins without re-entering your full password.</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="regPin">Quick Access PIN <span style="color: #ff858d;">*</span></label>
+            <input type="password" id="regPin" class="form-input" placeholder="4 to 8 digits" inputmode="numeric" maxlength="8" pattern="[0-9]{4,8}" autocomplete="new-password" required oninput="checkPinMatch()">
+            <p class="form-hint" id="pinStrengthHint">4–8 numeric digits for instant login & authorization.</p>
+          </div>
+          <div class="form-group">
+            <label for="regPinConfirm">Confirm PIN <span style="color: #ff858d;">*</span></label>
+            <input type="password" id="regPinConfirm" class="form-input" placeholder="Repeat PIN" inputmode="numeric" maxlength="8" pattern="[0-9]{4,8}" autocomplete="new-password" required oninput="checkPinMatch()">
+            <p class="form-hint" id="pinMatchHint">Must match Quick Access PIN</p>
+          </div>
         </div>
 
         <button type="submit" id="submitBtn" class="btn-submit">
@@ -490,6 +495,41 @@
       document.getElementById('alertBox').style.display = 'none';
     }
 
+    function checkPinMatch() {
+      const pin = document.getElementById('regPin').value.trim();
+      const confirm = document.getElementById('regPinConfirm').value.trim();
+      const matchHint = document.getElementById('pinMatchHint');
+      const strengthHint = document.getElementById('pinStrengthHint');
+
+      if (!pin) {
+        strengthHint.textContent = '4–8 numeric digits for instant login & authorization.';
+        strengthHint.style.color = 'var(--text-muted)';
+      } else if (!/^\d+$/.test(pin)) {
+        strengthHint.textContent = '⚠️ PIN must contain numbers only.';
+        strengthHint.style.color = '#ff858d';
+      } else if (pin.length < 4) {
+        strengthHint.textContent = `Too short (${pin.length}/4 digits min)`;
+        strengthHint.style.color = '#f5c518';
+      } else if (/^(\d)\1+$/.test(pin) || pin === '1234' || pin === '123456' || pin === '12345678') {
+        strengthHint.textContent = '⚠️ Weak PIN: avoid repeating or sequential digits.';
+        strengthHint.style.color = '#f5c518';
+      } else {
+        strengthHint.textContent = '✓ Secure numeric PIN';
+        strengthHint.style.color = '#55efc4';
+      }
+
+      if (!confirm) {
+        matchHint.textContent = 'Must match Quick Access PIN';
+        matchHint.style.color = 'var(--text-muted)';
+      } else if (pin === confirm) {
+        matchHint.textContent = '✓ PINs match';
+        matchHint.style.color = '#55efc4';
+      } else {
+        matchHint.textContent = '✗ PINs do not match';
+        matchHint.style.color = '#ff858d';
+      }
+    }
+
     async function handleRegister(e) {
       e.preventDefault();
       hideAlert();
@@ -498,8 +538,8 @@
       const terriAcc = document.getElementById('regTerriAcc').value.trim();
       const password = document.getElementById('regPassword').value.trim();
       const confirm = document.getElementById('regConfirm').value.trim();
-      const terriPass = document.getElementById('regTerriPass').value.trim();
       const pin = document.getElementById('regPin').value.trim();
+      const pinConfirm = document.getElementById('regPinConfirm').value.trim();
 
       if (username.length < 3 || username.length > 30) {
         showAlert('CBM Username must be between 3 and 30 characters.');
@@ -517,12 +557,12 @@
         showAlert('Passwords do not match. Please re-enter.');
         return;
       }
-      if (!terriPass) {
-        showAlert('Territorial.io password is required to verify account ownership.');
+      if (!pin || !/^\d+$/.test(pin) || pin.length < 4 || pin.length > 8) {
+        showAlert('Quick Access PIN is mandatory and must consist of 4 to 8 numeric digits.');
         return;
       }
-      if (pin && (!/^\d+$/.test(pin) || pin.length < 4 || pin.length > 8)) {
-        showAlert('Quick PIN must consist of 4 to 8 numeric digits if provided.');
+      if (pin !== pinConfirm) {
+        showAlert('Quick Access PINs do not match. Please verify your PIN confirmation.');
         return;
       }
       if (!currentAvatarData) {
@@ -537,8 +577,7 @@
         password: password,
         avatar_url: currentAvatarData,
         primary_territorial_account: terriAcc,
-        territorial_password: terriPass,
-        pin: pin || null,
+        pin: pin,
         referral_code: refCode || undefined
       };
 
@@ -547,7 +586,7 @@
       const spn = document.getElementById('btnSpinner');
 
       btn.disabled = true;
-      txt.textContent = 'Verifying Game Credentials...';
+      txt.textContent = 'Creating Account...';
       spn.style.display = 'inline-block';
 
       try {
@@ -564,6 +603,9 @@
 
         showAlert('Account created & verified successfully! Redirecting to Dashboard...', false);
         
+        if (data.session_token) {
+          localStorage.setItem('cbm_session_token', data.session_token);
+        }
         localStorage.setItem('cbm_user', username);
         if (data.account) {
           localStorage.setItem('cbm_account', JSON.stringify(data.account));

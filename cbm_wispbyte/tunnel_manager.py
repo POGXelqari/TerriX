@@ -91,23 +91,32 @@ class CloudflareTunnelManager:
 
     def start(self):
         """Starts cloudflared in a supervised background thread."""
-        try:
-            bin_path = self.get_cloudflared_path()
-        except Exception as e:
-            print(f"[!] Warning: Cloudflare Tunnel skipped: {e}")
-            return
-
         self.running = True
-        protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "http2").strip()
-
-        if self.token:
-            cmd = [bin_path, "--loglevel", "info", "tunnel", "run", "--protocol", protocol, "--token", self.token]
-            print(f"[+] Launching Cloudflare Named Tunnel (Token auth, protocol: {protocol})...")
-        else:
-            cmd = [bin_path, "--loglevel", "info", "tunnel", "--protocol", protocol, "--url", f"http://localhost:{self.port}", "--no-autoupdate"]
-            print(f"[*] No CLOUDFLARE_TUNNEL_TOKEN specified. Launching Cloudflare Quick Tunnel on port {self.port} (protocol: {protocol})...")
 
         def _supervise():
+            # Wait briefly if an external process (like start.sh) is streaming bin/cloudflared.tmp
+            tmp_path = os.path.join(CLOUDFLARED_BIN_DIR, "cloudflared.tmp")
+            for _ in range(15):
+                if not os.path.exists(tmp_path):
+                    break
+                time.sleep(1.0)
+
+            bin_path = None
+            try:
+                bin_path = self.get_cloudflared_path()
+            except Exception as e:
+                print(f"[!] Warning: Cloudflare Tunnel skipped: {e}")
+                return
+
+            protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "http2").strip()
+
+            if self.token:
+                cmd = [bin_path, "--loglevel", "info", "tunnel", "run", "--protocol", protocol, "--token", self.token]
+                print(f"[+] Launching Cloudflare Named Tunnel (Token auth, protocol: {protocol})...")
+            else:
+                cmd = [bin_path, "--loglevel", "info", "tunnel", "--protocol", protocol, "--url", f"http://127.0.0.1:{self.port}", "--no-autoupdate"]
+                print(f"[*] No CLOUDFLARE_TUNNEL_TOKEN specified. Launching Cloudflare Quick Tunnel on port {self.port} (protocol: {protocol})...")
+
             while self.running:
                 try:
                     proc_env = os.environ.copy()
@@ -132,7 +141,7 @@ class CloudflareTunnelManager:
                             if match:
                                 self.public_url = match.group(0)
                                 print("\n" + "=" * 65)
-                                print(f"  [✓] Cloudflare Tunnel Active Public Endpoint:")
+                                print(f"  [+] Cloudflare Tunnel Active Public Endpoint:")
                                 print(f"      {self.public_url}")
                                 print("=" * 65 + "\n")
                         elif any(k in line_clean for k in ["Connected to", "Registered tunnel connection", "Starting tunnel", "Connector ID"]):
@@ -150,7 +159,7 @@ class CloudflareTunnelManager:
                     print("[*] Reconnecting Cloudflare tunnel in 5s...")
                     time.sleep(5.0)
 
-        t = threading.Thread(target=_supervise, daemon=True)
+        t = threading.Thread(target=_supervise, daemon=True, name="cbm_tunnel_supervisor")
         t.start()
 
     def stop(self):

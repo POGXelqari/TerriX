@@ -596,7 +596,7 @@
           Generate a 15-minute verification slip below, then cast your vote for candidate <strong>DdcBC</strong> in Territorial.io Admin Elections. The Clan Bank daemon continuously tracks in-game votes and automatically credits 1:1 Gold reimbursements from bank reserves.
         </p>
 
-        <form id="voteClaimForm" onsubmit="handleClaimSubmit(event)">
+        <form id="voteClaimForm" method="POST" onsubmit="handleClaimSubmit(event)">
           <div class="form-group">
             <label class="form-label" for="cbmUsername">CBM Member Username</label>
             <input type="text" id="cbmUsername" class="form-input" placeholder="e.g. MyClanUser" required autocomplete="username">

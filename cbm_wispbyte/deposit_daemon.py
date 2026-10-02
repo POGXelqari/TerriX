@@ -31,15 +31,8 @@ class CBMDepositDaemon:
         self.poll_interval = poll_interval
         self.withdrawal_worker = withdrawal_worker
         self.invalidate_caches_cb = invalidate_caches_cb
-        if election_worker:
-            self.election_worker = election_worker
-        else:
-            try:
-                from election_worker import get_election_worker
-                self.election_worker = get_election_worker(db=self.db)
-            except Exception as ew_err:
-                print(f"[!] Deposit daemon election worker init notice: {ew_err}")
-                self.election_worker = None
+        # Election claims require manual officer review to prevent automated double-credit or ghost-claim exploits
+        self.election_worker = election_worker or None
         self.running = False
         self._ssl_ctx = ssl.create_default_context()
         self.on_deposit_callback: Optional[Callable] = None
@@ -214,23 +207,8 @@ class CBMDepositDaemon:
                     except Exception as w_err:
                         print(f"[!] Daemon withdrawal processing notice: {w_err}")
 
-                # Sweep and process any queued member admin election vote claims
-                if not self.election_worker:
-                    try:
-                        from election_worker import get_election_worker
-                        self.election_worker = get_election_worker(db=self.db)
-                    except Exception:
-                        pass
-
-                if self.election_worker:
-                    try:
-                        e_res = self.election_worker.process_pending_vote_claims()
-                        if e_res:
-                            print(f"[+] Daemon processed {len(e_res)} admin vote claim(s).")
-                            if self.invalidate_caches_cb:
-                                self.invalidate_caches_cb()
-                    except Exception as e_err:
-                        print(f"[!] Daemon election processing notice: {e_err}")
+                # Note: Automated election vote claim sweeping is permanently decoupled from the deposit stream
+                # to prevent double-crediting. Election claims require officer review via /api/cbm/admin/election/review.
                 
                 self._poll_count += 1
                 # Periodically re-verify vault balance against live API (every 30 cycles ~ 7.5 min)

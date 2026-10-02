@@ -546,10 +546,6 @@
           <span>&#9201;</span>
           <span class="tab-text">15-Min In-Game Slip</span>
         </button>
-        <button class="tab-btn" data-tab="tab-direct">
-          <span>&#9889;</span>
-          <span class="tab-text">Direct Credentials</span>
-        </button>
         <button class="tab-btn" data-tab="tab-balance">
           <span>&#128179;</span>
           <span class="tab-text">CBM Balance</span>
@@ -582,34 +578,13 @@
         </div>
       </div>
 
-      <!-- TAB 2: DIRECT IN-GAME CREDENTIALS -->
-      <div class="tab-content" id="tab-direct">
-        <p style="font-size:13px;color:var(--text-sub);margin-bottom:18px;line-height:1.4;">
-          Authenticate with your Territorial.io credentials to execute an instant, automated transfer. Credentials are used strictly for this single transaction and are never saved.
-        </p>
-
-        <form id="direct-form">
-          <div class="form-group">
-            <label class="form-label" for="tt-account">In-Game Account Name</label>
-            <input type="text" class="form-input" id="tt-account" placeholder="e.g. PlayerOne" required autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="tt-password">In-Game Password</label>
-            <input type="password" class="form-input" id="tt-password" placeholder="Account Password" required autocomplete="off">
-          </div>
-          <button type="submit" class="submit-btn" id="direct-pay-btn">
-            <span>Pay <span id="direct-btn-amount">--.--</span> Gold Instantly</span>
-          </button>
-        </form>
-      </div>
-
       <!-- TAB 3: CBM MEMBER BALANCE -->
       <div class="tab-content" id="tab-balance">
         <p style="font-size:13px;color:var(--text-sub);margin-bottom:18px;line-height:1.4;">
           Pay directly using your registered Clan Bank Manager deposited member balance.
         </p>
 
-        <form id="balance-form">
+        <form id="balance-form" method="POST">
           <div class="form-group">
             <label class="form-label" for="cbm-user">CBM Username</label>
             <input type="text" class="form-input" id="cbm-user" placeholder="Registered CBM Username" required autocomplete="username">
@@ -655,14 +630,30 @@
         });
       }
 
-      function showError(msg) {
+      function showError(msg, actionHtml) {
         var el = document.getElementById('error-alert');
-        el.textContent = msg;
+        el.innerHTML = msg + (actionHtml || '');
         el.style.display = 'block';
       }
 
       function hideError() {
         document.getElementById('error-alert').style.display = 'none';
+      }
+
+      function parseExpiresAt(val, remSeconds) {
+        if (typeof remSeconds === 'number' && remSeconds > 0) {
+          return Date.now() + (remSeconds * 1000);
+        }
+        if (!val) return Date.now() + 900000;
+        if (typeof val === 'number') {
+          return val < 1e11 ? (val * 1000) : val;
+        }
+        var n = Number(val);
+        if (!isNaN(n) && n > 0) {
+          return n < 1e11 ? (n * 1000) : n;
+        }
+        var parsed = new Date(val).getTime();
+        return isNaN(parsed) ? (Date.now() + 900000) : parsed;
       }
 
       // Tab switcher
@@ -688,8 +679,8 @@
       // Load product details
       function loadProduct() {
         var url = productId
-          ? '/api/v1/products/' + encodeURIComponent(productId)
-          : '/api/v1/products/order/status?order_id=' + encodeURIComponent(existingOrderId);
+          ? '/api/cbm/products/' + encodeURIComponent(productId)
+          : '/api/cbm/products/order/status?order_id=' + encodeURIComponent(existingOrderId);
 
         fetch(url)
           .then(function (r) {
@@ -699,10 +690,18 @@
           .then(function (data) {
             if (data.order && !data.product) {
               currentOrder = data.order;
-              return fetch('/api/v1/products/' + encodeURIComponent(data.order.product_id))
+              return fetch('/api/cbm/products/' + encodeURIComponent(data.order.product_id))
                 .then(function (r) { return r.json(); })
                 .then(function (pData) {
                   currentProduct = pData.product || pData;
+                  if (currentOrder && (currentOrder.status === 'EXPIRED' || (currentOrder.remaining_seconds !== undefined && currentOrder.remaining_seconds <= 0))) {
+                    // Stale expired order loaded from query string on refresh: auto-replace with fresh slip
+                    currentOrder = null;
+                    if (window.history && window.history.replaceState) {
+                      var cleanUrl = window.location.pathname + '?id=' + encodeURIComponent(currentProduct.product_id);
+                      window.history.replaceState({}, '', cleanUrl);
+                    }
+                  }
                   initCheckout();
                 });
             } else {
@@ -725,7 +724,6 @@
         document.getElementById('split-merchant').textContent = formatGold(half) + ' Gold';
         document.getElementById('split-cushion').textContent = formatGold(half) + ' Gold';
         document.getElementById('slip-amount-text').textContent = formatGold(p.price_gold) + ' Gold';
-        document.getElementById('direct-btn-amount').textContent = formatGold(p.price_gold);
         document.getElementById('balance-btn-amount').textContent = formatGold(p.price_gold);
 
         if (p.image_url) {
@@ -741,12 +739,14 @@
           box.appendChild(img);
         }
 
-        if (p.callback_url) {
-          document.getElementById('cancel-link').href = p.callback_url;
+        var cancelTarget = p.callback_url || 'https://pogxelqari.github.io/TerriX/client/';
+        if (cancelTarget.indexOf('territorial.io') !== -1) {
+          cancelTarget = 'https://pogxelqari.github.io/TerriX/client/';
         }
+        document.getElementById('cancel-link').href = cancelTarget;
 
         // Auto-create or fetch active order for 15-minute slip
-        if (currentOrder) {
+        if (currentOrder && currentOrder.status !== 'EXPIRED') {
           bindOrder(currentOrder);
         } else {
           createOrderSlip();
@@ -758,7 +758,14 @@
       }
 
       function createOrderSlip() {
-        fetch('/api/v1/products/order/create', {
+        if (!currentProduct) return;
+        var timerEl = document.getElementById('slip-timer');
+        if (timerEl) {
+          timerEl.textContent = '15:00';
+          timerEl.style.color = '';
+        }
+        hideError();
+        fetch('/api/cbm/products/order/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -771,6 +778,10 @@
             throw new Error(data.message || 'Unable to generate order slip');
           }
           currentOrder = data.order;
+          if (window.history && window.history.replaceState) {
+            var newUrl = window.location.pathname + '?id=' + encodeURIComponent(currentProduct.product_id) + '&order_id=' + encodeURIComponent(currentOrder.order_id);
+            window.history.replaceState({}, '', newUrl);
+          }
           bindOrder(currentOrder);
         })
         .catch(function (err) {
@@ -787,27 +798,44 @@
           return;
         }
 
-        startTimer(order.expires_at);
+        if (order.status === 'EXPIRED') {
+          createOrderSlip();
+          return;
+        }
+
+        startTimer(order.expires_at || order.expires_at_iso, order.remaining_seconds);
         startPolling(order.order_id);
       }
 
-      function startTimer(expiresAtIso) {
+      function startTimer(expiresAtVal, remSeconds) {
         if (countdownInterval) clearInterval(countdownInterval);
         var timerEl = document.getElementById('slip-timer');
+        var targetTime = parseExpiresAt(expiresAtVal, remSeconds);
 
         function update() {
-          var diff = Math.floor((new Date(expiresAtIso).getTime() - Date.now()) / 1000);
+          var diff = Math.floor((targetTime - Date.now()) / 1000);
           if (diff <= 0) {
             timerEl.textContent = 'EXPIRED';
             timerEl.style.color = '#ff4d4d';
             clearInterval(countdownInterval);
             clearInterval(pollInterval);
-            showError('This 15-minute payment slip has expired. Please refresh to generate a new slip.');
+            showError(
+              'This 15-minute payment slip has expired.',
+              ' <button id="gen-new-slip-btn" style="margin-left:8px; background:var(--blue); color:#fff; border:none; border-radius:4px; padding:3px 10px; font-weight:600; cursor:pointer; font-size:12px;">↺ Generate New Slip</button>'
+            );
+            var btn = document.getElementById('gen-new-slip-btn');
+            if (btn) {
+              btn.onclick = function () {
+                hideError();
+                createOrderSlip();
+              };
+            }
             return;
           }
           var m = Math.floor(diff / 60);
           var s = diff % 60;
           timerEl.textContent = (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
+          timerEl.style.color = '';
         }
 
         update();
@@ -816,17 +844,35 @@
 
       function startPolling(orderId) {
         if (pollInterval) clearInterval(pollInterval);
-        var pollText = document.getElementById('poll-status-text');
 
         function check() {
           if (isFulfilled || document.hidden) return;
-          fetch('/api/v1/products/order/status?order_id=' + encodeURIComponent(orderId))
+          fetch('/api/cbm/products/order/status?order_id=' + encodeURIComponent(orderId))
             .then(function (r) { return r.json(); })
             .then(function (data) {
               if (data.order && data.order.status === 'FULFILLED') {
                 clearInterval(pollInterval);
                 clearInterval(countdownInterval);
                 handleOrderFulfilled(data.order);
+              } else if (data.order && data.order.status === 'EXPIRED') {
+                clearInterval(pollInterval);
+                clearInterval(countdownInterval);
+                var timerEl = document.getElementById('slip-timer');
+                if (timerEl) {
+                  timerEl.textContent = 'EXPIRED';
+                  timerEl.style.color = '#ff4d4d';
+                }
+                showError(
+                  'This 15-minute payment slip has expired.',
+                  ' <button id="gen-new-slip-btn-poll" style="margin-left:8px; background:var(--blue); color:#fff; border:none; border-radius:4px; padding:3px 10px; font-weight:600; cursor:pointer; font-size:12px;">↺ Generate New Slip</button>'
+                );
+                var btn = document.getElementById('gen-new-slip-btn-poll');
+                if (btn) {
+                  btn.onclick = function () {
+                    hideError();
+                    createOrderSlip();
+                  };
+                }
               }
             })
             .catch(function () {});
@@ -844,7 +890,11 @@
 
         document.getElementById('success-token').textContent = order.verification_token || 'TOKEN_VERIFIED';
 
-        var retUrl = order.return_url || (currentProduct ? currentProduct.callback_url : '');
+        var retUrl = order.return_url || (currentProduct ? currentProduct.callback_url : '') || 'https://pogxelqari.github.io/TerriX/client/';
+        if (retUrl.indexOf('territorial.io') !== -1) {
+          retUrl = 'https://pogxelqari.github.io/TerriX/client/';
+        }
+
         if (retUrl) {
           var sep = retUrl.indexOf('?') !== -1 ? '&' : '?';
           var redirectTarget = retUrl + sep + 'cbm_token=' + encodeURIComponent(order.verification_token) + '&order_id=' + encodeURIComponent(order.order_id);
@@ -876,13 +926,25 @@
         this.disabled = true;
         this.textContent = 'Checking...';
         var self = this;
-        fetch('/api/v1/products/order/status?order_id=' + encodeURIComponent(currentOrder.order_id))
+        fetch('/api/cbm/products/order/status?order_id=' + encodeURIComponent(currentOrder.order_id))
           .then(function (r) { return r.json(); })
           .then(function (data) {
             self.disabled = false;
             self.textContent = '↺ Check Payment Status Now';
             if (data.order && data.order.status === 'FULFILLED') {
               handleOrderFulfilled(data.order);
+            } else if (data.order && data.order.status === 'EXPIRED') {
+              showError(
+                'This 15-minute payment slip has expired.',
+                ' <button id="gen-new-slip-btn-chk" style="margin-left:8px; background:var(--blue); color:#fff; border:none; border-radius:4px; padding:3px 10px; font-weight:600; cursor:pointer; font-size:12px;">↺ Generate New Slip</button>'
+              );
+              var btn = document.getElementById('gen-new-slip-btn-chk');
+              if (btn) {
+                btn.onclick = function () {
+                  hideError();
+                  createOrderSlip();
+                };
+              }
             } else {
               showError('Payment not yet detected on vault ledger. If you just sent gold, please allow a few seconds for the next block to be polled.');
               setTimeout(hideError, 4000);
@@ -895,43 +957,6 @@
           });
       });
 
-      // Direct payment form
-      document.getElementById('direct-form').addEventListener('submit', function (e) {
-        e.preventDefault();
-        if (!currentOrder) return;
-        var btn = document.getElementById('direct-pay-btn');
-        var acc = document.getElementById('tt-account').value.trim();
-        var pwd = document.getElementById('tt-password').value.trim();
-        if (!acc || !pwd) return;
-
-        btn.disabled = true;
-        btn.textContent = 'Executing In-Game Transfer...';
-        hideError();
-
-        fetch('/api/v1/products/order/pay-direct', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            order_id: currentOrder.order_id,
-            territorial_account: acc,
-            territorial_password: pwd
-          })
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          btn.disabled = false;
-          btn.innerHTML = '<span>Pay ' + formatGold(currentProduct.price_gold) + ' Gold Instantly</span>';
-          if (data.status !== 'ok') {
-            throw new Error(data.message || 'Direct payment failed');
-          }
-          handleOrderFulfilled(data.order);
-        })
-        .catch(function (err) {
-          btn.disabled = false;
-          btn.innerHTML = '<span>Pay ' + formatGold(currentProduct.price_gold) + ' Gold Instantly</span>';
-          showError(err.message || 'Payment execution error');
-        });
-      });
 
       // CBM Balance payment form
       document.getElementById('balance-form').addEventListener('submit', function (e) {
@@ -946,7 +971,7 @@
         btn.textContent = 'Processing Balance Payment...';
         hideError();
 
-        fetch('/api/v1/products/order/pay-balance', {
+        fetch('/api/cbm/products/order/pay-balance', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

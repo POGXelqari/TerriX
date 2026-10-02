@@ -1,3 +1,5 @@
 # CBM Wispbyte Python Dependencies
 python-dotenv>=1.0.0
 urllib3>=2.0.0
+cryptography>=42.0.0
+PyJWT[crypto]>=2.8.0

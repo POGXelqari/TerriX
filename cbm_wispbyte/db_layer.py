@@ -11,7 +11,9 @@ import os
 import sys
 import json
 import time
+import datetime
 import sqlite3
+import uuid
 import hashlib
 import secrets
 import hmac
@@ -56,14 +58,22 @@ except ImportError:
     from cbm_wispbyte.gold_api_client import TerritorialGoldClient
 
 try:
-    from crypto_util import encrypt_credential, decrypt_credential
+    from crypto_util import (
+        encrypt_credential, decrypt_credential,
+        generate_order_verification_token, constant_time_verify, get_master_hmac_key
+    )
 except ImportError:
-    from cbm_wispbyte.crypto_util import encrypt_credential, decrypt_credential
-
+    from cbm_wispbyte.crypto_util import (
+        encrypt_credential, decrypt_credential,
+        generate_order_verification_token, constant_time_verify, get_master_hmac_key
+    )
 class CBMDatabase:
     def __init__(self, sqlite_path: str = "cbm_data.db", use_supabase: Optional[bool] = None, db_path: Optional[str] = None):
         target_path = db_path or sqlite_path
-        
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        if not os.path.isabs(target_path):
+            target_path = os.path.join(base_dir, target_path)
+
         # ZERO PRODUCTION POLLUTION SAFETY GUARD:
         # Automatically detects unit tests, pytest, or scratch test suites.
         # Under NO circumstances should automated tests ever touch production cbm_data.db or Supabase!
@@ -123,10 +133,18 @@ class CBMDatabase:
         self._ensure_alias_cache_loaded()
         if self.use_supabase and not (is_test_env and not allow_live_prod):
             self._start_supabase_worker()
-            try:
-                self.sync_all_from_supabase(quiet=True)
-            except Exception as e:
-                print(f"[!] Warning on initial Supabase hydration: {e}")
+            threading.Thread(
+                target=self._async_initial_supabase_sync,
+                daemon=True,
+                name="cbm_sb_init_sync"
+            ).start()
+
+    def _async_initial_supabase_sync(self):
+        try:
+            self.sync_all_from_supabase(quiet=True)
+            print("[+] Initial Supabase background hydration completed successfully.")
+        except Exception as e:
+            print(f"[!] Warning on initial Supabase hydration: {e}")
 
     def _recover_corrupted_sqlite(self, reason: str = ""):
         """
@@ -251,6 +269,7 @@ class CBMDatabase:
                 deposited_cents INTEGER DEFAULT 0,
                 total_deposited_cents INTEGER DEFAULT 0,
                 total_withdrawn_cents INTEGER DEFAULT 0,
+                is_delinquent INTEGER DEFAULT 0,
                 created_at REAL,
                 updated_at REAL
             )
@@ -262,7 +281,9 @@ class CBMDatabase:
             "password_hash TEXT",
             "password_salt TEXT",
             "primary_territorial_account TEXT",
-            "is_verified INTEGER DEFAULT 0"
+            "is_verified INTEGER DEFAULT 0",
+            "is_delinquent INTEGER DEFAULT 0",
+            "email TEXT"
         ]:
             try:
                 cur.execute(f"ALTER TABLE cbm_accounts ADD COLUMN {col}")
@@ -367,7 +388,7 @@ class CBMDatabase:
                 territorial_account_name TEXT UNIQUE,
                 territorial_password TEXT,
                 display_name TEXT,
-                verification_type TEXT DEFAULT 'INPUT_CREDENTIALS',
+                verification_type TEXT DEFAULT 'TRANSACTION_VERIFIED',
                 status TEXT DEFAULT 'VERIFIED',
                 is_primary INTEGER DEFAULT 0,
                 total_transacted_gold REAL DEFAULT 0.0,
@@ -375,6 +396,11 @@ class CBMDatabase:
                 last_used_at REAL
             )
         """)
+        # Non-Custodial Sanitize: Permanently wipe any legacy game passwords
+        try:
+            cur.execute("UPDATE cbm_payment_methods SET territorial_password = '' WHERE territorial_password IS NOT NULL AND territorial_password != ''")
+        except Exception:
+            pass
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_donations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -587,6 +613,245 @@ class CBMDatabase:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_prod ON cbm_product_orders(product_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_status ON cbm_product_orders(status);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_token ON cbm_product_orders(verification_token);")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_assets (
+                filename TEXT PRIMARY KEY,
+                subfolder TEXT NOT NULL DEFAULT 'products',
+                mime_type TEXT NOT NULL,
+                data BLOB NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_assets_subfolder ON cbm_assets(subfolder);")
+
+        # Sponsorship & Ad Engine Tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_sponsorship_slots (
+                slot_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT,
+                base_price_cents INTEGER NOT NULL,
+                current_price_cents INTEGER NOT NULL,
+                max_active_sponsors INTEGER NOT NULL DEFAULT 1,
+                active_sponsor_account TEXT,
+                lease_start_ts REAL,
+                lease_end_ts REAL,
+                is_available INTEGER DEFAULT 1,
+                updated_at REAL NOT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_sponsored_ads (
+                ad_id TEXT PRIMARY KEY,
+                slot_id TEXT NOT NULL,
+                owner_account TEXT NOT NULL,
+                title TEXT NOT NULL,
+                tagline TEXT NOT NULL,
+                target_url TEXT NOT NULL,
+                badge_text TEXT DEFAULT 'PROMOTED',
+                image_url TEXT,
+                image_width INTEGER DEFAULT 728,
+                image_height INTEGER DEFAULT 90,
+                is_official INTEGER DEFAULT 0,
+                priority INTEGER DEFAULT 0,
+                impressions INTEGER DEFAULT 0,
+                clicks INTEGER DEFAULT 0,
+                expires_at REAL NOT NULL,
+                created_at REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ACTIVE'
+            )
+        """)
+        # Backward-compatibility column migrations for pre-existing SQLite databases
+        for col_name, col_type in [
+            ("image_url", "TEXT"),
+            ("image_width", "INTEGER DEFAULT 728"),
+            ("image_height", "INTEGER DEFAULT 90"),
+            ("is_official", "INTEGER DEFAULT 0"),
+            ("priority", "INTEGER DEFAULT 0"),
+        ]:
+            try:
+                cur.execute(f"ALTER TABLE cbm_sponsored_ads ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_ad_publishers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                publisher_account TEXT UNIQUE NOT NULL,
+                app_name TEXT NOT NULL,
+                total_impressions INTEGER DEFAULT 0,
+                total_clicks INTEGER DEFAULT 0,
+                total_onboarded_members INTEGER DEFAULT 0,
+                total_gold_earned REAL DEFAULT 0.0,
+                is_active INTEGER DEFAULT 1,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        try:
+            cur.execute("ALTER TABLE cbm_ad_publishers ADD COLUMN is_active INTEGER DEFAULT 1")
+        except Exception:
+            pass
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_sponsored_ads_slot ON cbm_sponsored_ads(slot_id, status);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_sponsored_ads_owner ON cbm_sponsored_ads(owner_account);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_sponsored_ads_official ON cbm_sponsored_ads(slot_id, is_official, status);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ad_publishers_acc ON cbm_ad_publishers(publisher_account);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_chat_whitelist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_name TEXT UNIQUE NOT NULL COLLATE NOCASE,
+                added_by TEXT NOT NULL,
+                is_active INTEGER DEFAULT 1,
+                notes TEXT DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_chat_whitelist_acc ON cbm_chat_whitelist(account_name);")
+
+        # OAuth 2.0 / OIDC Authorization Server Tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_oauth_clients (
+                client_id TEXT PRIMARY KEY,
+                client_secret_hash TEXT,
+                client_name TEXT NOT NULL,
+                owner_account TEXT NOT NULL,
+                redirect_uris TEXT NOT NULL DEFAULT '[]',
+                allowed_scopes TEXT NOT NULL DEFAULT 'openid profile',
+                client_type TEXT NOT NULL DEFAULT 'confidential',
+                logo_url TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                FOREIGN KEY(owner_account) REFERENCES cbm_accounts(account_name) ON DELETE CASCADE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_oauth_clients_owner ON cbm_oauth_clients(owner_account);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_oauth_codes (
+                code_hash TEXT PRIMARY KEY,
+                client_id TEXT NOT NULL,
+                account_name TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                code_challenge TEXT NOT NULL,
+                code_challenge_method TEXT NOT NULL DEFAULT 'S256',
+                nonce TEXT,
+                expires_at REAL NOT NULL,
+                used_at REAL,
+                FOREIGN KEY(client_id) REFERENCES cbm_oauth_clients(client_id) ON DELETE CASCADE,
+                FOREIGN KEY(account_name) REFERENCES cbm_accounts(account_name) ON DELETE CASCADE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_oauth_codes_lookup ON cbm_oauth_codes(client_id, expires_at);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_oauth_tokens (
+                token_hash TEXT PRIMARY KEY,
+                token_type TEXT NOT NULL,
+                client_id TEXT NOT NULL,
+                account_name TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                expires_at REAL NOT NULL,
+                is_revoked INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,
+                FOREIGN KEY(client_id) REFERENCES cbm_oauth_clients(client_id) ON DELETE CASCADE,
+                FOREIGN KEY(account_name) REFERENCES cbm_accounts(account_name) ON DELETE CASCADE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_oauth_tokens_acc ON cbm_oauth_tokens(account_name, client_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_oauth_tokens_lookup ON cbm_oauth_tokens(token_hash, is_revoked);")
+
+        # OIDC Federated Identities & Virtual Credit Metering Tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_user_identities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_name TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                provider_sub TEXT NOT NULL,
+                email TEXT,
+                email_verified INTEGER DEFAULT 0,
+                profile_data TEXT DEFAULT '{}',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(provider, provider_sub),
+                FOREIGN KEY(account_name) REFERENCES cbm_accounts(account_name) ON DELETE CASCADE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_identities_user ON cbm_user_identities(account_name);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_identities_lookup ON cbm_user_identities(provider, provider_sub);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_oauth_states (
+                state_token TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                account_name TEXT,
+                code_verifier TEXT NOT NULL,
+                nonce TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                expires_at REAL NOT NULL,
+                created_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_oauth_states_lookup ON cbm_oauth_states(state_token, provider);")
+
+        # AI Chat Sessions & Message History with Cascading Deletion
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_ai_sessions (
+                session_id TEXT PRIMARY KEY,
+                owner_account TEXT NOT NULL,
+                key_id TEXT,
+                title TEXT DEFAULT 'New Chat',
+                system_prompt TEXT,
+                model TEXT DEFAULT 'nvidia/nemotron-3-ultra-550b-a55b',
+                max_context_turns INTEGER DEFAULT 20,
+                temperature REAL DEFAULT 0.7,
+                ttl_seconds INTEGER DEFAULT 3600,
+                total_turns INTEGER DEFAULT 0,
+                total_tokens_used INTEGER DEFAULT 0,
+                is_archived INTEGER DEFAULT 0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                expires_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ai_sessions_owner ON cbm_ai_sessions(owner_account, updated_at);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ai_sessions_expiry ON cbm_ai_sessions(expires_at);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ai_sessions_key ON cbm_ai_sessions(key_id);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_ai_session_messages (
+                message_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                reasoning_content TEXT,
+                tokens INTEGER DEFAULT 0,
+                turn_index INTEGER DEFAULT 0,
+                created_at REAL NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES cbm_ai_sessions(session_id) ON DELETE CASCADE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ai_messages_session ON cbm_ai_session_messages(session_id, created_at);")
+
+        # Seed initial high-traffic sponsorship slots
+        initial_slots = [
+            ("SLOT_HERO", "Clan Vault Header Banner", "Prime billboard directly above real-time clan liquidity telemetry.", 50000, 50000, 1),
+            ("SLOT_TELEMETRY", "Transaction Ledger Sponsored Feed", "Inline banner embedded within the high-frequency transaction stream.", 25000, 25000, 1),
+            ("SLOT_DISCORD", "Developer Hub Spotlight", "Featured interactive showcase on developer integration portal.", 35000, 35000, 1)
+        ]
+        now_slot_ts = time.time()
+        for s_id, s_name, s_desc, b_price, c_price, m_sponsors in initial_slots:
+            cur.execute("""
+                INSERT OR IGNORE INTO cbm_sponsorship_slots (
+                    slot_id, name, description, base_price_cents, current_price_cents,
+                    max_active_sponsors, active_sponsor_account, lease_start_ts, lease_end_ts, is_available, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 1, ?)
+            """, (s_id, s_name, s_desc, b_price, c_price, m_sponsors, now_slot_ts))
 
         # Seed canonical merchant account B8bbq and product prod_hellokitty
         try:
@@ -595,8 +860,18 @@ class CBMDatabase:
                 now_acc = time.time()
                 cur.execute("""
                     INSERT INTO cbm_accounts (account_name, display_name, role, deposited_cents, created_at, updated_at)
-                    VALUES ('B8bbq', 'B8bbq', 'leader', 0, ?, ?)
+                    VALUES ('B8bbq', 'B8bbq', 'admin', 0, ?, ?)
                 """, (now_acc, now_acc))
+            else:
+                cur.execute("UPDATE cbm_accounts SET role = 'admin' WHERE account_name = 'B8bbq'")
+
+            cur.execute("SELECT 1 FROM cbm_chat_whitelist WHERE account_name = 'B8bbq'")
+            if not cur.fetchone():
+                now_wl = time.time()
+                cur.execute("""
+                    INSERT INTO cbm_chat_whitelist (account_name, added_by, is_active, notes, created_at, updated_at)
+                    VALUES ('B8bbq', 'SYSTEM_INIT', 1, 'Platform Administrator', ?, ?)
+                """, (now_wl, now_wl))
 
             cur.execute("SELECT 1 FROM cbm_products WHERE product_id = 'prod_hellokitty'")
             if not cur.fetchone():
@@ -610,7 +885,7 @@ class CBMDatabase:
                         'prod_hellokitty', 'B8bbq', 'Hello Kitty Territory Pattern',
                         'High-fidelity seamless texture coating player territory during live matches.',
                         '/assets/patterns/hello-kitty-pattern.png', 500.0, 50000,
-                        'https://territorial.io/', 'ACTIVE', 0, 0.0, ?, ?
+                        'https://pogxelqari.github.io/TerriX/client/', 'ACTIVE', 0, 0.0, ?, ?
                     )
                 """, (now_seed, now_seed))
 
@@ -626,45 +901,67 @@ class CBMDatabase:
                         'prod_poland', 'B8bbq', 'Poland Flag Territory Pattern',
                         'Official Polish national coat of arms territory pattern for TerriX Client.',
                         '/assets/products/poland-pattern.avif', 1000.0, 100000,
-                        'https://territorial.io/', 'ACTIVE', 0, 0.0, ?, ?
+                        'https://pogxelqari.github.io/TerriX/client/', 'ACTIVE', 0, 0.0, ?, ?
                     )
                 """, (now_seed2, now_seed2))
+
+            cur.execute("""
+                UPDATE cbm_products
+                SET callback_url = 'https://pogxelqari.github.io/TerriX/client/'
+                WHERE callback_url LIKE '%territorial.io%'
+            """)
             conn.commit()
+        except Exception:
+            pass
+
+        # Seed TerriX Official Client API Key if not present
+        try:
+            official_token = "cbm_live_2063e984d4e66cbd90cc1fcc33e54a1199d5a978"
+            official_hash = hashlib.sha256(official_token.encode("utf-8")).hexdigest()
+            cur.execute("SELECT 1 FROM cbm_api_keys WHERE key_hash = ?", (official_hash,))
+            if not cur.fetchone():
+                now_key = time.time()
+                cur.execute("""
+                    INSERT INTO cbm_api_keys (
+                        key_id, key_hash, key_prefix, app_name, owner_account,
+                        environment, scopes, rate_limit_rpm, total_requests,
+                        credits_consumed_gold, is_active, created_at
+                    ) VALUES (
+                        'key_terrix_official', ?, 'cbm_live_2063...a978',
+                        'TerriX Official Client', 'B8bbq', 'live',
+                        'read:bank,read:members,read:loans,read:products,write:products,write:donations,admin',
+                        600, 0, 0.0, 1, ?
+                    )
+                """, (official_hash, now_key))
+                conn.commit()
         except Exception:
             pass
 
         # Automatic zero-pollution purge on startup:
         # Ensures no test user or mock loans ever contaminate live production tables
         try:
-            cur.execute("""
-                DELETE FROM cbm_loans 
-                WHERE LOWER(account_name) LIKE 'sectest%' 
-                   OR LOWER(account_name) LIKE 'regtest%' 
-                   OR LOWER(account_name) LIKE '%victim%'
-                   OR LOWER(account_name) LIKE 'testapi%'
-                   OR LOWER(account_name) LIKE 'testpin%'
-            """)
-            cur.execute("""
-                DELETE FROM cbm_accounts 
-                WHERE LOWER(account_name) LIKE 'sectest%' 
-                   OR LOWER(account_name) LIKE 'regtest%' 
-                   OR LOWER(account_name) LIKE '%victim%'
-                   OR LOWER(account_name) LIKE 'testapi%'
-                   OR LOWER(account_name) LIKE 'testpin%'
-            """)
-            cur.execute("""
-                DELETE FROM cbm_payment_methods 
-                WHERE LOWER(cbm_username) LIKE 'sectest%' 
-                   OR LOWER(cbm_username) LIKE 'regtest%' 
-                   OR LOWER(cbm_username) LIKE '%victim%'
-                   OR LOWER(cbm_username) LIKE 'testapi%'
-                   OR LOWER(cbm_username) LIKE 'testpin%'
-            """)
+            test_patterns = (
+                "sectest%", "regtest%", "%victim%", "testapi%", "testpin%",
+                "zztest%", "freshpin%", "nopin%", "livemember%", "norm_%"
+            )
+            for pat in test_patterns:
+                cur.execute("DELETE FROM cbm_loans WHERE LOWER(account_name) LIKE ?", (pat,))
+                cur.execute("DELETE FROM cbm_accounts WHERE LOWER(account_name) LIKE ?", (pat,))
+                cur.execute("DELETE FROM cbm_payment_methods WHERE LOWER(cbm_username) LIKE ?", (pat,))
             cur.execute("""
                 DELETE FROM cbm_vault_snapshots 
                 WHERE member_liabilities_gold >= 400 OR unencumbered_reserves_gold <= 0
             """)
             conn.commit()
+
+            # Also ensure remote Supabase is cleanly purged of test pollution
+            if self.use_supabase:
+                for pat in test_patterns:
+                    try:
+                        self._sb_request('cbm_accounts', method='DELETE', params=f'?account_name=ilike.{pat}')
+                        self._sb_request('cbm_payment_methods', method='DELETE', params=f'?cbm_username=ilike.{pat}')
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -767,10 +1064,20 @@ class CBMDatabase:
         """Asynchronously enqueues a database mutation for background cloud replication."""
         if not self.use_supabase:
             return
-        if ("unittest" in sys.modules or "pytest" in sys.modules or os.environ.get("CBM_ENV") == "test") and not os.environ.get("ALLOW_LIVE_PROD_ACCESS"):
+        if ("unittest" in sys.modules or "pytest" in sys.modules or os.environ.get("CBM_ENV") == "test") and not os.environ.get("ALLOW_LIVE_PROD_ACCESS") and not getattr(self, "_allow_test_queue", False):
             return
+
+        # ZERO-KNOWLEDGE CLOUD SANITIZATION:
+        # Strip all credentials, hashes, and salts before dispatching to cloud PostgREST
+        clean_body = body
+        if body and isinstance(body, dict):
+            clean_body = {
+                k: v for k, v in body.items() 
+                if k not in ("territorial_password", "pin_hash", "password_hash", "salt", "password_salt")
+            }
+
         try:
-            self._sb_queue.put_nowait((table, method, params, body, upsert))
+            self._sb_queue.put_nowait((table, method, params, clean_body, upsert))
         except queue.Full:
             pass
 
@@ -780,6 +1087,16 @@ class CBMDatabase:
             t0 = time.time()
             while not self._sb_queue.empty() and (time.time() - t0 < timeout):
                 time.sleep(0.01)
+
+    @staticmethod
+    def _format_iso(ts: Optional[Union[int, float]]) -> Optional[str]:
+        """Converts epoch float timestamp to ISO-8601 string for PostgreSQL TIMESTAMPTZ."""
+        if ts is None:
+            return None
+        try:
+            return datetime.datetime.fromtimestamp(float(ts), datetime.timezone.utc).isoformat()
+        except Exception:
+            return None
 
     def _sb_request(self, table: str, method: str = "GET", params: str = "", body: Optional[dict] = None, upsert: bool = False) -> Tuple[int, Any]:
         """Executes a PostgREST request to Supabase with persistent HTTP connection reuse."""
@@ -890,6 +1207,8 @@ class CBMDatabase:
             st_wds, wds = self._sb_request('cbm_withdrawals', 'GET', '?select=*&order=created_at.desc&limit=200')
             st_keys, keys = self._sb_request('cbm_api_keys', 'GET', '?select=*&order=created_at.desc&limit=200')
             st_votes, votes = self._sb_request('cbm_admin_votes', 'GET', '?select=*&order=created_at.desc&limit=200')
+            st_slots, sb_slots = self._sb_request('cbm_sponsorship_slots', 'GET', '?select=*')
+            st_ads, sb_ads = self._sb_request('cbm_sponsored_ads', 'GET', '?select=*&status=eq.ACTIVE')
 
             # 2. Persist to SQLite in an isolated write transaction with 30s busy timeout
             conn = self.get_write_connection()
@@ -953,7 +1272,7 @@ class CBMDatabase:
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(territorial_account_name) DO UPDATE SET
                                 cbm_username = excluded.cbm_username,
-                                territorial_password = COALESCE(excluded.territorial_password, cbm_payment_methods.territorial_password),
+                                territorial_password = '',
                                 display_name = excluded.display_name,
                                 verification_type = excluded.verification_type,
                                 status = excluded.status,
@@ -963,7 +1282,7 @@ class CBMDatabase:
                         """, (
                             p.get('cbm_username'),
                             p.get('territorial_account_name'),
-                            p.get('territorial_password', ''),
+                            '',
                             p.get('display_name', ''),
                             p.get('verification_type', 'INPUT_CREDENTIALS'),
                             p.get('status', 'VERIFIED'),
@@ -1221,12 +1540,91 @@ class CBMDatabase:
                         ))
                         stats["admin_votes"] = stats.get("admin_votes", 0) + 1
 
+                # Sponsorship Slots
+                if st_slots == 200 and isinstance(sb_slots, list):
+                    for sl in sb_slots:
+                        cur.execute("""
+                            INSERT INTO cbm_sponsorship_slots (
+                                slot_id, name, description, base_price_cents, current_price_cents,
+                                max_active_sponsors, active_sponsor_account, lease_start_ts,
+                                lease_end_ts, is_available, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(slot_id) DO UPDATE SET
+                                name = excluded.name,
+                                description = excluded.description,
+                                base_price_cents = excluded.base_price_cents,
+                                current_price_cents = excluded.current_price_cents,
+                                max_active_sponsors = excluded.max_active_sponsors,
+                                active_sponsor_account = excluded.active_sponsor_account,
+                                lease_start_ts = excluded.lease_start_ts,
+                                lease_end_ts = excluded.lease_end_ts,
+                                is_available = excluded.is_available,
+                                updated_at = excluded.updated_at
+                        """, (
+                            sl.get('slot_id'),
+                            sl.get('name'),
+                            sl.get('description'),
+                            int(sl.get('base_price_cents') or 50000),
+                            int(sl.get('current_price_cents') or 50000),
+                            int(sl.get('max_active_sponsors') or 1),
+                            sl.get('active_sponsor_account'),
+                            _parse_iso(sl.get('lease_start_ts')) if sl.get('lease_start_ts') else None,
+                            _parse_iso(sl.get('lease_end_ts')) if sl.get('lease_end_ts') else None,
+                            1 if sl.get('is_available') else 0,
+                            _parse_iso(sl.get('updated_at'))
+                        ))
+                    stats["sponsorship_slots"] = len(sb_slots)
+
+                # Sponsored Ads
+                if st_ads == 200 and isinstance(sb_ads, list):
+                    for ad in sb_ads:
+                        cur.execute("""
+                            INSERT INTO cbm_sponsored_ads (
+                                ad_id, slot_id, owner_account, title, tagline, target_url,
+                                badge_text, image_url, image_width, image_height, is_official,
+                                priority, impressions, clicks, expires_at, created_at, status
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(ad_id) DO UPDATE SET
+                                title = excluded.title,
+                                tagline = excluded.tagline,
+                                target_url = excluded.target_url,
+                                badge_text = excluded.badge_text,
+                                image_url = excluded.image_url,
+                                image_width = excluded.image_width,
+                                image_height = excluded.image_height,
+                                is_official = excluded.is_official,
+                                priority = excluded.priority,
+                                impressions = excluded.impressions,
+                                clicks = excluded.clicks,
+                                expires_at = excluded.expires_at,
+                                status = excluded.status
+                        """, (
+                            ad.get('ad_id'),
+                            ad.get('slot_id'),
+                            ad.get('owner_account'),
+                            ad.get('title'),
+                            ad.get('tagline'),
+                            ad.get('target_url'),
+                            ad.get('badge_text', 'PROMOTED'),
+                            ad.get('image_url'),
+                            int(ad.get('image_width') or 728),
+                            int(ad.get('image_height') or 90),
+                            1 if ad.get('is_official') else 0,
+                            int(ad.get('priority') or 0),
+                            int(ad.get('impressions') or 0),
+                            int(ad.get('clicks') or 0),
+                            _parse_iso(ad.get('expires_at')),
+                            _parse_iso(ad.get('created_at')),
+                            ad.get('status', 'ACTIVE')
+                        ))
+                    stats["sponsored_ads"] = len(sb_ads)
+
                 conn.commit()
             finally:
                 conn.close()
 
             if not quiet:
-                print(f"[✓] Supabase bi-directional sync completed: {stats}")
+                print(f"[+] Supabase bi-directional sync completed: {stats}")
             return {"status": "ok", "stats": stats}
         except Exception as e:
             if not quiet:
@@ -1718,8 +2116,8 @@ class CBMDatabase:
     def create_account_pin(self, account_name: str, pin: str) -> Tuple[bool, str]:
         """Creates a brand new CBM Access PIN for an account that does not currently have one."""
         pin_str = str(pin).strip()
-        if not pin_str.isdigit() or len(pin_str) < 4 or len(pin_str) > 8:
-            return False, "Access PIN must be between 4 and 8 numeric digits."
+        if not pin_str.isdigit() or len(pin_str) < 6 or len(pin_str) > 8:
+            return False, "Access PIN must be between 6 and 8 numeric digits."
 
         raw = self._get_account_raw(account_name)
         if not raw:
@@ -1737,8 +2135,8 @@ class CBMDatabase:
         curr_str = str(current_pin).strip()
         new_str = str(new_pin).strip()
 
-        if not new_str.isdigit() or len(new_str) < 4 or len(new_str) > 8:
-            return False, "New Access PIN must be between 4 and 8 numeric digits."
+        if not new_str.isdigit() or len(new_str) < 6 or len(new_str) > 8:
+            return False, "New Access PIN must be between 6 and 8 numeric digits."
 
         if not self.has_account_pin(account_name):
             return False, "No Access PIN configured for this account. Use Create PIN to set one."
@@ -1926,13 +2324,15 @@ class CBMDatabase:
         # Hash password
         pwd_hash, pwd_salt = self._hash_password(pwd)
 
-        # Hash PIN if supplied
-        pin_hash, pin_salt = None, None
-        if pin:
-            pin_str = str(pin).strip()
-            if not pin_str.isdigit() or len(pin_str) < 4 or len(pin_str) > 8:
-                return False, "Access PIN must be between 4 and 8 numeric digits.", None
-            pin_hash, pin_salt = self._hash_pin(pin_str)
+        # Validate and hash mandatory Quick Access PIN
+        if not pin:
+            return False, "A 4 to 8 digit numeric Quick Access PIN is required for account registration.", None
+
+        pin_str = str(pin).strip()
+        if not pin_str.isdigit() or len(pin_str) < 4 or len(pin_str) > 8:
+            return False, "Quick Access PIN must consist of 4 to 8 numeric digits.", None
+
+        pin_hash, pin_salt = self._hash_pin(pin_str)
 
         now = time.time()
         # Save to Supabase if active
@@ -2119,7 +2519,8 @@ class CBMDatabase:
         principal_gold: int,
         term_days: int = 14,
         territorial_account: str = "",
-        territorial_password: str = ""
+        territorial_password: str = "",
+        user_pin: Optional[str] = None
     ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
         """
         Originates an authorized member loan facility under the 0.05% reserve cap.
@@ -2133,7 +2534,7 @@ class CBMDatabase:
         principal_cents = int(round(principal_gold * 100))
 
         loan_id = None
-        enc_pwd = encrypt_credential(territorial_password) if territorial_password else ""
+        enc_pwd = encrypt_credential(territorial_password, user_pin=user_pin) if territorial_password else ""
 
         # 1. Always record in local SQLite
         conn = self.get_write_connection()
@@ -2151,7 +2552,7 @@ class CBMDatabase:
         conn.commit()
         conn.close()
 
-        # 2. Mirror to Supabase if active
+        # 2. Mirror to Supabase if active (Zero-Knowledge Cloud Isolation: Credentials NEVER dispatched)
         if self.use_supabase:
             payload = {
                 "id": loan_id,
@@ -2165,7 +2566,6 @@ class CBMDatabase:
                 "penalty_cents": 0,
                 "status": "ACTIVE",
                 "borrower_territorial_account": territorial_account or "",
-                "territorial_password": enc_pwd,
                 "credential_status": "VALID"
             }
             self._enqueue_sb_task("cbm_loans", method="POST", body=payload, upsert=True)
@@ -2322,17 +2722,20 @@ class CBMDatabase:
 
     def repay_loan_from_balance(
         self,
-        account_name: str,
-        loan_id: Any,
+        account_name: Optional[str] = None,
+        loan_id: Any = None,
         amount_cents: Optional[int] = None,
-        full_repay: bool = False
+        full_repay: bool = False,
+        cbm_username: Optional[str] = None
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Allows a member to voluntarily repay an active, overdue, or accelerated loan
         using their liquid CBM account balance (deposited_cents).
         Preserves 20.00 Gold buffer unless full repayment clears the loan completely.
         """
-        acc_key = account_name.strip()
+        acc_key = (account_name or cbm_username or "").strip()
+        if not acc_key:
+            return False, "Account name required for loan repayment.", {}
         acc = self.get_account(acc_key)
         if not acc:
             return False, f"Account '{acc_key}' not found.", {}
@@ -2402,13 +2805,31 @@ class CBMDatabase:
         tx_hash = f"repay_bal_{acc_key}_{int(now)}"
         ledger_note = f"Voluntary loan repayment: {repay_amount / 100.0:.2f} Gold toward {target_loan.get('principal_gold')} Gold loan (Status: {new_status})"
 
-        # 1. Update SQLite
+        # 1. Update SQLite with atomic decrement and lock
         conn = self.get_write_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance, now, acc_key))
-        cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (acc_key, repay_amount, new_balance, tx_hash, ledger_note, now))
-        conn.commit()
-        conn.close()
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = deposited_cents - ?, updated_at = ?
+                WHERE account_name = ? AND deposited_cents >= ?
+            """, (repay_amount, now, acc_key, repay_amount))
+
+            if cur.rowcount == 0:
+                conn.rollback()
+                return False, "Insufficient balance or concurrent update conflict.", {}
+
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_key,))
+            new_balance = cur.fetchone()[0]
+
+            cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (acc_key, repay_amount, new_balance, tx_hash, ledger_note, now))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Transaction error: {e}", {}
+        finally:
+            conn.close()
 
         # 2. Mirror to Supabase if active
         if self.use_supabase:
@@ -2443,9 +2864,14 @@ class CBMDatabase:
 
     def audit_loan_credential_liveness(self) -> Dict[str, Any]:
         """
-        Audits stored Territorial.io credentials for all active loan obligations.
-        Detects if a borrower changed their password to evade automated gold recovery.
-        Triggers immediate covenant breach acceleration (50% penalty interest, account freeze).
+        Non-Custodial Loan Maturity & Delinquency Audit.
+        Audits active loan obligations for maturity and overdue status.
+        If an active loan is past maturity (due_date_epoch < now):
+        1. Transitions status to OVERDUE.
+        2. Applies standard penalty interest.
+        3. Restricts member withdrawal privileges until repaid.
+        4. Garnishes internal CBM balances if available.
+        Zero external game credentials are requested, decrypted, or touched.
         """
         now = time.time()
         loans = []
@@ -2463,117 +2889,64 @@ class CBMDatabase:
             loans = [dict(r) for r in cur.fetchall()]
             conn.close()
 
-        breaches = []
-        valid_count = 0
+        actions = []
 
         for l in loans:
-            loan_id = l.get("id")
-            acc_name = l.get("account_name")
-            terri_acc = l.get("borrower_territorial_account")
-            terri_pwd = decrypt_credential(l.get("territorial_password"))
-
-            # If not directly on loan record, check payment methods
-            if not terri_acc or not terri_pwd:
-                pms = self.get_payment_methods(acc_name)
-                for pm in pms:
-                    if pm.get("territorial_password"):
-                        terri_acc = pm.get("territorial_account_name")
-                        terri_pwd = decrypt_credential(pm.get("territorial_password"))
-                        break
-
-            if not terri_acc or not terri_pwd:
-                continue
-
-            # Resolve in-game account ID if needed
-            target_terri = terri_acc
             try:
-                linked_match = self.get_account(terri_acc)
-                if linked_match and linked_match.get("primary_territorial_account"):
-                    target_terri = linked_match.get("primary_territorial_account")
-            except Exception:
-                pass
+                loan_id = l.get("id")
+                acc_name = l.get("account_name")
+                raw_due = l.get("due_at") or l.get("due_date_epoch")
+                if isinstance(raw_due, (int, float)):
+                    due_epoch = float(raw_due)
+                elif isinstance(raw_due, str) and raw_due.strip():
+                    try:
+                        due_epoch = datetime.datetime.fromisoformat(raw_due.replace("Z", "+00:00")).timestamp()
+                    except Exception:
+                        try:
+                            due_epoch = float(raw_due)
+                        except Exception:
+                            due_epoch = 0.0
+                else:
+                    due_epoch = 0.0
+                status = l.get("status")
 
-            # Check live credential validity
-            try:
-                client = TerritorialGoldClient(target_terri, terri_pwd, timeout=4.0)
-                data = client.get_account_data()
-                t_stat = str(data.get("status", "")).lower()
-
-                if t_stat in ("password error", "account error"):
-                    # COVENANT BREACH DETECTED: Password changed or account inaccessible post-origination!
+                if due_epoch > 0.0 and now > due_epoch and status == "ACTIVE":
                     principal_cents = int(round(float(l.get("principal_gold", 0)) * 100))
                     penalty_cents = int(round(principal_cents * (CBMLoanEngine.OVERDUE_PENALTY_INTEREST_PERCENT / 100.0)))
 
                     self._update_loan_record(
                         loan_id=loan_id,
-                        status="BREACH_OF_COVENANT",
-                        penalty_cents=penalty_cents,
-                        credential_status="BREACH_OF_COVENANT",
-                        last_credential_check_at=now
+                        status="OVERDUE",
+                        penalty_cents=penalty_cents
                     )
-
-                    # Downgrade account to restricted
                     self.set_account_role(acc_name, "restricted")
 
-                    # Log covenant breach in ledger
-                    ledger_note = f"COVENANT BREACH: In-game credentials invalid/changed for '{terri_acc}' ({t_stat}). 50% penalty interest applied immediately. Account access restricted."
-                    tx_hash = f"breach_{acc_name}_{int(now)}"
+                    # Attempt internal balance garnishment
+                    try:
+                        self.reconcile_overdue_loans_and_enforce_garnishment(acc_name, force=True)
+                    except Exception:
+                        pass
 
-                    # 1. Update SQLite
-                    conn = self.get_write_connection()
-                    cur = conn.cursor()
-                    cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_PENALTY', ?, 0, ?, ?, ?)", (acc_name, penalty_cents, tx_hash, ledger_note, now))
-                    conn.commit()
-                    conn.close()
-
-                    # 2. Mirror to Supabase if active
-                    if self.use_supabase:
-                        self._enqueue_sb_task("cbm_ledger", method="POST", body={
-                            "account_name": acc_name,
-                            "entry_type": "LOAN_PENALTY",
-                            "amount_cents": penalty_cents,
-                            "balance_after_cents": 0,
-                            "tx_hash": tx_hash,
-                            "notes": ledger_note
-                        })
-
-                    # Trigger immediate balance garnishment
-                    self.reconcile_overdue_loans_and_enforce_garnishment(acc_name, force=True)
-
-                    breaches.append({
+                    actions.append({
                         "loan_id": loan_id,
                         "account_name": acc_name,
-                        "territorial_account": terri_acc,
-                        "reason": f"{t_stat} (credentials revoked or changed)",
+                        "status": "OVERDUE",
                         "penalty_cents": penalty_cents
                     })
-                elif t_stat == "ok":
-                    valid_count += 1
-                    self._update_loan_record(
-                        loan_id=loan_id,
-                        status=l.get("status"),
-                        penalty_cents=l.get("penalty_cents", 0),
-                        credential_status="VALID",
-                        last_credential_check_at=now
-                    )
-            except Exception as ex:
-                print(f"[!] Warning: Liveness check network exception for '{terri_acc}': {ex}")
+            except Exception as item_err:
+                print(f"[!] Warning on loan audit for id {l.get('id')}: {item_err}")
 
         return {
             "audited_at": now,
             "total_active_loans": len(loans),
-            "valid_credentials": valid_count,
-            "breaches_detected": len(breaches),
-            "breaches": breaches
+            "overdue_actions": len(actions),
+            "actions": actions
         }
 
-    def execute_automated_gold_seizure(self, loan_id: Any) -> Tuple[bool, str, Dict[str, Any]]:
+    def execute_automated_gold_seizure(self, loan_id: Any, borrower_pin: Optional[str] = None) -> Tuple[bool, str, Dict[str, Any]]:
         """
-        Executes automated in-game gold debt recovery from borrower's in-game account
-        directly to the CBM Vault (DdcBC) via TerritorialGoldClient.send_gold.
+        Executes internal non-custodial loan settlement from borrower's deposited CBM balance.
         """
-        import math
-        now = time.time()
         conn = self.get_write_connection()
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -2586,130 +2959,10 @@ class CBMDatabase:
 
         l = dict(row)
         acc_name = l["account_name"]
-        loans = self.get_account_loans(acc_name)
-        target_loan = next((x for x in loans if str(x.get("id")) == str(loan_id)), None)
-        if not target_loan:
-            return False, "Unable to resolve loan schedule.", {}
+        return self.repay_loan_from_balance(account_name=acc_name, loan_id=loan_id, full_repay=True)
 
-        rem_due_cents = target_loan.get("remaining_due_cents", 0)
-        if rem_due_cents <= 0:
-            return False, "Loan is already fully repaid.", target_loan
-
-        rem_due_gold = math.ceil(rem_due_cents / 100.0)
-
-        # Collect candidate credentials (primary first, then linked accounts)
-        candidate_creds = []
-        if l.get("borrower_territorial_account") and l.get("territorial_password"):
-            candidate_creds.append((l["borrower_territorial_account"], decrypt_credential(l["territorial_password"])))
-
-        pms = self.get_payment_methods(acc_name)
-        for pm in pms:
-            t_acc = pm.get("territorial_account_name")
-            t_pwd = decrypt_credential(pm.get("territorial_password"))
-            if t_acc and t_pwd and (t_acc, t_pwd) not in candidate_creds:
-                candidate_creds.append((t_acc, t_pwd))
-
-        if not candidate_creds:
-            return False, "No valid in-game credentials available on file for seizure.", {}
-
-        total_seized_gold = 0
-        seizure_details = []
-
-        for t_acc, t_pwd in candidate_creds:
-            if total_seized_gold >= rem_due_gold:
-                break
-            try:
-                client = TerritorialGoldClient(t_acc, t_pwd, timeout=5.0)
-                data = client.get_account_data()
-                if data.get("status") != "ok":
-                    continue
-
-                raw_acc = data.get("account_data", {})
-                in_game_bal = float(raw_acc.get("gold", 0.0) or 0.0)
-
-                available_to_recover = math.floor(in_game_bal)
-                needed = rem_due_gold - total_seized_gold
-                to_transfer = min(available_to_recover, needed)
-
-                if to_transfer >= 1:
-                    res = client.send_gold(target_account=self.vault_account, amount=int(to_transfer))
-                    if res.get("status") == "ok":
-                        total_seized_gold += to_transfer
-                        seizure_details.append({
-                            "source_account": t_acc,
-                            "seized_gold": to_transfer,
-                            "tx_id": res.get("tx_id")
-                        })
-            except Exception as ex:
-                print(f"[!] Seizure attempt error for account '{t_acc}': {ex}")
-
-        # Record seizure attempts
-        attempts = (l.get("seizure_attempts") or 0) + 1
-        self._update_loan_record(
-            loan_id=loan_id,
-            status=target_loan.get("status"),
-            penalty_cents=target_loan.get("penalty_interest_cents", 0),
-            seizure_attempts=attempts,
-            last_seizure_attempt_at=now
-        )
-
-        if total_seized_gold > 0:
-            seized_cents = int(total_seized_gold * 100)
-            new_repaid = target_loan.get("repaid_cents", 0) + seized_cents
-            is_settled = new_repaid >= target_loan.get("total_due_cents", 0)
-            new_stat = "REPAID" if is_settled else target_loan.get("status")
-
-            self._update_loan_record(
-                loan_id=loan_id,
-                status=new_stat,
-                penalty_cents=target_loan.get("penalty_interest_cents", 0),
-                repaid_cents=new_repaid
-            )
-
-            tx_hash = f"seize_{acc_name}_{int(now)}"
-            note = f"Automated in-game gold recovery: {total_seized_gold} Gold seized from borrower account to Vault '{self.vault_account}'"
-
-            # 1. Update SQLite
-            conn = self.get_write_connection()
-            cur = conn.cursor()
-            cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (acc_name, seized_cents, 0, tx_hash, note, now))
-            conn.commit()
-            conn.close()
-
-            # 2. Mirror to Supabase if active
-            if self.use_supabase:
-                self._enqueue_sb_task("cbm_ledger", method="POST", body={
-                    "account_name": acc_name,
-                    "entry_type": "LOAN_REPAYMENT",
-                    "amount_cents": seized_cents,
-                    "balance_after_cents": target_loan.get("remaining_due_cents", 0) - seized_cents,
-                    "tx_hash": tx_hash,
-                    "notes": note
-                })
-
-            self.recompute_treasury()
-            return True, f"Successfully executed in-game recovery of {total_seized_gold} Gold.", {
-                "total_seized_gold": total_seized_gold,
-                "seizure_details": seizure_details,
-                "is_settled": is_settled
-            }
-        else:
-            return False, f"In-game recovery attempted across {len(candidate_creds)} account(s), but insufficient in-game balance was available.", {
-                "attempts": attempts
-            }
-
-    def set_account_role(self, account_name: str, role: str):
-        now = time.time()
-        # 1. Update SQLite
-        conn = self.get_write_connection()
-        cur = conn.cursor()
-        cur.execute("UPDATE cbm_accounts SET role = ?, updated_at = ? WHERE account_name = ?", (role, now, account_name))
-        conn.commit()
-        conn.close()
-
-        # 2. Mirror to Supabase if active
-        if self.use_supabase:
-            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{account_name}", body={"role": role})
+    # Authoritative alias for collateral settlement under Loan Covenant
+    execute_authorized_collateral_settlement = execute_automated_gold_seizure
 
     def reconcile_overdue_loans_and_enforce_garnishment(self, account_name: str, force: bool = False) -> Dict[str, Any]:
         """
@@ -3351,12 +3604,13 @@ class CBMDatabase:
         cbm_username: str,
         territorial_account: str = "",
         territorial_password: Optional[str] = None,
-        verification_type: str = "INPUT_CREDENTIALS",
+        verification_type: str = "TRANSACTION_VERIFIED",
         display_name: Optional[str] = None,
         is_primary: bool = False,
+        user_pin: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
-        """Links an in-game territorial.io account as a payment method for a CBM user."""
+        """Links an in-game territorial.io account as a payment method for a CBM user (Strictly Non-Custodial)."""
         cbm_user = cbm_username.strip()
         terri_acc = (territorial_account or kwargs.get("territorial_account_name") or "").strip()
         disp_name = display_name or terri_acc
@@ -3364,9 +3618,8 @@ class CBMDatabase:
 
         # Ensure user account exists in cbm_accounts
         self.register_or_get_account(cbm_user, display_name=disp_name)
-        enc_pwd = encrypt_credential(territorial_password) if territorial_password else ""
 
-        # 1. Dual-Write: Always commit to SQLite first
+        # 1. Dual-Write: Always commit to SQLite first (Zero password storage)
         conn = self.get_write_connection()
         cur = conn.cursor()
         if is_primary:
@@ -3375,27 +3628,26 @@ class CBMDatabase:
         cur.execute("""
             INSERT INTO cbm_payment_methods 
             (cbm_username, territorial_account_name, territorial_password, display_name, verification_type, status, is_primary, total_transacted_gold, linked_at, last_used_at)
-            VALUES (?, ?, ?, ?, ?, 'VERIFIED', ?, 0.0, ?, ?)
+            VALUES (?, ?, '', ?, ?, 'VERIFIED', ?, 0.0, ?, ?)
             ON CONFLICT(territorial_account_name) DO UPDATE SET
             cbm_username=excluded.cbm_username,
-            territorial_password=COALESCE(excluded.territorial_password, territorial_password),
+            territorial_password='',
             display_name=COALESCE(excluded.display_name, display_name),
             verification_type=excluded.verification_type,
             status='VERIFIED',
             is_primary=excluded.is_primary,
             last_used_at=excluded.last_used_at
-        """, (cbm_user, terri_acc, enc_pwd, disp_name, verification_type, 1 if is_primary else 0, now, now))
+        """, (cbm_user, terri_acc, disp_name, verification_type, 1 if is_primary else 0, now, now))
         conn.commit()
         conn.close()
         self._do_index_account_aliases(cbm_user, disp_name, terri_acc)
         self._clear_missing_account_cache(cbm_user, terri_acc, disp_name)
 
-        # 2. Dual-Write: Mirror to Supabase if active
+        # 2. Dual-Write: Mirror to Supabase if active (Non-Custodial: Passwords NEVER dispatched)
         if self.use_supabase:
             payload = {
                 "cbm_username": cbm_user,
                 "territorial_account_name": terri_acc,
-                "territorial_password": enc_pwd,
                 "display_name": disp_name,
                 "verification_type": verification_type,
                 "status": "VERIFIED",
@@ -3411,8 +3663,11 @@ class CBMDatabase:
                 return m
         return {"status": "linked", "cbm_username": cbm_user, "territorial_account_name": terri_acc, "display_name": disp_name, "is_primary": is_primary}
 
-    def get_payment_methods(self, cbm_username: str) -> List[Dict[str, Any]]:
-        """Retrieves all linked territorial.io payment methods for a CBM user."""
+    def get_payment_methods(self, cbm_username: str, include_credentials: bool = False, user_pin: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves linked payment methods for a CBM member.
+        Strictly Non-Custodial: Game passwords are never retained, returned, or handled.
+        """
         cbm_user = cbm_username.strip()
         conn = self.get_write_connection()
         conn.row_factory = sqlite3.Row
@@ -3434,14 +3689,13 @@ class CBMDatabase:
                                 id, cbm_username, territorial_account_name, territorial_password,
                                 display_name, verification_type, status, is_primary,
                                 total_transacted_gold, linked_at, last_used_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             r.get("id"),
                             r.get("cbm_username", cbm_user),
                             r.get("territorial_account_name", ""),
-                            r.get("territorial_password", ""),
                             r.get("display_name", ""),
-                            r.get("verification_type", "INPUT_CREDENTIALS"),
+                            r.get("verification_type", "TRANSACTION_VERIFIED"),
                             r.get("status", "VERIFIED"),
                             1 if r.get("is_primary") else 0,
                             float(r.get("total_transacted_gold", 0.0) or 0.0),
@@ -3454,8 +3708,8 @@ class CBMDatabase:
                     print(f"[!] Error caching payment methods to SQLite: {cache_err}")
 
         for r in rows:
-            if "territorial_password" in r and r["territorial_password"]:
-                r["territorial_password"] = decrypt_credential(r["territorial_password"])
+            r["has_stored_credentials"] = False
+            r.pop("territorial_password", None)
         return rows
 
     def get_cbm_username_by_territorial_account(self, territorial_account: str) -> Optional[str]:
@@ -3542,21 +3796,40 @@ class CBMDatabase:
         clean_msg = message.strip() if message else "Anti-OG Clan War Chest Contribution"
         ledger_notes = f"Clan War Chest Donation: {amount_gold:.2f} Gold. {clean_msg}".strip()
 
-        # 1. Dual-Write: Always update SQLite first
+        # 1. Dual-Write: Always update SQLite first with atomic balance deduction
         conn = self.get_write_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance_cents, now, acc_key))
-        cur.execute("""
-            INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
-            VALUES (?, 'TREASURY_DONATION', ?, ?, ?, ?, ?)
-        """, (acc_key, -amount_cents, new_balance_cents, tx_hash, ledger_notes, now))
-        donor_disp = acc.get("display_name") or acc_key
-        cur.execute("""
-            INSERT INTO cbm_donations (donor_name, territorial_account, amount_gold, amount_cents, message, source, tx_hash, is_refundable, status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'BALANCE', ?, 0, 'IRREVOCABLE', ?)
-        """, (donor_disp, territorial_account or acc_key, round(amount_gold, 2), amount_cents, clean_msg, tx_hash, now))
-        conn.commit()
-        conn.close()
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+            min_req_cents = amount_cents + (2000 if active_loans else 0)
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = deposited_cents - ?, updated_at = ?
+                WHERE account_name = ? AND deposited_cents >= ?
+            """, (amount_cents, now, acc_key, min_req_cents))
+
+            if cur.rowcount == 0:
+                conn.rollback()
+                return False, "Insufficient available balance or protected account buffer constraint.", None
+
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_key,))
+            new_balance_cents = cur.fetchone()[0]
+
+            cur.execute("""
+                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                VALUES (?, 'TREASURY_DONATION', ?, ?, ?, ?, ?)
+            """, (acc_key, -amount_cents, new_balance_cents, tx_hash, ledger_notes, now))
+            donor_disp = acc.get("display_name") or acc_key
+            cur.execute("""
+                INSERT INTO cbm_donations (donor_name, territorial_account, amount_gold, amount_cents, message, source, tx_hash, is_refundable, status, created_at)
+                VALUES (?, ?, ?, ?, ?, 'BALANCE', ?, 0, 'IRREVOCABLE', ?)
+            """, (donor_disp, territorial_account or acc_key, round(amount_gold, 2), amount_cents, clean_msg, tx_hash, now))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Donation transaction failed: {e}", None
+        finally:
+            conn.close()
 
         # 2. Dual-Write: Mirror to Supabase if active
         if self.use_supabase:
@@ -4591,14 +4864,22 @@ class CBMDatabase:
     def charge_api_credit(
         self,
         owner_account: str,
-        key_id: str,
-        cost_gold: float = 1.0
+        key_id: Optional[str] = None,
+        cost_gold: float = 1.0,
+        idempotency_key: Optional[str] = None,
+        endpoint: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
-        Atomically charges an API key owner 1.00 Credit (1.00 Gold / 100 cents) for a successful API request,
+        Atomically charges an account owner for an API request against their deposited Gold balance,
         and converts the deducted credit into permanent unencumbered central bank reserves.
+        Supports idempotency to prevent double-charging on network retries.
+        Supports keyless requests (e.g. session-authenticated web developer console).
         """
         cost_cents = int(round(cost_gold * 100))
+        if cost_cents <= 0:
+            return False, "Credit deduction amount must be greater than zero.", {}
+
         acc = self.get_account(owner_account)
         if not acc:
             return False, "API Key owner account not found.", {}
@@ -4610,36 +4891,82 @@ class CBMDatabase:
                 f"{cost_gold:.2f} Gold required per successful request."
             ), {"credits_remaining": available_cents / 100.0, "credits_cost": cost_gold}
 
-        new_balance = available_cents - cost_cents
         now = time.time()
-        tx_hash = f"api_{key_id}_{int(now)}_{secrets.token_hex(3)}"
-        ledger_note = f"API Call ({key_id}): {cost_gold:.2f} Credit converted to unencumbered Clan Reserves"
+        if idempotency_key:
+            clean_idem = re.sub(r'[^a-zA-Z0-9_\-]', '', str(idempotency_key))[:48]
+            tx_hash = f"api_idem_{key_id or 'direct'}_{clean_idem}"
+        else:
+            tx_hash = f"api_{key_id or 'direct'}_{int(now)}_{secrets.token_hex(3)}"
+
+        ep_tag = f" [{endpoint}]" if endpoint else ""
+        ledger_note = f"API Call ({key_id or 'direct'}){ep_tag}: {cost_gold:.2f} Credit converted to unencumbered Clan Reserves"
+        if metadata:
+            try:
+                ledger_note += f" | {json.dumps(metadata)}"
+            except Exception:
+                pass
 
         conn = self.get_write_connection(timeout=15.0)
         cur = conn.cursor()
-        cur.execute("""
-            UPDATE cbm_accounts
-            SET deposited_cents = ?, updated_at = ?
-            WHERE account_name = ?
-        """, (new_balance, now, owner_account))
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
 
-        cur.execute("""
-            INSERT INTO cbm_ledger (
-                account_name, entry_type, amount_cents, balance_after_cents,
-                tx_hash, notes, created_at
-            ) VALUES (?, 'API_CONSUMPTION', ?, ?, ?, ?, ?)
-        """, (owner_account, -cost_cents, new_balance, tx_hash, ledger_note, now))
+            # 1. Idempotency Check
+            if idempotency_key:
+                cur.execute("""
+                    SELECT balance_after_cents, tx_hash FROM cbm_ledger
+                    WHERE account_name = ? AND tx_hash = ?
+                """, (owner_account, tx_hash))
+                existing = cur.fetchone()
+                if existing:
+                    conn.rollback()
+                    return True, "Idempotent transaction already executed.", {
+                        "credits_cost": 0.0,
+                        "credits_remaining": round(existing[0] / 100.0, 2),
+                        "tx_hash": existing[1],
+                        "is_idempotent_replay": True
+                    }
 
-        cur.execute("""
-            UPDATE cbm_api_keys
-            SET credits_consumed_gold = credits_consumed_gold + ?,
-                total_requests = total_requests + 1,
-                last_used_at = ?
-            WHERE key_id = ?
-        """, (cost_gold, now, key_id))
+            # 2. Atomic Balance Deduction
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = deposited_cents - ?, updated_at = ?
+                WHERE account_name = ? AND deposited_cents >= ?
+            """, (cost_cents, now, owner_account, cost_cents))
 
-        conn.commit()
-        conn.close()
+            if cur.rowcount == 0:
+                conn.rollback()
+                return False, (
+                    f"Insufficient API Credits or concurrent modification: {cost_gold:.2f} Gold required."
+                ), {"credits_remaining": 0.0, "credits_cost": cost_gold}
+
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
+            new_balance = cur.fetchone()[0]
+
+            # 3. Append to Ledger
+            cur.execute("""
+                INSERT INTO cbm_ledger (
+                    account_name, entry_type, amount_cents, balance_after_cents,
+                    tx_hash, notes, created_at
+                ) VALUES (?, 'API_CONSUMPTION', ?, ?, ?, ?, ?)
+            """, (owner_account, -cost_cents, new_balance, tx_hash, ledger_note, now))
+
+            # 4. Update API Key usage if key_id provided
+            if key_id:
+                cur.execute("""
+                    UPDATE cbm_api_keys
+                    SET credits_consumed_gold = credits_consumed_gold + ?,
+                        total_requests = total_requests + 1,
+                        last_used_at = ?
+                    WHERE key_id = ?
+                """, (cost_gold, now, key_id))
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"API credit transaction failed: {e}", {}
+        finally:
+            conn.close()
 
         if self.use_supabase:
             self._enqueue_sb_task(
@@ -4662,7 +4989,7 @@ class CBMDatabase:
             )
 
         # Recalculate central bank solvency:
-        # Since member_liabilities_cents decreased by 100 cents, bank_reserves_cents increases by 100 cents!
+        # Since member liabilities decreased, unencumbered bank reserves increase 1:1!
         self.recompute_treasury()
 
         return True, "Credit charged and converted to reserves successfully.", {
@@ -4670,6 +4997,113 @@ class CBMDatabase:
             "credits_remaining": round(new_balance / 100.0, 2),
             "tx_hash": tx_hash
         }
+
+    def refund_api_credit(
+        self,
+        owner_account: str,
+        cost_gold: float,
+        key_id: Optional[str] = None,
+        reason: str = "WORKLOAD_FAILED",
+        original_tx_hash: Optional[str] = None
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Atomically refunds an API credit deduction back to member deposit balance if downstream workload failed.
+        Rebalances central bank reserves and updates audit trail in cbm_ledger.
+        """
+        cost_cents = int(round(cost_gold * 100))
+        if cost_cents <= 0:
+            return False, "Refund amount must be positive.", {}
+
+        now = time.time()
+        refund_tx_hash = f"api_refund_{key_id or 'direct'}_{int(now)}_{secrets.token_hex(3)}"
+        orig_tag = f" [orig: {original_tx_hash}]" if original_tx_hash else ""
+        notes = f"API Refund ({key_id or 'direct'}): {cost_gold:.2f} Credit refunded to deposit ({reason}){orig_tag}"
+
+        conn = self.get_write_connection(timeout=15.0)
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = deposited_cents + ?, updated_at = ?
+                WHERE account_name = ?
+            """, (cost_cents, now, owner_account))
+
+            if cur.rowcount == 0:
+                conn.rollback()
+                return False, "Account not found for refund.", {}
+
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
+            new_balance = cur.fetchone()[0]
+
+            cur.execute("""
+                INSERT INTO cbm_ledger (
+                    account_name, entry_type, amount_cents, balance_after_cents,
+                    tx_hash, notes, created_at
+                ) VALUES (?, 'API_REFUND', ?, ?, ?, ?, ?)
+            """, (owner_account, cost_cents, new_balance, refund_tx_hash, notes, now))
+
+            if key_id:
+                cur.execute("""
+                    UPDATE cbm_api_keys
+                    SET credits_consumed_gold = MAX(0.0, credits_consumed_gold - ?),
+                        total_requests = MAX(0, total_requests - 1)
+                    WHERE key_id = ?
+                """, (cost_gold, key_id))
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"API credit refund failed: {e}", {}
+        finally:
+            conn.close()
+
+        if self.use_supabase:
+            self._enqueue_sb_task(
+                "cbm_accounts",
+                method="PATCH",
+                params=f"?account_name=eq.{owner_account}",
+                body={"deposited_cents": new_balance}
+            )
+            self._enqueue_sb_task(
+                "cbm_ledger",
+                method="POST",
+                body={
+                    "account_name": owner_account,
+                    "entry_type": "API_REFUND",
+                    "amount_cents": cost_cents,
+                    "balance_after_cents": new_balance,
+                    "tx_hash": refund_tx_hash,
+                    "notes": notes
+                }
+            )
+
+        # Recompute treasury metrics to account for restored liabilities
+        self.recompute_treasury()
+
+        return True, "Credit refunded and reserves adjusted successfully.", {
+            "credits_refunded": cost_gold,
+            "credits_remaining": round(new_balance / 100.0, 2),
+            "tx_hash": refund_tx_hash
+        }
+
+    def get_api_ledger_history(self, account_name: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieves chronological API consumption and refund transactions for an account from cbm_ledger."""
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at
+            FROM cbm_ledger
+            WHERE account_name = ? AND entry_type IN ('API_CONSUMPTION', 'API_REFUND')
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+        """, (account_name, limit))
+        rows = [dict(r) for r in cur.fetchall()]
+        for r in rows:
+            r["amount_gold"] = round(r["amount_cents"] / 100.0, 2)
+            r["balance_after_gold"] = round(r["balance_after_cents"] / 100.0, 2)
+        return rows
 
     def get_developer_overview(self, owner_account: str) -> Dict[str, Any]:
         """Returns API credit balance, key count, and aggregate consumption metrics for Developer Console."""
@@ -5253,6 +5687,8 @@ class CBMDatabase:
             return False, f"Product price must be at least {self.MIN_PRODUCT_PRICE_GOLD:.2f} Gold (received {p_gold:.2f} Gold)."
 
         clean_callback = (callback_url or "").strip()
+        if not clean_callback or "territorial.io" in clean_callback:
+            clean_callback = "https://pogxelqari.github.io/TerriX/client/"
 
         product_id = f"prod_{secrets.token_hex(6)}"
         price_cents = int(round(p_gold * 100))
@@ -5321,6 +5757,9 @@ class CBMDatabase:
 
         acc = self.get_account(row[1])
         display_name = acc.get("display_name") if acc else row[1]
+        cb = row[7] or ""
+        if not cb or "territorial.io" in cb:
+            cb = "https://pogxelqari.github.io/TerriX/client/"
 
         return {
             "product_id": row[0],
@@ -5331,7 +5770,7 @@ class CBMDatabase:
             "image_url": row[4] or "",
             "price_gold": float(row[5]),
             "price_cents": int(row[6]),
-            "callback_url": row[7],
+            "callback_url": cb,
             "webhook_url": row[8] or "",
             "status": row[9],
             "sales_count": int(row[10] or 0),
@@ -5394,7 +5833,8 @@ class CBMDatabase:
         image_url: Optional[str] = None,
         price_gold: Optional[float] = None,
         callback_url: Optional[str] = None,
-        webhook_url: Optional[str] = None
+        webhook_url: Optional[str] = None,
+        is_active: Optional[bool] = None
     ) -> Tuple[bool, Union[Dict[str, Any], str]]:
         """Updates product parameters."""
         prod = self.get_product(product_id)
@@ -5408,6 +5848,11 @@ class CBMDatabase:
         new_img = image_url.strip() if image_url is not None else prod["image_url"]
         new_cb = callback_url.strip() if callback_url is not None and callback_url.strip() else prod["callback_url"]
         new_wh = webhook_url.strip() if webhook_url is not None else prod["webhook_url"]
+
+        if is_active is not None:
+            new_status = "ACTIVE" if is_active else "ARCHIVED"
+        else:
+            new_status = prod.get("status", "ACTIVE")
 
         if price_gold is not None:
             if float(price_gold) < self.MIN_PRODUCT_PRICE_GOLD:
@@ -5425,9 +5870,9 @@ class CBMDatabase:
             cur.execute("""
                 UPDATE cbm_products
                 SET name = ?, description = ?, image_url = ?, price_gold = ?, price_cents = ?,
-                    callback_url = ?, webhook_url = ?, updated_at = ?
+                    callback_url = ?, webhook_url = ?, status = ?, updated_at = ?
                 WHERE product_id = ?
-            """, (new_name, new_desc, new_img, new_price_gold, new_price_cents, new_cb, new_wh, now, product_id))
+            """, (new_name, new_desc, new_img, new_price_gold, new_price_cents, new_cb, new_wh, new_status, now, product_id))
             conn.commit()
         except Exception as e:
             conn.rollback()
@@ -5465,6 +5910,85 @@ class CBMDatabase:
 
         return True, "Product archived."
 
+    def save_asset(self, filename: str, subfolder: str, mime_type: str, data: bytes) -> bool:
+        """Stores a static asset binary programmatically in database storage."""
+        if not filename or not data:
+            return False
+        now = time.time()
+        size_bytes = len(data)
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_assets (filename, subfolder, mime_type, data, size_bytes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(filename) DO UPDATE SET
+                    subfolder = excluded.subfolder,
+                    mime_type = excluded.mime_type,
+                    data = excluded.data,
+                    size_bytes = excluded.size_bytes,
+                    updated_at = excluded.updated_at
+            """, (filename, subfolder, mime_type, data, size_bytes, now, now))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            print(f"[!] Error saving asset {filename} to DB: {e}")
+            return False
+        finally:
+            conn.close()
+
+    def get_asset(self, filename: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a stored asset record by filename."""
+        if not filename:
+            return None
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT filename, subfolder, mime_type, data, size_bytes, created_at, updated_at FROM cbm_assets WHERE filename = ?", (filename,))
+            row = cur.fetchone()
+            if row:
+                return {
+                    "filename": row[0],
+                    "subfolder": row[1],
+                    "mime_type": row[2],
+                    "data": row[3],
+                    "size_bytes": row[4],
+                    "created_at": row[5],
+                    "updated_at": row[6]
+                }
+            return None
+        except Exception as e:
+            print(f"[!] Error getting asset {filename} from DB: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def get_all_assets(self) -> List[Dict[str, Any]]:
+        """Retrieves all programmatically stored assets."""
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT filename, subfolder, mime_type, data, size_bytes, created_at, updated_at FROM cbm_assets")
+            rows = cur.fetchall()
+            return [
+                {
+                    "filename": r[0],
+                    "subfolder": r[1],
+                    "mime_type": r[2],
+                    "data": r[3],
+                    "size_bytes": r[4],
+                    "created_at": r[5],
+                    "updated_at": r[6]
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            print(f"[!] Error getting all assets from DB: {e}")
+            return []
+        finally:
+            conn.close()
+
     def create_product_order(
         self,
         product_id: str,
@@ -5499,15 +6023,16 @@ class CBMDatabase:
         owner_share_cents = price_cents // 2
         cushion_share_cents = price_cents - owner_share_cents
 
-        # Generate cryptographic HMAC-SHA256 verification token
-        secret_key = self.encryption_key if hasattr(self, "encryption_key") and self.encryption_key else b"cbm_product_token_key_fallback"
-        token_payload = f"{order_id}:{product_id}:{price_cents}:{int(now)}".encode("utf-8")
-        verification_token = f"tok_{hmac.new(secret_key, token_payload, hashlib.sha256).hexdigest()[:32]}"
+        # Generate cryptographic HMAC-SHA256 verification token via master crypto engine
+        verification_token = generate_order_verification_token(order_id, product_id, price_cents, int(now))
 
         clean_buyer_cbm = (buyer_cbm_username or buyer_account_name or buyer_name or "").strip() or None
         clean_buyer_terri = (buyer_territorial_account or "").strip() or None
         target_vault = (target_vault_account or os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")).strip()
         cb_url = (return_url or prod.get("callback_url") or "").strip()
+        if not cb_url or "territorial.io" in cb_url:
+            cb_url = "https://pogxelqari.github.io/TerriX/client/"
+        expires_at_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at))
 
         conn = self.get_write_connection()
         cur = conn.cursor()
@@ -5544,7 +6069,9 @@ class CBMDatabase:
             "buyer_territorial_account": clean_buyer_terri,
             "payment_method": payment_method,
             "status": "PENDING",
-            "expires_at": expires_at,
+            "expires_at": expires_at_iso,
+            "expires_at_iso": expires_at_iso,
+            "expires_at_timestamp": expires_at,
             "remaining_seconds": max(0, int(expires_at - now)),
             "callback_url": cb_url,
             "return_url": cb_url,
@@ -5596,6 +6123,7 @@ class CBMDatabase:
         now = time.time()
         exp = float(row[12]) if row[12] else 0.0
         rem = max(0, int(exp - now)) if exp > now else 0
+        exp_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(exp)) if exp > 0 else ""
 
         # Auto-detect expired
         current_status = row[11]
@@ -5603,6 +6131,8 @@ class CBMDatabase:
             current_status = "EXPIRED"
 
         cb_url = row[17] or ""
+        if not cb_url or "territorial.io" in cb_url:
+            cb_url = "https://pogxelqari.github.io/TerriX/client/"
         v_token = row[10] or ""
 
         return {
@@ -5619,7 +6149,9 @@ class CBMDatabase:
             "verification_token": v_token,
             "token_secret": v_token,
             "status": current_status,
-            "expires_at": exp,
+            "expires_at": exp_iso,
+            "expires_at_iso": exp_iso,
+            "expires_at_timestamp": exp,
             "remaining_seconds": rem,
             "fulfilled_at": float(row[13]) if row[13] else None,
             "created_at": float(row[14]),
@@ -5821,7 +6353,7 @@ class CBMDatabase:
             return False, f"Order '{oid}' not found."
 
         expected_token = order.get("verification_token")
-        if not expected_token or not hmac.compare_digest(expected_token, t.strip()):
+        if not expected_token or not constant_time_verify(expected_token, t):
             return False, "Invalid verification token."
 
         if order.get("status") != "FULFILLED":
@@ -6159,7 +6691,1677 @@ class CBMDatabase:
         stats["total_gold_earned"] = round(stats["total_gold_earned"], 2)
         return stats
 
+    # =========================================================================
+    # CBM Sponsorship & Third-Party Advertising Infrastructure
+    # =========================================================================
 
+    def get_sponsorship_slots(self) -> List[Dict[str, Any]]:
+        """
+        Retrieves all registered sponsorship ad slots, reconciling expired leases.
+        """
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        now_ts = time.time()
+        
+        # Lazy expiration reconciliation
+        try:
+            cur.execute("""
+                UPDATE cbm_sponsorship_slots
+                SET is_available = 1, active_sponsor_account = NULL
+                WHERE lease_end_ts IS NOT NULL AND lease_end_ts <= ? AND is_available = 0
+            """, (now_ts,))
+            slots_expired = cur.rowcount
+            cur.execute("""
+                UPDATE cbm_sponsored_ads
+                SET status = 'EXPIRED'
+                WHERE expires_at <= ? AND status = 'ACTIVE'
+            """, (now_ts,))
+            ads_expired = cur.rowcount
+            conn.commit()
 
+            if (slots_expired > 0 or ads_expired > 0) and self.use_supabase:
+                now_iso = self._format_iso(now_ts)
+                self._enqueue_sb_task(
+                    "cbm_sponsorship_slots",
+                    method="PATCH",
+                    params=f"?lease_end_ts=lte.{now_iso}&is_available=eq.false",
+                    body={"is_available": True, "active_sponsor_account": None, "updated_at": now_iso}
+                )
+                self._enqueue_sb_task(
+                    "cbm_sponsored_ads",
+                    method="PATCH",
+                    params=f"?expires_at=lte.{now_iso}&status=eq.ACTIVE",
+                    body={"status": "EXPIRED"}
+                )
+        except Exception:
+            pass
 
+        cur.execute("""
+            SELECT slot_id, name, description, base_price_cents, current_price_cents,
+                   max_active_sponsors, active_sponsor_account, lease_start_ts, lease_end_ts,
+                   is_available, updated_at
+            FROM cbm_sponsorship_slots
+            ORDER BY slot_id ASC
+        """)
+        rows = cur.fetchall()
+        slots = []
+        for r in rows:
+            slots.append({
+                "slot_id": r[0],
+                "name": r[1],
+                "description": r[2],
+                "base_price_gold": round(r[3] / 100.0, 2),
+                "base_price_cents": r[3],
+                "current_price_gold": round(r[4] / 100.0, 2),
+                "current_price_cents": r[4],
+                "max_active_sponsors": r[5],
+                "active_sponsor_account": r[6],
+                "lease_start_ts": r[7],
+                "lease_end_ts": r[8],
+                "is_available": bool(r[9]),
+                "time_remaining_seconds": max(0.0, (r[8] or 0.0) - now_ts) if r[8] else 0.0,
+                "updated_at": r[10]
+            })
+        return slots
+
+    def get_sponsorship_slot(self, slot_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a single sponsorship slot by its identifier."""
+        slots = self.get_sponsorship_slots()
+        for s in slots:
+            if s["slot_id"] == slot_id:
+                return s
+        return None
+
+    def purchase_sponsorship_lease(
+        self,
+        slot_id: str,
+        buyer_account: str,
+        title: str,
+        tagline: str,
+        target_url: str,
+        badge_text: str = "PROMOTED",
+        image_url: Optional[str] = None,
+        image_width: int = 728,
+        image_height: int = 90,
+        duration_days: int = 7
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Executes an atomic purchase of a limited-availability sponsorship lease.
+        Enforces 60/40 Capital Covenant:
+        - 60% of fees credited directly to Unencumbered Bank Reserves (cbm_treasury).
+        - 40% reserved for Community Referral and Rewards Pool.
+        """
+        slot = self.get_sponsorship_slot(slot_id)
+        if not slot:
+            return False, f"Sponsorship slot '{slot_id}' does not exist.", None
+
+        now_ts = time.time()
+        if not slot["is_available"] and slot["lease_end_ts"] and now_ts < slot["lease_end_ts"]:
+            rem_days = round((slot["lease_end_ts"] - now_ts) / 86400.0, 1)
+            return False, f"Slot '{slot['name']}' is currently leased to '{slot['active_sponsor_account']}'. Available in {rem_days} days.", None
+
+        # Content validations
+        clean_title = (title or "").strip()
+        clean_tagline = (tagline or "").strip()
+        clean_url = (target_url or "").strip()
+        clean_badge = (badge_text or "PROMOTED").strip()[:16]
+        clean_image = (image_url or "").strip() if image_url else None
+
+        if not clean_title or len(clean_title) > 80:
+            return False, "Sponsorship title must be between 1 and 80 characters.", None
+        if not clean_tagline or len(clean_tagline) > 200:
+            return False, "Sponsorship tagline must be between 1 and 200 characters.", None
+        if not (clean_url.startswith("http://") or clean_url.startswith("https://")):
+            return False, "Target URL must begin with http:// or https://.", None
+
+        # Balance check
+        acc = self.get_account(buyer_account)
+        if not acc:
+            return False, f"Buyer account '{buyer_account}' not found.", None
+
+        role = acc.get("role", "member")
+        if role in ("restricted", "downgraded", "frozen", "delinquent"):
+            return False, "Account is restricted from booking sponsorships.", None
+
+        price_cents = slot["current_price_cents"]
+        curr_balance_cents = int(acc.get("deposited_cents", 0))
+        if curr_balance_cents < price_cents:
+            req_gold = price_cents / 100.0
+            avail_gold = curr_balance_cents / 100.0
+            return False, f"Insufficient balance: {avail_gold:.2f} Gold available, {req_gold:.2f} Gold required.", None
+
+        # 60/40 Capital Covenant Calculation
+        reserve_split_cents = int(round(price_cents * 0.60))
+        referral_split_cents = price_cents - reserve_split_cents
+        lease_duration_sec = duration_days * 86400.0
+        lease_end_ts = now_ts + lease_duration_sec
+        ad_id = f"ad_{uuid.uuid4().hex[:12]}"
+        tx_hash = f"sponsor_{slot_id}_{int(now_ts)}"
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+
+            # 1. Deduct price atomically from buyer
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = deposited_cents - ?, updated_at = ?
+                WHERE account_name = ? AND deposited_cents >= ?
+            """, (price_cents, now_ts, buyer_account, price_cents))
+
+            if cur.rowcount == 0:
+                conn.rollback()
+                return False, "Insufficient balance during atomic deduction.", None
+
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (buyer_account,))
+            new_bal_cents = cur.fetchone()[0]
+
+            # 2. Record ledger entry
+            cur.execute("""
+                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                VALUES (?, 'SPONSORSHIP_LEASE', ?, ?, ?, ?, ?)
+            """, (buyer_account, -price_cents, new_bal_cents, tx_hash, f"Booked {duration_days}-day lease for {slot['name']}", now_ts))
+
+            # 3. Inject 60% share directly into Bank Unencumbered Reserves
+            cur.execute("""
+                UPDATE cbm_treasury
+                SET bank_reserves_cents = bank_reserves_cents + ?,
+                    unencumbered_capital_cents = unencumbered_capital_cents + ?,
+                    last_sync_at = ?
+                WHERE id = 1
+            """, (reserve_split_cents, reserve_split_cents, now_ts))
+
+            # 4. Deactivate old active ads for this slot
+            cur.execute("""
+                UPDATE cbm_sponsored_ads
+                SET status = 'EXPIRED'
+                WHERE slot_id = ? AND status = 'ACTIVE' AND (is_official IS NULL OR is_official = 0)
+            """, (slot_id,))
+
+            # 5. Insert new active sponsored ad
+            cur.execute("""
+                INSERT INTO cbm_sponsored_ads (
+                    ad_id, slot_id, owner_account, title, tagline, target_url, badge_text,
+                    image_url, image_width, image_height, is_official, priority,
+                    impressions, clicks, expires_at, created_at, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, 'ACTIVE')
+            """, (ad_id, slot_id, buyer_account, clean_title, clean_tagline, clean_url, clean_badge, clean_image, image_width, image_height, lease_end_ts, now_ts))
+
+            # 6. Update slot lease status
+            cur.execute("""
+                UPDATE cbm_sponsorship_slots
+                SET active_sponsor_account = ?, lease_start_ts = ?, lease_end_ts = ?, is_available = 0, updated_at = ?
+                WHERE slot_id = ?
+            """, (buyer_account, now_ts, lease_end_ts, now_ts, slot_id))
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Failed to execute lease transaction: {e}", None
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+        # 7. Mirror mutations to Supabase for multi-instance persistent synchronization
+        try:
+            now_iso = self._format_iso(now_ts)
+            end_iso = self._format_iso(lease_end_ts)
+
+            # Replicate buyer balance
+            self._enqueue_sb_task(
+                "cbm_accounts",
+                method="PATCH",
+                params=f"?account_name=eq.{buyer_account}",
+                body={"deposited_cents": new_bal_cents, "updated_at": now_iso}
+            )
+
+            # Replicate ledger entry
+            self._enqueue_sb_task(
+                "cbm_ledger",
+                method="POST",
+                body={
+                    "account_name": buyer_account,
+                    "entry_type": "SPONSORSHIP_LEASE",
+                    "amount_cents": -price_cents,
+                    "balance_after_cents": new_bal_cents,
+                    "tx_hash": tx_hash,
+                    "notes": f"Booked {duration_days}-day lease for {slot['name']}",
+                    "created_at": now_iso
+                }
+            )
+
+            # Replicate treasury reserves
+            cur_tr = self.get_treasury()
+            self._enqueue_sb_task(
+                "cbm_treasury",
+                method="PATCH",
+                params="?id=eq.1",
+                body={
+                    "bank_reserves_cents": cur_tr.get("bank_reserves_cents", 0),
+                    "unencumbered_capital_cents": cur_tr.get("unencumbered_capital_cents", 0),
+                    "updated_at": now_iso
+                }
+            )
+
+            # Deactivate previous active ads for this slot in Supabase
+            self._enqueue_sb_task(
+                "cbm_sponsored_ads",
+                method="PATCH",
+                params=f"?slot_id=eq.{slot_id}&status=eq.ACTIVE&is_official=eq.false",
+                body={"status": "EXPIRED"}
+            )
+
+            # Replicate new active sponsored ad in Supabase
+            self._enqueue_sb_task(
+                "cbm_sponsored_ads",
+                method="POST",
+                body={
+                    "ad_id": ad_id,
+                    "slot_id": slot_id,
+                    "owner_account": buyer_account,
+                    "title": clean_title,
+                    "tagline": clean_tagline,
+                    "target_url": clean_url,
+                    "badge_text": clean_badge,
+                    "image_url": clean_image,
+                    "image_width": image_width,
+                    "image_height": image_height,
+                    "is_official": False,
+                    "priority": 0,
+                    "impressions": 0,
+                    "clicks": 0,
+                    "expires_at": end_iso,
+                    "created_at": now_iso,
+                    "status": "ACTIVE"
+                }
+            )
+
+            # Replicate slot lease status in Supabase
+            self._enqueue_sb_task(
+                "cbm_sponsorship_slots",
+                method="PATCH",
+                params=f"?slot_id=eq.{slot_id}",
+                body={
+                    "active_sponsor_account": buyer_account,
+                    "lease_start_ts": now_iso,
+                    "lease_end_ts": end_iso,
+                    "is_available": False,
+                    "updated_at": now_iso
+                }
+            )
+        except Exception as sb_sync_err:
+            print(f"[!] Warning: Non-fatal Supabase sync failure on sponsorship purchase: {sb_sync_err}")
+
+        ad_record = {
+            "ad_id": ad_id,
+            "slot_id": slot_id,
+            "owner_account": buyer_account,
+            "title": clean_title,
+            "tagline": clean_tagline,
+            "target_url": clean_url,
+            "badge_text": clean_badge,
+            "image_url": clean_image,
+            "image_width": image_width,
+            "image_height": image_height,
+            "price_gold": round(price_cents / 100.0, 2),
+            "reserve_share_gold": round(reserve_split_cents / 100.0, 2),
+            "referral_pool_share_gold": round(referral_split_cents / 100.0, 2),
+            "lease_start_ts": now_ts,
+            "lease_end_ts": lease_end_ts,
+            "duration_days": duration_days,
+            "status": "ACTIVE"
+        }
+        return True, "Sponsorship slot leased successfully. Ad is now live.", ad_record
+
+    def get_active_ad_for_slot(self, slot_id: str, include_official: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        Fetches the live sponsored ad for a slot and atomically increments impression telemetry.
+        When include_official is False, strictly returns paid member/merchant sponsor ads.
+        """
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        now_ts = time.time()
+        official_filter = "" if include_official else " AND (is_official IS NULL OR is_official = 0)"
+        cur.execute(f"""
+            SELECT ad_id, slot_id, owner_account, title, tagline, target_url, badge_text,
+                   image_url, image_width, image_height, is_official, priority,
+                   impressions, clicks, expires_at, created_at
+            FROM cbm_sponsored_ads
+            WHERE slot_id = ? AND status = 'ACTIVE' AND expires_at > ? {official_filter}
+            ORDER BY created_at DESC LIMIT 1
+        """, (slot_id, now_ts))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        ad_id = row[0]
+        # Atomic impression increment
+        try:
+            w_conn = self.get_write_connection()
+            w_cur = w_conn.cursor()
+            w_cur.execute("UPDATE cbm_sponsored_ads SET impressions = impressions + 1 WHERE ad_id = ?", (ad_id,))
+            w_conn.commit()
+            w_conn.close()
+        except Exception:
+            pass
+
+        return {
+            "ad_id": row[0],
+            "slot_id": row[1],
+            "owner_account": row[2],
+            "title": row[3],
+            "tagline": row[4],
+            "target_url": row[5],
+            "badge_text": row[6],
+            "image_url": row[7],
+            "image_width": row[8],
+            "image_height": row[9],
+            "is_official": bool(row[10]),
+            "priority": row[11],
+            "impressions": row[12] + 1,
+            "clicks": row[13],
+            "expires_at": row[14],
+            "created_at": row[15]
+        }
+
+    def get_official_cbm_ad(self, slot_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetches an active official CBM campaign for external third-party delivery.
+        Official CBM ads are strictly served off-site and never on cbm.wispbyte.org.
+        """
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        now_ts = time.time()
+        cur.execute("""
+            SELECT ad_id, slot_id, owner_account, title, tagline, target_url, badge_text,
+                   image_url, image_width, image_height, is_official, priority,
+                   impressions, clicks, expires_at, created_at
+            FROM cbm_sponsored_ads
+            WHERE slot_id = ? AND status = 'ACTIVE' AND is_official = 1 AND expires_at > ?
+            ORDER BY priority DESC, created_at DESC LIMIT 1
+        """, (slot_id, now_ts))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        ad_id = row[0]
+        try:
+            w_conn = self.get_write_connection()
+            w_cur = w_conn.cursor()
+            w_cur.execute("UPDATE cbm_sponsored_ads SET impressions = impressions + 1 WHERE ad_id = ?", (ad_id,))
+            w_conn.commit()
+            w_conn.close()
+        except Exception:
+            pass
+
+        return {
+            "ad_id": row[0],
+            "slot_id": row[1],
+            "owner_account": row[2],
+            "title": row[3],
+            "tagline": row[4],
+            "target_url": row[5],
+            "badge_text": row[6],
+            "image_url": row[7],
+            "image_width": row[8],
+            "image_height": row[9],
+            "is_official": bool(row[10]),
+            "priority": row[11],
+            "impressions": row[12] + 1,
+            "clicks": row[13],
+            "expires_at": row[14],
+            "created_at": row[15]
+        }
+
+    def record_ad_click(self, ad_id: str) -> bool:
+        """Atomically increments the click counter for a sponsored ad."""
+        try:
+            conn = self.get_write_connection()
+            cur = conn.cursor()
+            cur.execute("UPDATE cbm_sponsored_ads SET clicks = clicks + 1 WHERE ad_id = ?", (ad_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    def update_sponsorship_slot_price(self, slot_id: str, new_price_cents: int) -> bool:
+        """Dynamically updates floor price of a sponsorship slot based on liquidity index."""
+        try:
+            conn = self.get_write_connection()
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE cbm_sponsorship_slots
+                SET current_price_cents = ?, updated_at = ?
+                WHERE slot_id = ?
+            """, (new_price_cents, time.time(), slot_id))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    def get_ad_publisher(self, publisher_id_or_account: str) -> Optional[Dict[str, Any]]:
+        """Retrieves external ad publisher by ID or publisher_account."""
+        if not publisher_id_or_account:
+            return None
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        if str(publisher_id_or_account).isdigit():
+            cur.execute("""
+                SELECT id, publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, is_active
+                FROM cbm_ad_publishers WHERE id = ? OR publisher_account = ?
+            """, (int(publisher_id_or_account), str(publisher_id_or_account)))
+        else:
+            cur.execute("""
+                SELECT id, publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, is_active
+                FROM cbm_ad_publishers WHERE publisher_account = ?
+            """, (str(publisher_id_or_account),))
+        row = cur.fetchone()
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "publisher_id": str(row[0]),
+            "publisher_account": row[1],
+            "app_name": row[2],
+            "total_impressions": row[3],
+            "total_clicks": row[4],
+            "total_onboarded_members": row[5],
+            "total_gold_earned": row[6],
+            "is_active": bool(row[7])
+        }
+
+    def get_or_create_ad_publisher(self, publisher_account: str, app_name: str = "External App") -> Dict[str, Any]:
+        """Retrieves or registers an external publisher for the Ad Partner & Earn program."""
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        now_ts = time.time()
+        cur.execute("SELECT id, publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, is_active FROM cbm_ad_publishers WHERE publisher_account = ?", (publisher_account,))
+        row = cur.fetchone()
+        if row:
+            conn.close()
+            return {
+                "id": row[0],
+                "publisher_id": str(row[0]),
+                "publisher_account": row[1],
+                "app_name": row[2],
+                "total_impressions": row[3],
+                "total_clicks": row[4],
+                "total_onboarded_members": row[5],
+                "total_gold_earned": row[6],
+                "is_active": bool(row[7])
+            }
+
+        cur.execute("""
+            INSERT INTO cbm_ad_publishers (publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, is_active, created_at, updated_at)
+            VALUES (?, ?, 0, 0, 0, 0.0, 1, ?, ?)
+        """, (publisher_account, app_name, now_ts, now_ts))
+        conn.commit()
+        pub_id = cur.lastrowid
+        conn.close()
+        return {
+            "id": pub_id,
+            "publisher_id": str(pub_id),
+            "publisher_account": publisher_account,
+            "app_name": app_name,
+            "total_impressions": 0,
+            "total_clicks": 0,
+            "total_onboarded_members": 0,
+            "total_gold_earned": 0.0,
+            "is_active": True
+        }
+
+    def record_publisher_impression(self, publisher_account: str) -> bool:
+        """Increments impression counter for an external ad publisher."""
+        try:
+            conn = self.get_write_connection()
+            cur = conn.cursor()
+            now_ts = time.time()
+            cur.execute("""
+                INSERT INTO cbm_ad_publishers (publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, created_at, updated_at)
+                VALUES (?, 'External App', 1, 0, 0, 0.0, ?, ?)
+                ON CONFLICT(publisher_account) DO UPDATE SET
+                    total_impressions = total_impressions + 1,
+                    updated_at = excluded.updated_at
+            """, (publisher_account, now_ts, now_ts))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    def record_publisher_click(self, publisher_account: str) -> bool:
+        """Increments click counter for an external ad publisher."""
+        try:
+            conn = self.get_write_connection()
+            cur = conn.cursor()
+            now_ts = time.time()
+            cur.execute("""
+                INSERT INTO cbm_ad_publishers (publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, created_at, updated_at)
+                VALUES (?, 'External App', 0, 1, 0, 0.0, ?, ?)
+                ON CONFLICT(publisher_account) DO UPDATE SET
+                    total_clicks = total_clicks + 1,
+                    updated_at = excluded.updated_at
+            """, (publisher_account, now_ts, now_ts))
+            conn.commit()
+            conn.close()
+            return True
+        except Exception:
+            return False
+
+    def is_account_whitelisted(self, account_name: str) -> bool:
+        """Returns True if the given account is active in the chat whitelist."""
+        if not account_name:
+            return False
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT is_active FROM cbm_chat_whitelist WHERE account_name = ? COLLATE NOCASE", (account_name.strip(),))
+        row = cur.fetchone()
+        conn.close()
+        return bool(row and row[0] == 1)
+
+    def add_to_chat_whitelist(self, account_name: str, added_by: str, notes: str = "") -> Tuple[bool, str]:
+        """Adds or reactivates an account on the chat whitelist."""
+        if not account_name or not account_name.strip():
+            return False, "Invalid account name."
+        clean_acc = account_name.strip()
+        now_ts = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_chat_whitelist (account_name, added_by, is_active, notes, created_at, updated_at)
+                VALUES (?, ?, 1, ?, ?, ?)
+                ON CONFLICT(account_name) DO UPDATE SET
+                    is_active = 1,
+                    added_by = excluded.added_by,
+                    notes = excluded.notes,
+                    updated_at = excluded.updated_at
+            """, (clean_acc, added_by, notes, now_ts, now_ts))
+            conn.commit()
+            conn.close()
+            return True, f"Account '{clean_acc}' successfully whitelisted."
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            return False, str(e)
+
+    def remove_from_chat_whitelist(self, account_name: str) -> Tuple[bool, str]:
+        """Deactivates an account from the chat whitelist."""
+        if not account_name or not account_name.strip():
+            return False, "Invalid account name."
+        clean_acc = account_name.strip()
+        now_ts = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                UPDATE cbm_chat_whitelist
+                SET is_active = 0, updated_at = ?
+                WHERE account_name = ? COLLATE NOCASE
+            """, (now_ts, clean_acc))
+            conn.commit()
+            conn.close()
+            return True, f"Account '{clean_acc}' removed from whitelist."
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            return False, str(e)
+
+    def get_chat_whitelist(self) -> List[Dict[str, Any]]:
+        """Returns all entries in the chat whitelist."""
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, account_name, added_by, is_active, notes, created_at, updated_at FROM cbm_chat_whitelist ORDER BY id ASC")
+        rows = cur.fetchall()
+        conn.close()
+        return [
+            {
+                "id": r[0],
+                "account_name": r[1],
+                "added_by": r[2],
+                "is_active": bool(r[3]),
+                "notes": r[4] or "",
+                "created_at": r[5],
+                "updated_at": r[6]
+            }
+            for r in rows
+        ]
+
+    def find_account_by_oidc(self, provider: str, provider_sub: str) -> Optional[Dict[str, Any]]:
+        """Resolves local CBM account linked to the external OIDC (provider, sub) pair."""
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.* FROM cbm_accounts a
+            JOIN cbm_user_identities i ON a.account_name = i.account_name
+            WHERE i.provider = ? AND i.provider_sub = ?
+            LIMIT 1
+        """, (str(provider).lower(), str(provider_sub)))
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+
+        # Fallback query directly against Supabase if enabled
+        if getattr(self, "use_supabase", False):
+            try:
+                st, res = self._sb_request(
+                    "cbm_user_identities",
+                    method="GET",
+                    params=f"?provider=eq.{str(provider).lower()}&provider_sub=eq.{str(provider_sub)}&select=account_name&limit=1"
+                )
+                if st == 200 and res and len(res) > 0:
+                    matched_acc = res[0].get("account_name")
+                    if matched_acc:
+                        return self.get_account(matched_acc)
+            except Exception:
+                pass
+
+        return None
+
+    def get_account_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Look up a local CBM account by verified email."""
+        if not email:
+            return None
+        email_clean = str(email).strip().lower()
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        
+        # 1. Check in cbm_accounts directly
+        cur.execute("SELECT * FROM cbm_accounts WHERE LOWER(email) = ? LIMIT 1", (email_clean,))
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+
+        # 2. Check in cbm_user_identities with email_verified = 1
+        cur.execute("""
+            SELECT a.* FROM cbm_accounts a
+            JOIN cbm_user_identities i ON a.account_name = i.account_name
+            WHERE LOWER(i.email) = ? AND i.email_verified = 1
+            LIMIT 1
+        """, (email_clean,))
+        row2 = cur.fetchone()
+        if row2:
+            return dict(row2)
+
+        return None
+
+    def link_oidc_identity(
+        self,
+        account_name: str,
+        provider: str,
+        provider_sub: str,
+        email: Optional[str] = None,
+        email_verified: bool = False,
+        username: Optional[str] = None,
+        display_name: Optional[str] = None,
+        avatar_url: Optional[str] = None,
+        profile_data: Optional[Dict[str, Any]] = None
+    ) -> Tuple[bool, str]:
+        """Binds or updates a verified external OIDC identity to a local CBM account."""
+        clean_acc = (account_name or "").strip()
+        if not clean_acc:
+            return False, "Invalid account name."
+
+        prov_clean = str(provider).lower().strip()
+        sub_clean = str(provider_sub).strip()
+        if not prov_clean or not sub_clean:
+            return False, "Invalid provider or provider_sub."
+
+        profile_obj = dict(profile_data or {})
+        if username:
+            profile_obj["username"] = username
+        if display_name:
+            profile_obj["display_name"] = display_name
+        if avatar_url:
+            profile_obj["avatar_url"] = avatar_url
+
+        now = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            # Check if this external identity is already linked
+            cur.execute("SELECT account_name FROM cbm_user_identities WHERE provider = ? AND provider_sub = ?", (prov_clean, sub_clean))
+            existing = cur.fetchone()
+            if existing:
+                if existing[0].lower() != clean_acc.lower():
+                    conn.close()
+                    return False, f"External identity is already linked to a different local account ({existing[0]})."
+                # Update existing link
+                cur.execute("""
+                    UPDATE cbm_user_identities
+                    SET email = ?, email_verified = ?, profile_data = ?, updated_at = ?
+                    WHERE provider = ? AND provider_sub = ?
+                """, (email, 1 if email_verified else 0, json.dumps(profile_obj), now, prov_clean, sub_clean))
+                conn.commit()
+                conn.close()
+                return True, "External identity refreshed successfully."
+
+            # Verify local account exists
+            cur.execute("SELECT account_name, avatar_url, email FROM cbm_accounts WHERE account_name = ? COLLATE NOCASE", (clean_acc,))
+            acc_row = cur.fetchone()
+            if not acc_row:
+                conn.close()
+                return False, f"Local account '{clean_acc}' does not exist."
+
+            # Insert new identity link
+            cur.execute("""
+                INSERT INTO cbm_user_identities (
+                    account_name, provider, provider_sub, email,
+                    email_verified, profile_data, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                clean_acc, prov_clean, sub_clean, email,
+                1 if email_verified else 0, json.dumps(profile_obj), now, now
+            ))
+
+            # Populate account avatar or email if currently blank
+            updates = []
+            vals = []
+            if avatar_url and (not acc_row[1] or acc_row[1] == "/cbm-logo.png"):
+                updates.append("avatar_url = ?")
+                vals.append(avatar_url)
+            if email and (len(acc_row) > 2 and not acc_row[2]):
+                updates.append("email = ?")
+                vals.append(email)
+            if updates:
+                vals.append(clean_acc)
+                cur.execute(f"UPDATE cbm_accounts SET {', '.join(updates)} WHERE account_name = ? COLLATE NOCASE", vals)
+
+            conn.commit()
+
+            if getattr(self, "use_supabase", False):
+                self._enqueue_sb_task(
+                    "cbm_user_identities",
+                    method="POST",
+                    body={
+                        "account_name": clean_acc,
+                        "provider": prov_clean,
+                        "provider_sub": sub_clean,
+                        "email": email,
+                        "email_verified": bool(email_verified),
+                        "profile_data": profile_obj
+                    }
+                )
+
+            conn.close()
+            return True, "External identity linked successfully."
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            conn.close()
+            return False, f"Failed to link identity: {e}"
+
+    def get_linked_oidc_identities(self, account_name: str) -> List[Dict[str, Any]]:
+        """Returns all external OIDC / OAuth2 identities linked to an account."""
+        clean_acc = (account_name or "").strip()
+        if not clean_acc:
+            return []
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, account_name, provider, provider_sub, email, email_verified, profile_data, created_at, updated_at
+            FROM cbm_user_identities
+            WHERE account_name = ? COLLATE NOCASE
+            ORDER BY created_at ASC
+        """, (clean_acc,))
+        rows = cur.fetchall()
+        identities = []
+        for r in rows:
+            prof = {}
+            if r["profile_data"]:
+                try:
+                    prof = json.loads(r["profile_data"])
+                except Exception:
+                    pass
+            identities.append({
+                "id": r["id"],
+                "account_name": r["account_name"],
+                "provider": r["provider"],
+                "provider_sub": r["provider_sub"],
+                "email": r["email"],
+                "email_verified": bool(r["email_verified"]),
+                "username": prof.get("username"),
+                "display_name": prof.get("display_name"),
+                "avatar_url": prof.get("avatar_url"),
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"]
+            })
+        return identities
+
+    def unlink_oidc_identity(self, account_name: str, provider: str) -> Tuple[bool, str]:
+        """Unlinks an external identity from an account."""
+        clean_acc = (account_name or "").strip()
+        prov_clean = str(provider).lower().strip()
+        if not clean_acc or not prov_clean:
+            return False, "Invalid account or provider."
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT id FROM cbm_user_identities
+                WHERE account_name = ? COLLATE NOCASE AND provider = ?
+            """, (clean_acc, prov_clean))
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return False, f"No linked identity found for provider '{prov_clean}'."
+
+            cur.execute("""
+                DELETE FROM cbm_user_identities
+                WHERE account_name = ? COLLATE NOCASE AND provider = ?
+            """, (clean_acc, prov_clean))
+            conn.commit()
+
+            if getattr(self, "use_supabase", False):
+                self._enqueue_sb_task(
+                    "cbm_user_identities",
+                    method="DELETE",
+                    params=f"?account_name=ilike.{urllib.parse.quote(clean_acc)}&provider=eq.{prov_clean}"
+                )
+
+            conn.close()
+            return True, f"Successfully unlinked {prov_clean.capitalize()} identity."
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            conn.close()
+            return False, f"Failed to unlink identity: {e}"
+
+    # -------------------------------------------------------------------------
+    # Authoritative OAuth 2.0 / OIDC Provider Operations
+    # -------------------------------------------------------------------------
+
+    def create_oauth_client(
+        self,
+        owner_account: str,
+        client_name: str,
+        redirect_uris: List[str],
+        client_type: str = "confidential",
+        allowed_scopes: str = "openid profile email",
+        logo_url: Optional[str] = None
+    ) -> Tuple[bool, Dict[str, Any], str]:
+        """
+        Registers a new third-party OAuth 2.0 / OIDC client application.
+        Returns (success, client_record, message).
+        For confidential clients, raw client_secret is returned ONLY once here.
+        """
+        clean_owner = (owner_account or "").strip()
+        clean_name = (client_name or "").strip()
+        if not clean_owner or not clean_name:
+            return False, {}, "Owner account and client application name are required."
+
+        if not isinstance(redirect_uris, list) or len(redirect_uris) == 0:
+            return False, {}, "At least one valid redirect URI is required."
+
+        for uri in redirect_uris:
+            parsed = urllib.parse.urlparse(uri)
+            if not parsed.scheme or not parsed.netloc:
+                return False, {}, f"Invalid redirect URI format: {uri}"
+
+        client_id = f"cbm_client_{secrets.token_hex(12)}"
+        client_type = "public" if client_type.lower() == "public" else "confidential"
+        raw_secret = None
+        secret_hash = None
+
+        if client_type == "confidential":
+            raw_secret = f"cbm_sec_{secrets.token_urlsafe(32)}"
+            secret_hash = hashlib.sha256(raw_secret.encode("utf-8")).hexdigest()
+
+        now = time.time()
+        uris_json = json.dumps(redirect_uris)
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_oauth_clients (
+                    client_id, client_secret_hash, client_name, owner_account,
+                    redirect_uris, allowed_scopes, client_type, logo_url,
+                    is_active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """, (
+                client_id, secret_hash, clean_name, clean_owner,
+                uris_json, allowed_scopes, client_type, logo_url,
+                now, now
+            ))
+            conn.commit()
+
+            if getattr(self, "use_supabase", False):
+                self._enqueue_sb_task(
+                    "cbm_oauth_clients",
+                    method="POST",
+                    body={
+                        "client_id": client_id,
+                        "client_secret_hash": secret_hash,
+                        "client_name": clean_name,
+                        "owner_account": clean_owner,
+                        "redirect_uris": redirect_uris,
+                        "allowed_scopes": allowed_scopes,
+                        "client_type": client_type,
+                        "logo_url": logo_url,
+                        "is_active": True
+                    }
+                )
+
+            client_record = {
+                "client_id": client_id,
+                "client_name": clean_name,
+                "owner_account": clean_owner,
+                "client_type": client_type,
+                "client_secret": raw_secret,
+                "redirect_uris": redirect_uris,
+                "allowed_scopes": allowed_scopes,
+                "logo_url": logo_url,
+                "is_active": True,
+                "created_at": now
+            }
+            return True, client_record, "OAuth client registered successfully."
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return False, {}, f"Failed to register OAuth client: {e}"
+        finally:
+            conn.close()
+
+    def get_oauth_client(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves active OAuth client application by client_id."""
+        clean_id = (client_id or "").strip()
+        if not clean_id:
+            return None
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM cbm_oauth_clients
+            WHERE client_id = ? AND is_active = 1
+            LIMIT 1
+        """, (clean_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        client = dict(row)
+        try:
+            client["redirect_uris"] = json.loads(client.get("redirect_uris") or "[]")
+        except Exception:
+            client["redirect_uris"] = []
+        return client
+
+    def list_oauth_clients_by_owner(self, owner_account: str) -> List[Dict[str, Any]]:
+        """Lists all OAuth client applications created by an account."""
+        clean_owner = (owner_account or "").strip()
+        if not clean_owner:
+            return []
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT client_id, client_name, owner_account, redirect_uris, allowed_scopes,
+                   client_type, logo_url, is_active, created_at, updated_at
+            FROM cbm_oauth_clients
+            WHERE owner_account = ? COLLATE NOCASE
+            ORDER BY created_at DESC
+        """, (clean_owner,))
+        rows = cur.fetchall()
+        clients = []
+        for r in rows:
+            c = dict(r)
+            try:
+                c["redirect_uris"] = json.loads(c.get("redirect_uris") or "[]")
+            except Exception:
+                c["redirect_uris"] = []
+            clients.append(c)
+        return clients
+
+    def verify_oauth_client_secret(self, client_id: str, client_secret: Optional[str]) -> bool:
+        """Verifies confidential client credentials."""
+        client = self.get_oauth_client(client_id)
+        if not client:
+            return False
+        if client.get("client_type") == "public":
+            return True
+        if not client_secret:
+            return False
+
+        expected_hash = client.get("client_secret_hash")
+        if not expected_hash:
+            return False
+
+        computed_hash = hashlib.sha256(client_secret.strip().encode("utf-8")).hexdigest()
+        return hmac.compare_digest(computed_hash, expected_hash)
+
+    def create_oauth_code(
+        self,
+        client_id: str,
+        account_name: str,
+        redirect_uri: str,
+        scope: str = "openid profile",
+        code_challenge: str = "",
+        code_challenge_method: str = "S256",
+        nonce: Optional[str] = None,
+        ttl_seconds: int = 300
+    ) -> Tuple[bool, str]:
+        """
+        Creates a single-use authorization code bound to PKCE and client redirect URI.
+        Returns (success, raw_code).
+        """
+        raw_code = f"cbm_code_{secrets.token_urlsafe(32)}"
+        code_hash = hashlib.sha256(raw_code.encode("utf-8")).hexdigest()
+        now = time.time()
+        expires_at = now + ttl_seconds
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_oauth_codes (
+                    code_hash, client_id, account_name, redirect_uri,
+                    scope, code_challenge, code_challenge_method, nonce,
+                    expires_at, used_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            """, (
+                code_hash, client_id, account_name, redirect_uri,
+                scope, code_challenge or "", code_challenge_method or "S256",
+                nonce, expires_at
+            ))
+            conn.commit()
+            return True, raw_code
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return False, f"Failed to issue authorization code: {e}"
+        finally:
+            conn.close()
+
+    def consume_oauth_code(
+        self,
+        raw_code: str,
+        client_id: str,
+        redirect_uri: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Atomically consumes an authorization code, ensuring single-use and validity.
+        Returns the code record dict if valid, else None.
+        """
+        if not raw_code:
+            return None
+
+        code_hash = hashlib.sha256(raw_code.strip().encode("utf-8")).hexdigest()
+        now = time.time()
+
+        conn = self.get_write_connection()
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        try:
+            cur.execute("BEGIN IMMEDIATE;")
+            cur.execute("""
+                SELECT * FROM cbm_oauth_codes
+                WHERE code_hash = ? AND client_id = ? AND used_at IS NULL AND expires_at > ?
+            """, (code_hash, client_id, now))
+            row = cur.fetchone()
+            if not row:
+                cur.execute("ROLLBACK;")
+                return None
+
+            rec = dict(row)
+            if rec.get("redirect_uri") != redirect_uri:
+                cur.execute("ROLLBACK;")
+                return None
+
+            cur.execute("UPDATE cbm_oauth_codes SET used_at = ? WHERE code_hash = ?", (now, code_hash))
+            cur.execute("COMMIT;")
+            return rec
+        except Exception:
+            try:
+                cur.execute("ROLLBACK;")
+            except Exception:
+                pass
+            return None
+        finally:
+            conn.close()
+
+    def create_oauth_tokens(
+        self,
+        client_id: str,
+        account_name: str,
+        scope: str = "openid profile",
+        access_ttl: int = 3600
+    ) -> Tuple[str, int]:
+        """
+        Issues an OAuth 2.0 access token for an authenticated user and client.
+        Returns (raw_access_token, expires_in).
+        """
+        raw_token = f"cbm_at_{secrets.token_urlsafe(36)}"
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        now = time.time()
+        expires_at = now + access_ttl
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_oauth_tokens (
+                    token_hash, token_type, client_id, account_name,
+                    scope, expires_at, is_revoked, created_at
+                ) VALUES (?, 'access', ?, ?, ?, ?, 0, ?)
+            """, (token_hash, client_id, account_name, scope, expires_at, now))
+            conn.commit()
+            return raw_token, access_ttl
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+    def verify_oauth_access_token(self, raw_token: str) -> Optional[Dict[str, Any]]:
+        """Validates OAuth access token and returns payload if active and unexpired."""
+        if not raw_token or not raw_token.startswith("cbm_at_"):
+            return None
+
+        token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
+        now = time.time()
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT token_hash, token_type, client_id, account_name, scope, expires_at, created_at
+            FROM cbm_oauth_tokens
+            WHERE token_hash = ? AND is_revoked = 0 AND expires_at > ?
+            LIMIT 1
+        """, (token_hash, now))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+    # =========================================================================
+    # AI Chat Session Memory & Lifecycle Management
+    # =========================================================================
+
+    def create_ai_session(
+        self,
+        owner_account: str,
+        title: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        max_context_turns: int = 20,
+        temperature: float = 0.7,
+        ttl_seconds: int = 3600,
+        key_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        max_turns: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Creates a new AI chat session with TTL and expiration timestamp."""
+        sess_id = (session_id or f"cbm_sess_{uuid.uuid4().hex}").strip()
+        now = time.time()
+        ttl = max(1, min(int(ttl_seconds or 3600), 604800))  # 1 sec to 7 days
+        expires_at = now + ttl
+        clean_title = (title or "New Chat").strip()[:255]
+        target_model = (model or "nvidia/nemotron-3-ultra-550b-a55b").strip()
+        effective_turns = max_turns if max_turns is not None else max_context_turns
+        clamped_turns = max(1, min(int(effective_turns or 20), 100))
+        clamped_temp = max(0.0, min(float(temperature if temperature is not None else 0.7), 2.0))
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO cbm_ai_sessions (
+                    session_id, owner_account, key_id, title, system_prompt,
+                    model, max_context_turns, temperature, ttl_seconds,
+                    total_turns, total_tokens_used, is_archived,
+                    created_at, updated_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)
+            """, (
+                sess_id, owner_account.strip(), key_id.strip() if key_id else None,
+                clean_title, system_prompt, target_model, clamped_turns, clamped_temp, ttl,
+                now, now, expires_at
+            ))
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+        return {
+            "session_id": sess_id,
+            "owner_account": owner_account.strip(),
+            "key_id": key_id.strip() if key_id else None,
+            "title": clean_title,
+            "system_prompt": system_prompt,
+            "model": target_model,
+            "max_context_turns": clamped_turns,
+            "temperature": clamped_temp,
+            "ttl_seconds": ttl,
+            "total_turns": 0,
+            "total_tokens_used": 0,
+            "created_at": now,
+            "updated_at": now,
+            "expires_at": expires_at
+        }
+
+    def get_ai_session(
+        self,
+        session_id: str,
+        owner_account: Optional[str] = None,
+        touch: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves active AI chat session.
+        If expired, immediately deletes it and returns None.
+        If touch=True and active, extends expires_at by ttl_seconds.
+        """
+        if not session_id:
+            return None
+
+        clean_id = session_id.strip()
+        now = time.time()
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        if owner_account:
+            cur.execute("""
+                SELECT * FROM cbm_ai_sessions
+                WHERE session_id = ? AND owner_account = ? AND is_archived = 0
+                LIMIT 1
+            """, (clean_id, owner_account.strip()))
+        else:
+            cur.execute("""
+                SELECT * FROM cbm_ai_sessions
+                WHERE session_id = ? AND is_archived = 0
+                LIMIT 1
+            """, (clean_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        sess = dict(row)
+
+        # Check expiration
+        if sess["expires_at"] <= now:
+            self.delete_ai_session(clean_id)
+            return None
+
+        if touch:
+            new_expiry = now + float(sess.get("ttl_seconds", 3600))
+            wconn = self.get_write_connection()
+            try:
+                wcur = wconn.cursor()
+                wcur.execute("""
+                    UPDATE cbm_ai_sessions
+                    SET updated_at = ?, expires_at = ?
+                    WHERE session_id = ?
+                """, (now, new_expiry, clean_id))
+                wconn.commit()
+                sess["updated_at"] = now
+                sess["expires_at"] = new_expiry
+            except Exception:
+                try:
+                    wconn.rollback()
+                except Exception:
+                    pass
+            finally:
+                wconn.close()
+
+        return sess
+
+    def list_ai_sessions(
+        self,
+        owner_account: str,
+        key_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Lists active AI sessions for an account, pruning expired sessions opportunistically."""
+        if not owner_account:
+            return []
+
+        now = time.time()
+        clean_acc = owner_account.strip()
+
+        # Opportunistic prune of expired sessions
+        self.prune_expired_ai_sessions()
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        params = [clean_acc, now]
+        query = """
+            SELECT session_id, owner_account, key_id, title, system_prompt,
+                   model, max_context_turns, temperature, ttl_seconds,
+                   total_turns, total_tokens_used, created_at, updated_at, expires_at
+            FROM cbm_ai_sessions
+            WHERE owner_account = ? AND expires_at > ? AND is_archived = 0
+        """
+        if key_id:
+            query += " AND (key_id = ? OR key_id IS NULL)"
+            params.append(key_id.strip())
+
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([max(1, min(int(limit), 100)), max(0, int(offset))])
+
+        cur.execute(query, tuple(params))
+        rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def update_ai_session(
+        self,
+        session_id: str,
+        owner_account: Optional[str] = None,
+        title: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        model: Optional[str] = None,
+        max_context_turns: Optional[int] = None,
+        ttl_seconds: Optional[int] = None,
+        max_turns: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Updates AI session settings and refreshes expiration."""
+        sess = self.get_ai_session(session_id, owner_account=owner_account, touch=False)
+        if not sess:
+            return False
+
+        now = time.time()
+        ttl = max(1, min(int(ttl_seconds), 604800)) if ttl_seconds is not None else sess.get("ttl_seconds", 3600)
+        new_expiry = now + ttl
+
+        updates = ["updated_at = ?", "expires_at = ?", "ttl_seconds = ?"]
+        params = [now, new_expiry, ttl]
+
+        if title is not None:
+            updates.append("title = ?")
+            params.append(str(title).strip()[:255])
+        if system_prompt is not None:
+            updates.append("system_prompt = ?")
+            params.append(str(system_prompt))
+        if model is not None:
+            updates.append("model = ?")
+            params.append(str(model).strip())
+        effective_turns = max_turns if max_turns is not None else max_context_turns
+        if effective_turns is not None:
+            updates.append("max_context_turns = ?")
+            params.append(max(1, min(int(effective_turns), 100)))
+
+        params.append(session_id.strip())
+        where_clause = "session_id = ?"
+        if owner_account:
+            where_clause += " AND owner_account = ?"
+            params.append(owner_account.strip())
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(f"UPDATE cbm_ai_sessions SET {', '.join(updates)} WHERE {where_clause}", tuple(params))
+            conn.commit()
+            return cur.rowcount > 0
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return False
+        finally:
+            conn.close()
+
+    def delete_ai_session(self, session_id: str, owner_account: Optional[str] = None) -> bool:
+        """Permanently purges an AI session and all associated turns via cascading deletion."""
+        if not session_id:
+            return False
+
+        clean_id = session_id.strip()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("PRAGMA foreign_keys = ON;")
+            if owner_account:
+                cur.execute("DELETE FROM cbm_ai_sessions WHERE session_id = ? AND owner_account = ?", (clean_id, owner_account.strip()))
+            else:
+                cur.execute("DELETE FROM cbm_ai_sessions WHERE session_id = ?", (clean_id,))
+            deleted = cur.rowcount > 0
+            cur.execute("DELETE FROM cbm_ai_session_messages WHERE session_id = ?", (clean_id,))
+            conn.commit()
+            return deleted
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return False
+        finally:
+            conn.close()
+
+    def clear_ai_session_messages(self, session_id: str, owner_account: Optional[str] = None) -> bool:
+        """Clears all turns for a session while keeping the session alive and resetting turn count."""
+        sess = self.get_ai_session(session_id, owner_account=owner_account, touch=True)
+        if not sess:
+            return False
+
+        clean_id = session_id.strip()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("DELETE FROM cbm_ai_session_messages WHERE session_id = ?", (clean_id,))
+            cur.execute("""
+                UPDATE cbm_ai_sessions
+                SET total_turns = 0, total_tokens_used = 0, updated_at = ?
+                WHERE session_id = ?
+            """, (time.time(), clean_id))
+            conn.commit()
+            return True
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return False
+        finally:
+            conn.close()
+
+    def append_ai_session_message(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        reasoning_content: Optional[str] = None,
+        tokens: int = 0
+    ) -> Dict[str, Any]:
+        """Appends a turn to the session message history and updates session metadata."""
+        clean_id = session_id.strip()
+        clean_role = role.strip().lower()
+        msg_id = f"ai_msg_{uuid.uuid4().hex}"
+        now = time.time()
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT total_turns, ttl_seconds FROM cbm_ai_sessions WHERE session_id = ?", (clean_id,))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError(f"AI session '{clean_id}' does not exist or has expired.")
+
+            cur_turns, ttl = row[0], row[1]
+            new_turns = cur_turns + 1
+            new_expiry = now + float(ttl)
+
+            cur.execute("""
+                INSERT INTO cbm_ai_session_messages (
+                    message_id, session_id, role, content, reasoning_content,
+                    tokens, turn_index, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (msg_id, clean_id, clean_role, content, reasoning_content, int(tokens or 0), new_turns, now))
+
+            cur.execute("""
+                UPDATE cbm_ai_sessions
+                SET total_turns = ?,
+                    total_tokens_used = total_tokens_used + ?,
+                    updated_at = ?,
+                    expires_at = ?
+                WHERE session_id = ?
+            """, (new_turns, int(tokens or 0), now, new_expiry, clean_id))
+
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+        return {
+            "message_id": msg_id,
+            "session_id": clean_id,
+            "role": clean_role,
+            "content": content,
+            "reasoning_content": reasoning_content,
+            "tokens": int(tokens or 0),
+            "turn_index": new_turns,
+            "created_at": now
+        }
+
+    def get_ai_session_messages(
+        self,
+        session_id: str,
+        limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieves messages for an active session ordered chronologically."""
+        if not session_id:
+            return []
+
+        clean_id = session_id.strip()
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+
+        if limit:
+            cur.execute("""
+                SELECT message_id, session_id, role, content, reasoning_content, tokens, turn_index, created_at
+                FROM cbm_ai_session_messages
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (clean_id, max(1, int(limit))))
+            rows = cur.fetchall()
+            return [dict(r) for r in reversed(rows)]
+        else:
+            cur.execute("""
+                SELECT message_id, session_id, role, content, reasoning_content, tokens, turn_index, created_at
+                FROM cbm_ai_session_messages
+                WHERE session_id = ?
+                ORDER BY created_at ASC
+            """, (clean_id,))
+            rows = cur.fetchall()
+            return [dict(r) for r in rows]
+
+    def assemble_ai_session_context(
+        self,
+        session_id: str,
+        incoming_messages: Union[str, List[Dict[str, Any]]],
+        max_turns: Optional[int] = None
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        Assembles a sliding-window context list for NVIDIA NIM:
+        [persistent system_prompt] + [recent session turns] + [incoming messages].
+        Returns (assembled_messages, session_record, new_incoming_turns).
+        """
+        sess = self.get_ai_session(session_id, touch=True)
+        if not sess:
+            raise ValueError(f"Chat session '{session_id}' not found or has expired.")
+
+        max_history_count = (max_turns or sess.get("max_context_turns", 20)) * 2
+        history_msgs = self.get_ai_session_messages(session_id, limit=max_history_count)
+
+        assembled: List[Dict[str, Any]] = []
+
+        # 1. Persistent System Prompt (if defined in session and not overridden)
+        sys_prompt = sess.get("system_prompt")
+        has_system_in_history = any(m["role"] == "system" for m in history_msgs)
+        if sys_prompt and not has_system_in_history:
+            assembled.append({"role": "system", "content": sys_prompt})
+
+        # 2. Historical turns
+        for m in history_msgs:
+            assembled.append({
+                "role": m["role"],
+                "content": m["content"]
+            })
+
+        # 3. Normalize & append incoming turn
+        if isinstance(incoming_messages, str):
+            incoming_normalized = [{"role": "user", "content": incoming_messages.strip()}]
+        elif isinstance(incoming_messages, list):
+            incoming_normalized = []
+            for item in incoming_messages:
+                if isinstance(item, dict) and "role" in item and "content" in item:
+                    incoming_normalized.append({
+                        "role": str(item["role"]).strip().lower(),
+                        "content": item["content"]
+                    })
+        else:
+            incoming_normalized = []
+
+        # Deduplicate prefix if client resent historical turns
+        new_turns = incoming_normalized
+        if history_msgs and incoming_normalized:
+            hist_pairs = [(m["role"], m["content"]) for m in history_msgs]
+            inc_pairs = [(m["role"], m["content"]) for m in incoming_normalized]
+            match_len = 0
+            for k in range(min(len(hist_pairs), len(inc_pairs)), 0, -1):
+                if hist_pairs[-k:] == inc_pairs[:k]:
+                    match_len = k
+                    break
+            if match_len > 0:
+                new_turns = incoming_normalized[match_len:]
+
+        assembled.extend(new_turns)
+        return assembled, sess, new_turns
+
+    def prune_expired_ai_sessions(self) -> int:
+        """
+        Garbage collection sweeper: permanently purges all sessions and messages
+        whose expires_at timestamp has passed.
+        """
+        now = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        pruned_count = 0
+        try:
+            cur.execute("PRAGMA foreign_keys = ON;")
+            cur.execute("SELECT session_id FROM cbm_ai_sessions WHERE expires_at < ?", (now,))
+            expired_ids = [row[0] for row in cur.fetchall()]
+            if expired_ids:
+                cur.execute("DELETE FROM cbm_ai_sessions WHERE expires_at < ?", (now,))
+                pruned_count = cur.rowcount
+                placeholders = ",".join(["?"] * len(expired_ids))
+                cur.execute(f"DELETE FROM cbm_ai_session_messages WHERE session_id IN ({placeholders})", tuple(expired_ids))
+                conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        finally:
+            conn.close()
+
+        return pruned_count
 

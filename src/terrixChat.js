@@ -223,6 +223,8 @@
       if (data && data.status === 'ok' && data.message) {
         addSpeechBubble(data.message);
         state.lastMessageId = data.message.id;
+      } else if (data && (data.status === 'error' || data.error)) {
+        showChatNotice(data.message || 'Message blocked by automated AI safety policy.');
       }
     } catch(e) {
       console.warn('[TerriX Chat] Error sending message:', e);
@@ -641,6 +643,32 @@
     '}',
     '.terrix-chat-close-btn:hover {',
     '  color: #ffffff !important;',
+    '}',
+    '',
+    '/* AI Content Safety Alert Notice */',
+    '.terrix-chat-notice {',
+    '  position: fixed !important;',
+    '  bottom: 142px !important;',
+    '  left: 50% !important;',
+    '  transform: translateX(-50%) !important;',
+    '  background: rgba(234, 57, 67, 0.95) !important;',
+    '  color: #ffffff !important;',
+    '  border: 1px solid rgba(255, 255, 255, 0.25) !important;',
+    '  border-radius: 9999px !important;',
+    '  padding: 6px 16px !important;',
+    '  font-size: 12px !important;',
+    '  font-weight: 600 !important;',
+    '  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;',
+    '  z-index: 1000001 !important;',
+    '  pointer-events: none !important;',
+    '  animation: txNoticeFade 0.2s ease-out forwards !important;',
+    '  display: flex !important;',
+    '  align-items: center !important;',
+    '  gap: 6px !important;',
+    '}',
+    '@keyframes txNoticeFade {',
+    '  from { opacity: 0; transform: translate(-50%, 8px); }',
+    '  to { opacity: 1; transform: translate(-50%, 0); }',
     '}'
   ].join('\n');
 
@@ -915,12 +943,36 @@
     }
   }
 
+  var noticeTimer = null;
+  function showChatNotice(msg) {
+    try {
+      var old = document.getElementById('terrix-chat-notice');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+      if (noticeTimer) clearTimeout(noticeTimer);
+
+      var el = document.createElement('div');
+      el.id = 'terrix-chat-notice';
+      el.className = 'terrix-chat-notice';
+      el.innerHTML = '🛡️ ' + String(msg).slice(0, 140);
+      document.body.appendChild(el);
+
+      noticeTimer = setTimeout(function() {
+        if (el && el.parentNode) el.parentNode.removeChild(el);
+      }, 4000);
+    } catch(e) {}
+  }
+
   function submitInput() {
     var input = document.getElementById('tx-chat-input');
     if (!input) return;
     var text = input.value;
     if (text && text.trim()) {
-      sendMessage(text);
+      var clean = text.trim();
+      if (clean.length > 500) {
+        showChatNotice('Message exceeds 500 characters limit.');
+        return;
+      }
+      sendMessage(clean);
       input.value = '';
     }
     closeChatInbox();

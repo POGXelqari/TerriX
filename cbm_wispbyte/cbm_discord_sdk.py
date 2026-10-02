@@ -125,6 +125,14 @@ class CBMClient:
         """Fetches top clan donors (Clan War Chest Honor Roll)."""
         return self._request("GET", "/api/v1/donors/leaderboard", params={"limit": limit})
 
+    def verify_product_order(self, order_id: str, token: str) -> Dict[str, Any]:
+        """Cryptographically verifies a completed product order token via API Key."""
+        return self._request("POST", "/api/v1/products/verify", body={
+            "order_id": order_id.strip(),
+            "token": token.strip()
+        })
+
+
 
 class CBMDiscordEmbeds:
     """

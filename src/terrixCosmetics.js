@@ -23,6 +23,7 @@
 
   var CBM_API_BASE = "https://cbm.wispbyte.org/api/v1";
   var CBM_WEB_BASE = "https://cbm.wispbyte.org";
+  var CBM_CLIENT_API_KEY = "cbm_live_2063e984d4e66cbd90cc1fcc33e54a1199d5a978";
   var PRODUCT_ID = "prod_hellokitty";
   var PRODUCT_ID_POLAND = "prod_poland";
   var VAULT_ACCOUNT = "DdcBC";
@@ -372,7 +373,11 @@
         if (receipt && receipt.order_id && receipt.verification_token) {
           fetch(CBM_API_BASE + "/products/verify", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer " + CBM_CLIENT_API_KEY,
+              "X-CBM-API-Key": CBM_CLIENT_API_KEY
+            },
             body: JSON.stringify({
               order_id: receipt.order_id,
               token: receipt.verification_token
@@ -403,7 +408,11 @@
         if (receiptPoland && receiptPoland.order_id && receiptPoland.verification_token) {
           fetch(CBM_API_BASE + "/products/verify", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": "Bearer " + CBM_CLIENT_API_KEY,
+              "X-CBM-API-Key": CBM_CLIENT_API_KEY
+            },
             body: JSON.stringify({
               order_id: receiptPoland.order_id,
               token: receiptPoland.verification_token
@@ -469,16 +478,31 @@
     }, 4000);
   }
 
+  function parseExpiresAt(val) {
+    if (!val) return (Date.now() / 1000) + 900;
+    if (typeof val === 'number') {
+      return val > 1e11 ? val / 1000 : val;
+    }
+    var num = parseFloat(val);
+    if (!isNaN(num) && isFinite(num) && !String(val).includes('T') && !String(val).includes('-')) {
+      return num > 1e11 ? num / 1000 : num;
+    }
+    var d = new Date(val).getTime();
+    if (!isNaN(d)) return d / 1000;
+    return (Date.now() / 1000) + 900;
+  }
+
   function startSlipCountdown(expiresAt) {
     if (state.countdownTimer) {
       clearInterval(state.countdownTimer);
       state.countdownTimer = null;
     }
+    var targetSec = parseExpiresAt(expiresAt);
     function tick() {
       var timerEl = document.getElementById('tx-slip-timer');
       if (!timerEl) return;
       var now = Date.now() / 1000;
-      var remaining = Math.max(0, Math.floor(expiresAt - now));
+      var remaining = Math.max(0, Math.floor(targetSec - now));
       if (remaining <= 0) {
         timerEl.innerText = "EXPIRED";
         timerEl.style.color = "#ef4444";

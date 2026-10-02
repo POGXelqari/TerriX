@@ -173,6 +173,7 @@ class TestHTTPServerSecurity(unittest.TestCase):
 
         import main
         main.PORT = TEST_PORT
+        main.db = CBMDatabase(db_path=DB_PATH, use_supabase=False)
         cls.server_thread = threading.Thread(target=main.run_http_server, daemon=True)
         cls.server_thread.start()
         time.sleep(0.6)
@@ -198,7 +199,7 @@ class TestHTTPServerSecurity(unittest.TestCase):
 
     def test_max_payload_size_rejection(self):
         url = f"http://127.0.0.1:{TEST_PORT}/api/cbm/auth/verify-pin"
-        oversized_data = json.dumps({"account_name": "TestUser", "pin": "1234", "padding": "A" * (70 * 1024)}).encode("utf-8")
+        oversized_data = json.dumps({"account_name": "TestUser", "pin": "123456", "padding": "A" * (70 * 1024)}).encode("utf-8")
         req = urllib.request.Request(url, data=oversized_data, headers={"Content-Type": "application/json"})
 
         try:
@@ -214,13 +215,14 @@ class TestHTTPServerSecurity(unittest.TestCase):
         user = "LockoutHTTPVictim"
         db = CBMDatabase(db_path=DB_PATH, use_supabase=False)
         db.register_or_get_account(user)
-        db.set_account_pin(user, "9999")
+        ok, msg = db.set_account_pin(user, "999999")
+        self.assertTrue(ok, f"Failed to set 6-digit PIN: {msg}")
 
         # Clear any prior state in rate limiter for this account
         rate_limiter.record_auth_success(user)
 
         url = f"http://127.0.0.1:{TEST_PORT}/api/cbm/auth/verify-pin"
-        wrong_payload = json.dumps({"account_name": user, "pin": "0000"}).encode("utf-8")
+        wrong_payload = json.dumps({"account_name": user, "pin": "000000"}).encode("utf-8")
 
         # 5 failed attempts
         for i in range(5):
@@ -252,7 +254,7 @@ class TestHTTPServerSecurity(unittest.TestCase):
         url = f"http://127.0.0.1:{TEST_PORT}/api/cbm/auth/create-pin"
         hijack_payload = json.dumps({
             "account_name": user,
-            "pin": "1234",
+            "pin": "123456",
             "territorial_password": ""
         }).encode("utf-8")
 

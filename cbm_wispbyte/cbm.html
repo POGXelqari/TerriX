@@ -495,7 +495,7 @@
       font-size: 12px;
     }
 
-    /* Live Metrics PayPal Dashboard Cards */
+    /* Volumetric 3D Sculptural Metric Cards */
     .metrics-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -504,25 +504,130 @@
     }
 
     .metric-game-card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
+      background: linear-gradient(145deg, #131c2e 0%, #090e18 100%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
       padding: 20px;
       position: relative;
-      transition: var(--transition);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+      transition: transform 0.28s cubic-bezier(0.2, 0.9, 0.4, 1.1), box-shadow 0.28s ease, border-color 0.28s ease;
+      box-shadow: 
+        inset 0 1px 1px 0 rgba(255, 255, 255, 0.16),
+        inset 0 -2px 4px 0 rgba(0, 0, 0, 0.7),
+        0 14px 28px -6px rgba(0, 0, 0, 0.75),
+        0 4px 10px -2px rgba(0, 0, 0, 0.4);
+      overflow: hidden;
+      transform: perspective(1000px) translateZ(0);
+    }
+
+    .metric-game-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.35) 50%, transparent 100%);
+      pointer-events: none;
     }
 
     .metric-game-card:hover {
-      border-color: var(--border-bright);
-      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.25);
+      transform: perspective(1000px) translateY(-5px) translateZ(10px) rotateX(1.5deg);
+      box-shadow: 
+        inset 0 1px 2px 0 rgba(255, 255, 255, 0.3),
+        inset 0 -2px 4px 0 rgba(0, 0, 0, 0.7),
+        0 22px 40px -8px rgba(0, 0, 0, 0.85),
+        0 6px 16px -2px rgba(0, 112, 224, 0.25);
+    }
+
+    .metric-game-card.card-gold:hover {
+      box-shadow: 
+        inset 0 1px 2px 0 rgba(255, 240, 150, 0.35),
+        0 22px 40px -8px rgba(0, 0, 0, 0.85),
+        0 6px 18px -2px rgba(245, 197, 24, 0.3);
+    }
+
+    .metric-game-card.card-green:hover {
+      box-shadow: 
+        inset 0 1px 2px 0 rgba(150, 255, 200, 0.35),
+        0 22px 40px -8px rgba(0, 0, 0, 0.85),
+        0 6px 18px -2px rgba(16, 185, 129, 0.3);
+    }
+
+    .metric-game-card.card-blue:hover {
+      box-shadow: 
+        inset 0 1px 2px 0 rgba(150, 210, 255, 0.35),
+        0 22px 40px -8px rgba(0, 0, 0, 0.85),
+        0 6px 18px -2px rgba(0, 112, 224, 0.3);
+    }
+
+    .metric-game-card.card-cyan:hover {
+      box-shadow: 
+        inset 0 1px 2px 0 rgba(150, 245, 255, 0.35),
+        0 22px 40px -8px rgba(0, 0, 0, 0.85),
+        0 6px 18px -2px rgba(6, 182, 212, 0.3);
     }
 
     .metric-top {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
+    }
+
+    .metric-3d-badge {
+      width: 50px;
+      height: 50px;
+      aspect-ratio: 1/1;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.55));
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 
+        inset 0 1px 2px rgba(255, 255, 255, 0.25),
+        inset 0 -2px 3px rgba(0, 0, 0, 0.7),
+        0 6px 14px rgba(0, 0, 0, 0.5);
+      position: relative;
+      flex-shrink: 0;
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .metric-3d-badge img {
+      max-width: 38px;
+      max-height: 38px;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.6));
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .metric-game-card:hover .metric-3d-badge img {
+      transform: scale(1.14);
+    }
+
+    .badge-gold {
+      border-color: rgba(245, 197, 24, 0.4);
+      background: radial-gradient(circle at 35% 30%, rgba(245, 197, 24, 0.2), rgba(10, 14, 24, 0.7));
+      box-shadow: inset 0 1px 2px rgba(255, 235, 120, 0.35), 0 4px 14px rgba(245, 197, 24, 0.2);
+    }
+
+    .badge-emerald {
+      border-color: rgba(16, 185, 129, 0.4);
+      background: radial-gradient(circle at 35% 30%, rgba(16, 185, 129, 0.2), rgba(10, 14, 24, 0.7));
+      box-shadow: inset 0 1px 2px rgba(120, 255, 190, 0.35), 0 4px 14px rgba(16, 185, 129, 0.2);
+    }
+
+    .badge-blue {
+      border-color: rgba(0, 112, 224, 0.4);
+      background: radial-gradient(circle at 35% 30%, rgba(0, 112, 224, 0.22), rgba(10, 14, 24, 0.7));
+      box-shadow: inset 0 1px 2px rgba(120, 190, 255, 0.35), 0 4px 14px rgba(0, 112, 224, 0.2);
+    }
+
+    .badge-cyan {
+      border-color: rgba(6, 182, 212, 0.4);
+      background: radial-gradient(circle at 35% 30%, rgba(6, 182, 212, 0.2), rgba(10, 14, 24, 0.7));
+      box-shadow: inset 0 1px 2px rgba(120, 240, 255, 0.35), 0 4px 14px rgba(6, 182, 212, 0.2);
     }
 
     .metric-title {
@@ -870,7 +975,7 @@
     }
 
     .text-blue {
-      color: (#5db0ff) !important;
+      color: #5db0ff !important;
     }
 
     .text-red {
@@ -999,6 +1104,199 @@
         transform: translateY(0) scale(1);
       }
     }
+    /* 3D Tips Modal & Diegetic Advisor Styles */
+    .advisor-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(3, 7, 15, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      animation: advisorFadeIn 0.22s ease-out;
+    }
+    @keyframes advisorFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .advisor-modal-window {
+      background: linear-gradient(145deg, #141d2e 0%, #0a0f1b 100%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      box-shadow: 
+        inset 0 1px 1px rgba(255, 255, 255, 0.22),
+        inset 0 -2px 5px rgba(0, 0, 0, 0.7),
+        0 24px 60px rgba(0, 0, 0, 0.85),
+        0 0 40px rgba(0, 112, 224, 0.15);
+      max-width: 760px;
+      width: 100%;
+      position: relative;
+      overflow: hidden;
+      animation: advisorPopIn 0.28s cubic-bezier(0.18, 0.89, 0.32, 1.15);
+    }
+    @keyframes advisorPopIn {
+      from { transform: scale(0.92) translateY(12px); opacity: 0; }
+      to { transform: scale(1) translateY(0); opacity: 1; }
+    }
+    .advisor-modal-close {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      color: #c9d4e2;
+      font-size: 18px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: all 0.15s ease;
+    }
+    .advisor-modal-close:hover {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+      transform: scale(1.08);
+    }
+    .advisor-flex-body {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 24px;
+    }
+    .advisor-speech-bubble {
+      flex: 1;
+      background: rgba(13, 20, 34, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12);
+      position: relative;
+    }
+    .speech-header {
+      margin-bottom: 14px;
+    }
+    .speech-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+      margin: 0 0 4px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .speech-intro {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin: 0;
+      line-height: 1.4;
+    }
+    .tips-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .tip-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      transition: background 0.15s ease;
+    }
+    .tip-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+    .tip-badge {
+      font-size: 18px;
+      padding: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .tip-content strong {
+      font-size: 0.85rem;
+      color: #fff;
+      display: block;
+      margin-bottom: 2px;
+    }
+    .tip-content p {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin: 0;
+      line-height: 1.35;
+    }
+    .advisor-character-col {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 140px;
+    }
+    .advisor-character-img {
+      width: 120px;
+      height: 360px;
+      object-fit: contain;
+      filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 15px rgba(245, 197, 24, 0.25));
+      animation: advisorFloat 3s ease-in-out infinite alternate;
+    }
+    @keyframes advisorFloat {
+      from { transform: translateY(0); }
+      to { transform: translateY(-6px); }
+    }
+    .advisor-tag {
+      margin-top: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--paypal-yellow);
+      background: rgba(245, 197, 24, 0.12);
+      border: 1px solid rgba(245, 197, 24, 0.3);
+      padding: 3px 10px;
+      border-radius: 9999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .btn-tips-close {
+      background: linear-gradient(180deg, #0070e0 0%, #004d9c 100%);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 9999px;
+      padding: 9px 24px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0, 112, 224, 0.35);
+      transition: all 0.15s ease;
+    }
+    .btn-tips-close:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(0, 112, 224, 0.5);
+    }
+    @media (max-width: 640px) {
+      .advisor-flex-body {
+        flex-direction: column-reverse;
+        padding: 16px;
+      }
+      .advisor-character-col {
+        width: 100%;
+      }
+      .advisor-character-img {
+        width: 70px;
+        height: 210px;
+      }
+    }
   </style>
 </head>
 
@@ -1008,8 +1306,7 @@
   <header class="game-hud">
     <div class="hud-inner">
       <a href="/cbm" class="brand-hud">
-        <!-- Kept Official CBM Logo as Requested -->
-        <img class="cbm-logo-box" src="/cbm-logo.png" alt="CBM Official Crest">
+        <img class="cbm-logo-box" src="/cbm-logo-new.png" width="38" height="60" alt="CBM Official Crest" style="object-fit: contain;">
         <div class="brand-text">
           <span class="brand-title">Clan Bank Manager</span>
           <span class="brand-subtitle">Territorial.io • Clan Treasury Portal</span>
@@ -1034,6 +1331,12 @@
           <span>⚡</span>
           <span><strong class="mono text-gold" id="navVolumeTotal" style="color: var(--paypal-yellow);">--</strong> Vol</span>
         </div>
+
+        <!-- Helpful Tips Button -->
+        <button type="button" class="vault-hud-badge" onclick="openAdvisorModal()" style="cursor: pointer; gap: 6px; background: rgba(245, 197, 24, 0.12); border-color: rgba(245, 197, 24, 0.35); color: var(--paypal-yellow);" title="Helpful tips & how CBM works">
+          <span>💡</span>
+          <span>Tips</span>
+        </button>
 
         <!-- Consolidated Explore Menu -->
         <div class="cbm-nav-dropdown-wrap" id="navExploreWrap">
@@ -1095,15 +1398,16 @@
   </header>
 
   <main>
+    <!-- Sponsored Partner Hero Slot (Zero-CLS container) -->
+    <div id="cbmHeroAdContainer" class="cbm-ad-container-hero" style="width: 100%; max-width: 728px; min-height: 90px; aspect-ratio: 728/90; margin: 0 auto 16px auto; position: relative;"></div>
+
     <!-- In-Game Headline Card -->
     <div class="hero-window">
       <div class="hero-crest-wrap">
-        <!-- Kept Official CBM Logo in Hero Banner -->
-        <img src="/cbm-logo.png" alt="CBM Crest" class="hero-cbm-crest">
+        <img src="/cbm-logo-new.png" width="56" height="88" alt="CBM Crest" class="hero-cbm-crest" style="object-fit: contain;">
         <div>
           <h1>Clan Bank Manager</h1>
-          <p>Audited reserve custody, automated deposit reconciliation, and member account management for Territorial.io
-            clans.</p>
+          <p>Audited reserve custody, automated deposit reconciliation, and member account management for Territorial.io clans.</p>
           <div class="community-stats-row">
             <div class="community-stat-pill" title="Total Registered Clan Accounts">
               <span class="stat-pill-icon">👥</span>
@@ -1133,23 +1437,26 @@
 
     <!-- Live Metrics Grid -->
     <div class="metrics-grid">
-      <div class="metric-game-card">
+      <div class="metric-game-card card-gold">
         <div class="metric-top">
           <span class="metric-title">Total Vault Assets</span>
-          <span>🧈</span>
+          <div class="metric-3d-badge badge-gold">
+            <img src="/total-vault-assets-icon.png" width="38" height="38" alt="Vault Assets" style="object-fit: contain;">
+          </div>
         </div>
         <div class="metric-game-val gold" id="valVaultGold">---</div>
         <div class="metric-foot">
           <span>In custody on Territorial.io</span>
-          <span id="vaultAuditPill" class="game-pill blue" style="margin-left: auto; font-size: 9px;">Auditing
-            Live...</span>
+          <span id="vaultAuditPill" class="game-pill blue" style="margin-left: auto; font-size: 9px;">Auditing Live...</span>
         </div>
       </div>
 
-      <div class="metric-game-card">
+      <div class="metric-game-card card-green">
         <div class="metric-top">
           <span class="metric-title">Unencumbered Reserves</span>
-          <span>🛡️</span>
+          <div class="metric-3d-badge badge-emerald">
+            <img src="/unencumbered-reserves-icon.png" width="38" height="38" alt="Reserves" style="object-fit: contain;">
+          </div>
         </div>
         <div class="metric-game-val green" id="valReserves">---</div>
         <div class="metric-foot">
@@ -1157,10 +1464,12 @@
         </div>
       </div>
 
-      <div class="metric-game-card">
+      <div class="metric-game-card card-blue">
         <div class="metric-top">
           <span class="metric-title">Member Liabilities</span>
-          <span>👥</span>
+          <div class="metric-3d-badge badge-blue">
+            <img src="/member-liabilities-icon.png" width="38" height="38" alt="Liabilities" style="object-fit: contain;">
+          </div>
         </div>
         <div class="metric-game-val blue" id="valLiab">0.00</div>
         <div class="metric-foot">
@@ -1168,10 +1477,12 @@
         </div>
       </div>
 
-      <div class="metric-game-card">
+      <div class="metric-game-card card-cyan">
         <div class="metric-top">
           <span class="metric-title">Solvency Ratio</span>
-          <span>📈</span>
+          <div class="metric-3d-badge badge-cyan">
+            <img src="/solvency-ratio-icon.png" width="38" height="38" alt="Solvency Ratio" style="object-fit: contain;">
+          </div>
         </div>
         <div class="metric-game-val green" id="valSolvency">100.0%</div>
         <div class="metric-foot">
@@ -1392,7 +1703,7 @@
             </div>
           </div>
 
-          <form onsubmit="handleSaveProfile(event)" style="max-width: 640px;">
+          <form method="POST" onsubmit="handleSaveProfile(event)" style="max-width: 640px;">
             <input type="hidden" id="editProfileAcc">
 
             <div class="game-form-group">
@@ -1527,7 +1838,7 @@
           </div>
 
           <div style="font-size: 11px; color: var(--text-muted); font-family: system-ui, sans-serif;">
-            ℹ️ To deposit without entering passwords, link your account under <em>Link Alts</em>.
+            ℹ️ To link your player accounts, visit <em>Link Game Alts</em> under Account Management.
           </div>
         </div>
 
@@ -1575,7 +1886,7 @@
             </div>
           </div>
 
-          <form onsubmit="handleWithdraw(event)">
+          <form method="POST" onsubmit="handleWithdraw(event)">
             <div class="game-form-group">
               <label>Your Registered Account Name</label>
               <input type="text" id="wAccName" name="wAccName" class="game-input" placeholder="e.g. B8bbq" required autocomplete="username">
@@ -1714,7 +2025,7 @@
               unencumbered Clan Bank Reserves (irrevocable & non-refundable).
             </p>
 
-            <form onsubmit="handleDonate(event)">
+            <form method="POST" onsubmit="handleDonate(event)">
               <div class="game-form-group">
                 <label>Your CBM Account Name</label>
                 <input type="text" id="donateAccName" name="donateAccName" class="game-input" placeholder="e.g. B8bbq" required autocomplete="username">
@@ -1856,19 +2167,18 @@
           <div class="panel-headline">
             <div>
               <h3>Link Game Alts</h3>
-              <p>Connect your player credentials directly or link without passwords via confirmed public deposit
-                history.</p>
+              <p>Link your secondary player identities securely via confirmed public in-game deposit history.</p>
             </div>
           </div>
 
-          <div style="display: flex; gap: 6px; margin-bottom: 16px;">
-            <button id="pmTabCred" type="button" class="btn-game btn-game-primary btn-game-sm" style="flex: 1;"
-              onclick="setPmMethod('INPUT_CREDENTIALS')">API Credentials</button>
-            <button id="pmTabTx" type="button" class="btn-game btn-game-secondary btn-game-sm" style="flex: 1;"
-              onclick="setPmMethod('TRANSACTION_VERIFIED')">Ledger Deposit (Zero-Pass)</button>
+          <div id="pmTxNotice" class="game-subpanel"
+            style="border-color: var(--link); margin-bottom: 14px; font-family: system-ui, sans-serif; font-size: 12px; color: #b8dbfc; line-height: 1.5;">
+            <strong>Zero-Password Verification:</strong> Link your player identity without sharing passwords. To verify, your
+            account must have sent at least 1 Gold in-game to vault account <strong class="mono"
+              style="color:#fff;">DdcBC</strong>.
           </div>
 
-          <form id="linkPaymentMethodForm" name="linkPaymentMethodForm" onsubmit="handleLinkPaymentMethod(event)">
+          <form id="linkPaymentMethodForm" name="linkPaymentMethodForm" method="POST" onsubmit="handleLinkPaymentMethod(event)">
             <div class="game-form-group">
               <label>CBM Username / Clan Identity</label>
               <input type="text" id="pmCbmUser" name="pmCbmUser" class="game-input" placeholder="e.g. B8bbq" required autocomplete="username">
@@ -1877,19 +2187,6 @@
             <div class="game-form-group">
               <label>Territorial.io Account Name</label>
               <input type="text" id="pmTerriAcc" name="pmTerriAcc" class="game-input" placeholder="In-game player name" required autocomplete="username">
-            </div>
-
-            <div class="game-form-group" id="pmPassGroup">
-              <label>Territorial.io Account Password</label>
-              <input type="password" id="pmTerriPass" name="pmTerriPass" class="game-input" placeholder="In-game account password" autocomplete="current-password">
-              <span class="form-subtext">Verified directly against official game API. Never disclosed.</span>
-            </div>
-
-            <div id="pmTxNotice" class="game-subpanel"
-              style="display: none; border-color: var(--link); margin-bottom: 14px; font-family: system-ui, sans-serif; font-size: 12px; color: #b8dbfc; line-height: 1.5;">
-              <strong>Zero-Password Verification:</strong> Link your account without sharing passwords. To verify, your
-              account must have sent at least 1 Gold in-game to vault account <strong class="mono"
-                style="color:#fff;">DdcBC</strong>.
             </div>
 
             <div class="game-form-group">
@@ -1993,7 +2290,7 @@
             </div>
           </div>
 
-          <form id="loanRequestForm" name="loanRequestForm" onsubmit="handleLoanRequest(event)">
+          <form id="loanRequestForm" name="loanRequestForm" method="POST" onsubmit="handleLoanRequest(event)">
             <div class="game-form-group">
               <label>Borrower CBM Identity</label>
               <input type="text" id="loanAccName" name="loanAccName" class="game-input" placeholder="e.g. B8bbq" required readonly style="opacity: 0.85;" autocomplete="username">
@@ -2013,29 +2310,9 @@
               </div>
             </div>
 
-            <!-- In-Game Credential Authorization Section -->
-            <div class="game-form-group">
-              <label>Territorial.io Collateral / Recovery Credential *</label>
-              <select id="loanCredSelect" class="game-input" onchange="handleLoanCredSelectChange(this.value)">
-                <option value="__custom__">+ Enter In-Game Credentials</option>
-              </select>
-              <span class="form-subtext" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block;">
-                Your in-game credentials serve as debt recovery authorization in the event of default or covenant breach.
-              </span>
-            </div>
-
-            <div id="loanCustomCredsBox" style="background: var(--panel-2); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-bottom: 14px;">
-              <div class="game-form-group" style="margin-bottom: 10px;">
-                <label style="font-size: 12px;">Territorial.io Account Name</label>
-                <input type="text" id="loanTerriAcc" name="loanTerriAcc" class="game-input" placeholder="In-game player name" autocomplete="username">
-              </div>
-              <div class="game-form-group" style="margin-bottom: 0;">
-                <label style="font-size: 12px;">Territorial.io Account Password *</label>
-                <input type="password" id="loanTerriPass" name="loanTerriPass" class="game-input" placeholder="Valid in-game password" autocomplete="current-password">
-                <span class="form-subtext" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
-                  🔒 Verified directly via official game API. Never disclosed to third parties.
-                </span>
-              </div>
+            <!-- Non-Custodial Loan Facility Section -->
+            <div class="game-subpanel" style="border-color: var(--link); margin-bottom: 14px; font-family: system-ui, sans-serif; font-size: 12px; color: #b8dbfc; line-height: 1.5;">
+              <strong>Non-Custodial Loan Facility:</strong> Loans are unencumbered facilities secured by internal CBM member balance collateral, clan standing, and transaction history. Zero external game passwords are required or accepted. Delinquent accounts have internal withdrawals restricted until settlement.
             </div>
 
             <!-- Live Loan Schedule Preview -->
@@ -2073,7 +2350,7 @@
             <div class="game-form-group" style="display: flex; gap: 10px; align-items: flex-start; margin-bottom: 18px;">
               <input type="checkbox" id="loanCovenantCheck" required style="accent-color: var(--paypal-blue); width: 18px; height: 18px; margin-top: 2px; cursor: pointer;">
               <label for="loanCovenantCheck" style="margin-bottom: 0; font-size: 12px; color: var(--text-dim); line-height: 1.45; cursor: pointer;">
-                <strong>I agree to the CBM Lending Covenant:</strong> My Territorial.io credentials authorize automated debt recovery. Changing or revoking credentials while holding an active loan constitutes an immediate covenant breach, triggering instant loan acceleration, 50% penalty interest, and account restriction.
+                <strong>I agree to the CBM Lending Covenant:</strong> I commit to repaying the full principal within 14 days at 0% interest. Delinquent balances after 14 days trigger a 50% penalty interest assessment and account balance garnishment (preserving a 20 Gold safe buffer).
               </label>
             </div>
 
@@ -2369,6 +2646,20 @@
 
   <!-- Core JavaScript Logic & Reactivity -->
   <script>
+    function loadHeroAd() {
+      fetch('/api/cbm/ads/serve?slot_id=SLOT_HERO&format=html&context=website')
+        .then(function(r) { return r.text(); })
+        .then(function(html) {
+          var container = document.getElementById('cbmHeroAdContainer');
+          if (container && html) container.innerHTML = html;
+        })
+        .catch(function() {});
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', loadHeroAd);
+    } else {
+      loadHeroAd();
+    }
 
     function toggleNavDropdown(e) {
       if (e) e.stopPropagation();
@@ -2408,16 +2699,6 @@
     // --- PIN Authentication & Security Session State ---
     let currentActiveAccount = null;
     let pendingPinAction = null;
-
-    function getSessionPin() {
-      return sessionStorage.getItem('cbm_session_pin') || '';
-    }
-    function setSessionPin(pin) {
-      if (pin) sessionStorage.setItem('cbm_session_pin', pin);
-    }
-    function clearSessionPin() {
-      sessionStorage.removeItem('cbm_session_pin');
-    }
 
     // Mode tracker for PIN modal: 'create' for first-time creation, 'change' for existing PIN modification
     let currentPinMode = 'create';
@@ -2525,39 +2806,37 @@
         if (!ct.includes('application/json')) throw new Error('Service temporarily unavailable.');
         const data = await res.json();
         if (res.ok) {
-          setSessionPin(pin);
           showToast(data.message || (currentPinMode === 'change' ? 'PIN updated successfully!' : 'PIN created successfully!'), 'success');
-          resDiv.innerHTML = `<span class="text-green">✓ ${data.message}</span>`;
+          resDiv.innerHTML = `<span class="text-green">✓ ${escapeHtml(data.message)}</span>`;
           setTimeout(() => {
             closePinManageModal();
             lookupAccount();
           }, 900);
         } else {
           showToast(data.message || 'Failed to update PIN.', 'error');
-          resDiv.innerHTML = `<span class="text-red">✗ ${data.message}</span>`;
+          resDiv.innerHTML = `<span class="text-red">✗ ${escapeHtml(data.message)}</span>`;
         }
       } catch (err) {
         showToast(err.message, 'error');
-        resDiv.innerHTML = `<span class="text-red">✗ Error: ${err.message}</span>`;
+        resDiv.innerHTML = `<span class="text-red">✗ Error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
-    function requestPinAuthorization(actionCallback, reasonHtml) {
-      const sessionPin = getSessionPin();
-      if (sessionPin) {
-        actionCallback(sessionPin);
-        return;
-      }
+    function requestPinAuthorization(actionCallback, reasonText) {
       pendingPinAction = actionCallback;
       const modal = document.getElementById('pinPromptModal');
-      document.getElementById('pinPromptAccName').innerText = currentActiveAccount ? currentActiveAccount.account_name : '';
-      if (reasonHtml) {
-        document.getElementById('pinPromptDesc').innerHTML = reasonHtml;
+      const accEl = document.getElementById('pinPromptAccName');
+      if (accEl) accEl.textContent = currentActiveAccount ? currentActiveAccount.account_name : '';
+      const descEl = document.getElementById('pinPromptDesc');
+      if (descEl) {
+        descEl.textContent = reasonText || 'Please enter your CBM Access PIN to authorize this balance action.';
       }
-      document.getElementById('promptPinInput').value = '';
-      document.getElementById('promptPinResult').innerHTML = '';
+      const pinInput = document.getElementById('promptPinInput');
+      if (pinInput) pinInput.value = '';
+      const resEl = document.getElementById('promptPinResult');
+      if (resEl) resEl.textContent = '';
       modal.classList.add('active');
-      setTimeout(() => document.getElementById('promptPinInput').focus(), 100);
+      setTimeout(() => { if (pinInput) pinInput.focus(); }, 100);
     }
 
     function closePinPromptModal() {
@@ -2567,11 +2846,9 @@
 
     function submitPinPrompt(e) {
       e.preventDefault();
-      const pin = document.getElementById('promptPinInput').value.trim();
+      const pinInput = document.getElementById('promptPinInput');
+      const pin = pinInput ? pinInput.value.trim() : '';
       if (!pin) return;
-      if (document.getElementById('promptRememberPin').checked) {
-        setSessionPin(pin);
-      }
       const cb = pendingPinAction;
       closePinPromptModal();
       if (cb) {
@@ -2805,9 +3082,9 @@
             const warChest = data.treasury.unencumbered_capital_gold || 0;
             const penalties = data.treasury.loan_penalties_gold || 0;
             if (warChest > 0 || penalties > 0) {
-              resSub.innerText = `Includes ${warChest.toFixed(2)} 🧈 War Chest + ${penalties.toFixed(2)} 🧈 Penalties`;
+              resSub.innerText = `Active Reserve Cushion • Lifetime War Chest: ${warChest.toFixed(2)} 🧈 | Penalties: ${penalties.toFixed(2)} 🧈`;
             } else {
-              resSub.innerText = 'Unencumbered reserve cushion';
+              resSub.innerText = 'Active unencumbered reserve cushion';
             }
           }
 
@@ -2927,6 +3204,15 @@
       }
     }
 
+    function getAuthHeaders() {
+      const headers = {};
+      const token = localStorage.getItem('cbm_session_token');
+      if (token) {
+        headers['Authorization'] = 'Bearer ' + token;
+      }
+      return headers;
+    }
+
     function isAccountOwner(acc) {
       if (!acc) return false;
       const loggedInUser = (localStorage.getItem('cbm_user') || '').trim().toLowerCase();
@@ -2969,7 +3255,7 @@
       const account_name = document.getElementById('editProfileAcc').value.trim();
       const display_name = document.getElementById('editProfileName').value.trim();
       const avatar_url = document.getElementById('editProfileAvatar').value.trim();
-      const pin = (document.getElementById('editProfilePin') ? document.getElementById('editProfilePin').value.trim() : '') || getSessionPin();
+      const pin = (document.getElementById('editProfilePin') ? document.getElementById('editProfilePin').value.trim() : '');
       const resDiv = document.getElementById('editProfileResult');
 
       if (!avatar_url) {
@@ -2982,7 +3268,7 @@
       try {
         const res = await fetch('/api/cbm/profile', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({ account_name, display_name, avatar_url, pin })
         });
         const ct = res.headers.get('content-type') || '';
@@ -3019,7 +3305,9 @@
       const name = document.getElementById('lookupAcc').value.trim();
       if (!name) return;
       try {
-        const res = await fetch('/api/cbm/account?name=' + encodeURIComponent(name));
+        const res = await fetch('/api/cbm/account?name=' + encodeURIComponent(name), {
+          headers: getAuthHeaders()
+        });
         const ct = res.headers.get('content-type') || '';
         if (!ct.includes('application/json')) return;
         const data = await res.json();
@@ -3027,7 +3315,7 @@
           const acc = data.account;
           currentActiveAccount = acc;
 
-          const isOwner = isAccountOwner(acc);
+          const isOwner = (data.is_owner === true) || (isAccountOwner(acc) && acc.deposited_gold !== null && acc.deposited_gold !== undefined);
           if (isOwner) {
             setActiveUser(acc);
           }
@@ -3036,9 +3324,16 @@
           document.getElementById('accAccountName').innerText = acc.account_name;
           document.getElementById('accClanTag').innerText = acc.clan_tag || 'ANTI-OG';
           document.getElementById('accRole').innerText = acc.role ? (acc.role.charAt(0).toUpperCase() + acc.role.slice(1)) : 'Member';
-          document.getElementById('accBalVal').innerText = acc.deposited_gold.toFixed(2) + ' Gold';
-          document.getElementById('accTotalDep').innerText = `${acc.total_deposited_gold.toFixed(2)} Gold`;
-          document.getElementById('accTotalWith').innerText = `${acc.total_withdrawn_gold.toFixed(2)} Gold`;
+
+          if (isOwner && acc.deposited_gold !== null && acc.deposited_gold !== undefined) {
+            document.getElementById('accBalVal').innerText = acc.deposited_gold.toFixed(2) + ' Gold';
+            document.getElementById('accTotalDep').innerText = `${acc.total_deposited_gold.toFixed(2)} Gold`;
+            document.getElementById('accTotalWith').innerText = `${acc.total_withdrawn_gold.toFixed(2)} Gold`;
+          } else {
+            document.getElementById('accBalVal').innerText = '🔒 Private';
+            document.getElementById('accTotalDep').innerText = '🔒 Private';
+            document.getElementById('accTotalWith').innerText = '🔒 Private';
+          }
 
           // Ownership Context Badge
           const ownBadge = document.getElementById('accOwnershipBadge');
@@ -3121,15 +3416,6 @@
           } else {
             // In public view, set as target destination helper
             if (document.getElementById('wTargetAcc')) document.getElementById('wTargetAcc').value = acc.account_name;
-          }
-
-          // Auto-fill session PIN if owner and session PIN active
-          const sPin = getSessionPin();
-          if (sPin && isOwner) {
-            if (document.getElementById('wPin')) document.getElementById('wPin').value = sPin;
-            if (document.getElementById('donatePin')) document.getElementById('donatePin').value = sPin;
-            if (document.getElementById('editProfilePin')) document.getElementById('editProfilePin').value = sPin;
-            if (document.getElementById('pmPin')) document.getElementById('pmPin').value = sPin;
           }
 
           // Render verified destination buttons for withdrawal
@@ -3247,12 +3533,11 @@
       const amount_gold = parseInt(document.getElementById('wAmount').value, 10);
       const resDiv = document.getElementById('wResult');
 
-      let pin = (document.getElementById('wPin') ? document.getElementById('wPin').value.trim() : '') || getSessionPin();
+      let pin = (document.getElementById('wPin') ? document.getElementById('wPin').value.trim() : '');
       if (currentActiveAccount && currentActiveAccount.has_pin && !pin) {
         requestPinAuthorization((authorizedPin) => {
-          if (document.getElementById('wPin')) document.getElementById('wPin').value = authorizedPin;
           executeWithdraw(account_name, target_account, amount_gold, authorizedPin, resDiv);
-        }, `Enter your 6-digit CBM Access PIN to disburse <strong>${amount_gold} Gold</strong> to <strong>${target_account}</strong>.`);
+        }, `Enter your CBM Access PIN to disburse ${amount_gold} Gold to ${target_account}.`);
         return;
       }
 
@@ -3272,19 +3557,16 @@
         const data = await res.json();
         if (res.ok) {
           showToast(data.message, 'success');
-          resDiv.innerHTML = `<span class="text-green">✓ ${data.message}</span>`;
+          resDiv.innerHTML = `<span class="text-green">✓ ${escapeHtml(data.message)}</span>`;
           loadStatus();
           if (account_name) lookupAccount();
         } else {
-          if (res.status === 401) {
-            clearSessionPin();
-          }
           showToast(data.message || data.error, 'error');
-          resDiv.innerHTML = `<span class="text-red">✗ ${data.message || data.error}</span>`;
+          resDiv.innerHTML = `<span class="text-red">✗ ${escapeHtml(data.message || data.error)}</span>`;
         }
       } catch (err) {
         showToast(err.message, 'error');
-        resDiv.innerHTML = `<span class="text-red">✗ Error: ${err.message}</span>`;
+        resDiv.innerHTML = `<span class="text-red">✗ Error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
@@ -3311,7 +3593,9 @@
       if (!user) return;
       container.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 1.5rem;">Querying linked payment accounts...</div>';
       try {
-        const res = await fetch('/api/cbm/payment-methods?name=' + encodeURIComponent(user));
+        const res = await fetch('/api/cbm/payment-methods?name=' + encodeURIComponent(user), {
+          headers: getAuthHeaders()
+        });
         const ct = res.headers.get('content-type') || '';
         if (!ct.includes('application/json')) return;
         const data = await res.json();
@@ -3364,19 +3648,17 @@
       e.preventDefault();
       const cbm_username = document.getElementById('pmCbmUser').value.trim();
       const territorial_account = document.getElementById('pmTerriAcc').value.trim();
-      const territorial_password = document.getElementById('pmTerriPass').value.trim();
       const display_name = document.getElementById('pmDisplayName').value.trim();
       const is_primary = document.getElementById('pmIsPrimary').checked;
       const resDiv = document.getElementById('pmResult');
 
-      resDiv.innerHTML = '<span style="color: var(--text-dim);">Verifying and linking payment method...</span>';
+      resDiv.innerHTML = '<span style="color: var(--text-dim);">Linking player identity via public ledger...</span>';
       try {
-        const pin = (document.getElementById('pmPin') ? document.getElementById('pmPin').value.trim() : '') || getSessionPin();
+        const pin = (document.getElementById('pmPin') ? document.getElementById('pmPin').value.trim() : '');
         const payload = {
           cbm_username,
-          verification_type: currentPmMethod,
+          verification_type: 'TRANSACTION_VERIFIED',
           territorial_account,
-          territorial_password,
           display_name,
           is_primary,
           pin
@@ -3426,12 +3708,11 @@
         return;
       }
 
-      let pin = (document.getElementById('donatePin') ? document.getElementById('donatePin').value.trim() : '') || getSessionPin();
+      let pin = (document.getElementById('donatePin') ? document.getElementById('donatePin').value.trim() : '');
       if (currentActiveAccount && currentActiveAccount.has_pin && !pin) {
         requestPinAuthorization((authorizedPin) => {
-          if (document.getElementById('donatePin')) document.getElementById('donatePin').value = authorizedPin;
           executeDonate(account_name, amount_gold, message, authorizedPin, resDiv);
-        }, `Enter your 6-digit CBM Access PIN to authorize a <strong>${amount_gold.toFixed(2)} Gold</strong> contribution to the Clan War Chest.`);
+        }, `Enter your CBM Access PIN to authorize a ${amount_gold.toFixed(2)} Gold contribution to the Clan War Chest.`);
         return;
       }
 
@@ -3457,7 +3738,7 @@
         if (res.ok) {
           showToast(`🛡️ Thank you! Contributed ${amount_gold.toFixed(2)} Gold to Clan Reserves!`, 'success');
           resDiv.innerHTML = `<div class="game-subpanel" style="padding: 10px; border-color: var(--game-green); color: var(--game-green); font-size: 13px;">
-            ✓ ${data.message}<br><span style="color: var(--text-dim); font-size: 11px;">Remaining Balance: ${data.donation.new_balance_gold.toFixed(2)} Gold • Bank Reserves Expanded 1:1</span>
+            ✓ ${escapeHtml(data.message)}<br><span style="color: var(--text-dim); font-size: 11px;">Remaining Balance: ${data.donation.new_balance_gold.toFixed(2)} Gold • Bank Reserves Expanded 1:1</span>
           </div>`;
           document.getElementById('donateAmount').value = '';
           document.getElementById('donateMessage').value = '';
@@ -3465,15 +3746,12 @@
           loadDonors();
           lookupAccount();
         } else {
-          if (res.status === 401) {
-            clearSessionPin();
-          }
           showToast(data.message || 'Donation failed.', 'error');
-          resDiv.innerHTML = `<span class="text-red">✗ ${data.message}</span>`;
+          resDiv.innerHTML = `<span class="text-red">✗ ${escapeHtml(data.message)}</span>`;
         }
       } catch (err) {
         showToast(err.message, 'error');
-        resDiv.innerHTML = `<span class="text-red">✗ Error: ${err.message}</span>`;
+        resDiv.innerHTML = `<span class="text-red">✗ Error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
@@ -3752,68 +4030,12 @@
     }
 
     async function populateLoanCredentials(username) {
-      const select = document.getElementById('loanCredSelect');
-      if (!select) return;
-
-      try {
-        const res = await fetch(`/api/cbm/payment-methods?cbm_username=${encodeURIComponent(username)}`);
-        if (!res.ok) return;
-        const ct = res.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) return;
-        const data = await res.json();
-        const methods = data.payment_methods || [];
-
-        select.innerHTML = '';
-        let hasStoredCred = false;
-
-        methods.forEach(pm => {
-          if (pm.territorial_account_name) {
-            const hasPass = pm.has_password;
-            const opt = document.createElement('option');
-            opt.value = pm.territorial_account_name;
-            opt.innerText = `${pm.territorial_account_name} (${pm.display_name || 'Linked'})${hasPass ? ' ● Stored Password' : ''}`;
-            opt.dataset.hasPass = hasPass ? 'true' : 'false';
-            select.appendChild(opt);
-            if (hasPass) hasStoredCred = true;
-          }
-        });
-
-        const customOpt = document.createElement('option');
-        customOpt.value = '__custom__';
-        customOpt.innerText = '+ Enter In-Game Credentials';
-        select.appendChild(customOpt);
-
-        if (hasStoredCred) {
-          select.selectedIndex = 0;
-          handleLoanCredSelectChange(select.value);
-        } else {
-          select.value = '__custom__';
-          handleLoanCredSelectChange('__custom__');
-        }
-      } catch (e) {
-        console.error("populateLoanCredentials error:", e);
-      }
+      // Non-custodial lending: No external player credentials required
+      return;
     }
 
     function handleLoanCredSelectChange(val) {
-      const box = document.getElementById('loanCustomCredsBox');
-      const terriAccInput = document.getElementById('loanTerriAcc');
-      const select = document.getElementById('loanCredSelect');
-
-      if (!box) return;
-      if (val === '__custom__') {
-        box.style.display = 'block';
-        if (terriAccInput) terriAccInput.value = '';
-      } else {
-        const selectedOpt = select.options[select.selectedIndex];
-        const hasPass = selectedOpt?.dataset?.hasPass === 'true';
-        if (hasPass) {
-          box.style.display = 'none';
-        } else {
-          box.style.display = 'block';
-          if (terriAccInput) terriAccInput.value = val;
-        }
-      }
+      return;
     }
 
     function setLoanAmountPreset(val) {
@@ -3850,11 +4072,10 @@
     async function handleLoanRequest(e) {
       e.preventDefault();
       const resDiv = document.getElementById('loanAppResult');
-      resDiv.innerHTML = '<span class="text-gold">Verifying in-game credentials and originating loan facility...</span>';
+      resDiv.innerHTML = '<span class="text-gold">Originating non-custodial loan facility...</span>';
 
       const account_name = document.getElementById('loanAccName').value.trim();
       const amount_gold = parseInt(document.getElementById('loanAmountInput').value, 10);
-      const credSelect = document.getElementById('loanCredSelect').value;
       const covenantChecked = document.getElementById('loanCovenantCheck').checked;
 
       if (!covenantChecked) {
@@ -3862,35 +4083,11 @@
         return;
       }
 
-      let terri_acc = '';
-      let terri_pwd = '';
-
-      if (credSelect === '__custom__') {
-        terri_acc = document.getElementById('loanTerriAcc').value.trim();
-        terri_pwd = document.getElementById('loanTerriPass').value.trim();
-        if (!terri_acc || !terri_pwd) {
-          resDiv.innerHTML = '<span class="text-red">✗ Territorial.io account name and password are required.</span>';
-          return;
-        }
-      } else {
-        terri_acc = credSelect;
-        const box = document.getElementById('loanCustomCredsBox');
-        if (box && box.style.display !== 'none') {
-          terri_pwd = document.getElementById('loanTerriPass').value.trim();
-          if (!terri_pwd) {
-            resDiv.innerHTML = '<span class="text-red">✗ In-game password is required to authorize loan.</span>';
-            return;
-          }
-        }
-      }
-
-      let pin = (document.getElementById('loanPin') ? document.getElementById('loanPin').value.trim() : '') || getSessionPin();
+      let pin = (document.getElementById('loanPin') ? document.getElementById('loanPin').value.trim() : '');
 
       const payload = {
         account_name: account_name,
         amount_gold: amount_gold,
-        territorial_account: terri_acc,
-        territorial_password: terri_pwd,
         pin: pin,
         simulate_active: isLoanSimulationMode
       };
@@ -3914,7 +4111,6 @@
           loadLendingFacility();
           loadUserLoansTab();
           loadStatus();
-          if (document.getElementById('loanTerriPass')) document.getElementById('loanTerriPass').value = '';
           if (document.getElementById('loanAmountInput')) document.getElementById('loanAmountInput').value = '';
         } else {
           resDiv.innerHTML = `<span class="text-red">✗ ${data.message || 'Loan origination failed.'}</span>`;
@@ -3938,7 +4134,9 @@
       }
 
       try {
-        const res = await fetch(`/api/cbm/loans?name=${encodeURIComponent(user)}`);
+        const res = await fetch(`/api/cbm/loans?name=${encodeURIComponent(user)}`, {
+          headers: getAuthHeaders()
+        });
         if (!res.ok) return;
         const ct = res.headers.get('content-type') || '';
         if (!ct.includes('application/json')) return;
@@ -3972,9 +4170,9 @@
           else if (isBreach) statusBadge = '<span class="game-pill red">COVENANT BREACH</span>';
           else if (isOverdue) statusBadge = '<span class="game-pill red">OVERDUE</span>';
 
-          let credBadge = '<span style="font-size:10px; color:var(--success);">✓ Credentials Verified</span>';
-          if (isBreach) {
-            credBadge = '<span style="font-size:10px; color:#ff7070;">⚠️ Password Changed / Revoked</span>';
+          let credBadge = '<span style="font-size:10px; color:var(--success);">✓ Verified Member Loan</span>';
+          if (isBreach || isOverdue) {
+            credBadge = '<span style="font-size:10px; color:#ff7070;">⚠️ Delinquent Obligation</span>';
           }
 
           html += `
@@ -4004,21 +4202,12 @@
         listDiv.innerHTML = html;
 
         if (noticeDiv) {
-          if (hasBreach) {
-            noticeDiv.innerHTML = `
-              <div class="game-subpanel" style="border-color:var(--game-red); background:rgba(35,10,10,0.95);">
-                <strong style="color:#ff7070;">⚠️ Covenant Breach Detected</strong>
-                <p style="color:#cbd5e1; font-size:12px; margin-top:3px;">
-                  Your in-game password on file failed verification. The 14-day window has been cancelled and 50% penalty interest has been assessed. Settle your debt from balance or update your password to clear this restriction.
-                </p>
-              </div>
-            `;
-          } else if (hasOverdue) {
+          if (hasBreach || hasOverdue) {
             noticeDiv.innerHTML = `
               <div class="game-subpanel" style="border-color:var(--game-red); background:rgba(35,10,10,0.95);">
                 <strong style="color:#ff7070;">⚠️ Overdue Loan Obligation</strong>
                 <p style="color:#cbd5e1; font-size:12px; margin-top:3px;">
-                  One or more loans have passed the 14-day standard term. 50% penalty interest has been added. Outbound withdrawals remain suspended until settled.
+                  Your loan obligation has exceeded the 14-day window and 50% penalty interest has been assessed. Settle your debt from balance to restore normal operations.
                 </p>
               </div>
             `;
@@ -4041,9 +4230,6 @@
 
       const avail = currentActiveBalanceGold || 0;
       document.getElementById('repayModalBalGold').innerText = `${avail.toFixed(2)} Gold`;
-
-      const sPin = getSessionPin();
-      if (sPin) document.getElementById('repayPinInput').value = sPin;
 
       document.getElementById('repayModalResult').innerHTML = '';
       document.getElementById('modalRepayLoan').style.display = 'flex';
@@ -4074,7 +4260,7 @@
       const loan_id = document.getElementById('repayHiddenLoanId').value;
       const amount_gold = parseFloat(document.getElementById('repayAmountInput').value);
       const repay_all = document.getElementById('repayFullCheck').checked;
-      const pin = document.getElementById('repayPinInput').value.trim() || getSessionPin();
+      const pin = document.getElementById('repayPinInput').value.trim();
       const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
 
       try {
@@ -4141,7 +4327,7 @@
           id="pinPromptAccName" style="color: #fff;"></strong>.
       </p>
 
-      <form onsubmit="submitPinPrompt(event)">
+      <form method="POST" onsubmit="submitPinPrompt(event)">
         <div class="game-form-group">
           <label>6-Digit Access PIN</label>
           <input type="password" id="promptPinInput" class="game-input" maxlength="8" placeholder="••••••"
@@ -4149,15 +4335,7 @@
             style="text-align: center; font-size: 24px; letter-spacing: 0.3em;">
         </div>
 
-        <div class="game-form-group" style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
-          <input type="checkbox" id="promptRememberPin" checked
-            style="accent-color: var(--paypal-blue); width: 16px; height: 16px; cursor: pointer;">
-          <label for="promptRememberPin"
-            style="margin-bottom: 0; font-size: 12px; cursor: pointer; color: var(--text-dim);">Keep authorized for this
-            browser session</label>
-        </div>
-
-        <div style="display: flex; gap: 10px;">
+        <div style="display: flex; gap: 10px; margin-top: 16px;">
           <button type="submit" class="btn-game btn-game-primary" style="flex: 1;">Authorize Action</button>
           <button type="button" class="btn-game btn-game-secondary" onclick="closePinPromptModal()">Cancel</button>
         </div>
@@ -4184,7 +4362,7 @@
         encrypted.
       </p>
 
-      <form onsubmit="handleManagePinSubmit(event)">
+      <form method="POST" onsubmit="handleManagePinSubmit(event)">
         <div class="game-form-group">
           <label>Target Account</label>
           <input type="text" id="managePinAcc" class="game-input" disabled style="opacity: 0.7; cursor: not-allowed;">
@@ -4249,7 +4427,7 @@
         </div>
       </div>
 
-      <form onsubmit="handleRepaySubmit(event)">
+      <form method="POST" onsubmit="handleRepaySubmit(event)">
         <input type="hidden" id="repayHiddenLoanId">
 
         <div class="game-form-group">
@@ -4279,9 +4457,96 @@
           <button type="button" class="btn-game btn-game-secondary" onclick="closeRepayModal()">Cancel</button>
         </div>
       </form>
-      <div id="repayModalResult" style="margin-top: 12px;"></div>
     </div>
   </div>
+
+  <!-- Modal: Tips & Helpful Guide -->
+  <div id="advisorTipsModal" class="advisor-modal-backdrop" style="display: none;" onclick="handleAdvisorBackdropClick(event)">
+    <div class="advisor-modal-window">
+      <button type="button" class="advisor-modal-close" onclick="closeAdvisorModal()" aria-label="Close Tips">&times;</button>
+      <div class="advisor-flex-body">
+        <div class="advisor-speech-bubble">
+          <div class="speech-header">
+            <h3 class="speech-title">💡 Tips</h3>
+            <p class="speech-intro">Welcome to Clan Bank Manager! Here are a few friendly tips to help you get the most out of your vault:</p>
+          </div>
+
+          <div class="tips-list">
+            <div class="tip-item">
+              <span class="tip-badge">🛡️</span>
+              <div class="tip-content">
+                <strong>Your account stays yours</strong>
+                <p>We'll never ask for your game password. Your gold and deposits are verified cleanly using public match records.</p>
+              </div>
+            </div>
+
+            <div class="tip-item">
+              <span class="tip-badge">🔢</span>
+              <div class="tip-content">
+                <strong>Your Quick Access PIN</strong>
+                <p>Your 4–8 digit PIN keeps things fast and safe when you sign in, request loans, or send gold. Treat it just like an ATM PIN.</p>
+              </div>
+            </div>
+
+            <div class="tip-item">
+              <span class="tip-badge">🤝</span>
+              <div class="tip-content">
+                <strong>Backed by Clan Reserves</strong>
+                <p>Over 60% of all clan sponsorships and platform fees go straight into reserve vaults to keep every player's balance fully backed.</p>
+              </div>
+            </div>
+
+            <div class="tip-item">
+              <span class="tip-badge">⚡</span>
+              <div class="tip-content">
+                <strong>Instant Gold Deposits</strong>
+                <p>Send gold to our vault player (DdcBC) during a game. Our system picks it up and tops up your balance automatically.</p>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="button" class="btn-tips-close" onclick="closeAdvisorModal(true)">Got it, thanks!</button>
+          </div>
+        </div>
+
+        <div class="advisor-character-col">
+          <img src="/painsel-pointing-left.png" width="120" height="360" alt="Painsel" class="advisor-character-img">
+          <div class="advisor-tag">Painsel</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function openAdvisorModal() {
+      const modal = document.getElementById('advisorTipsModal');
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeAdvisorModal(markSeen = false) {
+      const modal = document.getElementById('advisorTipsModal');
+      if (modal) modal.style.display = 'none';
+      if (markSeen) {
+        try { localStorage.setItem('cbm_tips_seen', '1'); } catch (e) {}
+      }
+    }
+
+    function handleAdvisorBackdropClick(e) {
+      if (e.target && e.target.id === 'advisorTipsModal') {
+        closeAdvisorModal();
+      }
+    }
+
+    // Auto-prompt on first visit
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        if (!localStorage.getItem('cbm_tips_seen')) {
+          setTimeout(openAdvisorModal, 1200);
+        }
+      } catch (e) {}
+    });
+  </script>
 
 </body>
 

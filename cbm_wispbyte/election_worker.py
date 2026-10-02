@@ -177,58 +177,38 @@ class CBMElectionWorker:
                 continue
 
             # 4. In-Game Vote Detection & Verification
-            vote_confirmed = False
-            verification_note = ""
-
-            # Check 4a: Candidate Telemetry Growth
-            if baseline_pts > 0:
-                points_delta = current_admin_points - baseline_pts
-                if points_delta >= votes and uncredited_points >= votes:
-                    vote_confirmed = True
-                    verification_note = f"Verified via candidate telemetry (+{points_delta} points gained, baseline {baseline_pts} -> {current_admin_points})."
+            # 4. In-Game Vote Detection & Audit Quarantine
+            # Security Rule: Public transaction streams to DdcBC are DEPOSITS and must NEVER
+            # be used as election vote proof to prevent double-crediting vault drain attacks.
+            # Security Rule: Candidate telemetry growth (+points) indicates votes occurred,
+            # but does not identify the specific voter. All claims require manual officer review.
+            if baseline_pts > 0 and (current_admin_points - baseline_pts) >= votes:
+                verification_note = f"Candidate telemetry grew by +{current_admin_points - baseline_pts} points. Queued for officer audit."
+            elif current_admin_points >= votes:
+                verification_note = f"Candidate holds {current_admin_points} points. Queued for officer audit."
             else:
-                # Legacy / initial claim without stored baseline (e.g. initial launch)
-                if current_admin_points >= votes and uncredited_points >= votes:
-                    vote_confirmed = True
-                    verification_note = f"Verified via candidate telemetry (candidate points: {current_admin_points}, needed: {votes})."
+                verification_note = f"Insufficient candidate point growth observed ({current_admin_points} current, baseline was {baseline_pts})."
 
-            # Check 4b: Fallback to transaction stream if direct gold transfer occurred
-            if not vote_confirmed and recent_txs:
-                for tx in recent_txs:
-                    tx_sender = str(tx.get("sender", "")).strip().lower()
-                    tx_receiver = str(tx.get("receiver", "")).strip().lower()
-                    tx_amount = float(tx.get("amount", 0.0) or 0.0)
-                    tx_ts = float(tx.get("timestamp", 0) or 0) / 1000.0 if tx.get("timestamp") else 0.0
+            # Transition to PENDING_REVIEW so officers can verify voter proof before any payout
+            conn_u = self.db.get_write_connection()
+            try:
+                cur_u = conn_u.cursor()
+                cur_u.execute("""
+                    UPDATE cbm_admin_votes
+                    SET status = 'PENDING_REVIEW',
+                        rejection_reason = ?
+                    WHERE claim_id = ? AND status = 'PENDING'
+                """, (verification_note, claim_id))
+                conn_u.commit()
+            finally:
+                conn_u.close()
 
-                    if tx_sender == voter_acc.lower() and tx_receiver == self.vault_account.lower():
-                        if tx_amount >= float(spent) - 0.01:
-                            if tx_ts == 0.0 or tx_ts >= (created_at - 180.0):
-                                vote_confirmed = True
-                                verification_note = f"Verified via transaction log (transfer of {tx_amount:.2f} Gold from {tx_sender} to {tx_receiver})."
-                                break
-
-            # 5. Settlement Execution
-            if vote_confirmed:
-                ok, msg, details = self.db.settle_admin_vote_claim(
-                    claim_id,
-                    verified=True,
-                    quarantine_hours=24.0
-                )
-                if ok:
-                    uncredited_points = max(0, uncredited_points - votes)
-                    logger.info(f"[Admin Election] Successfully settled claim {claim_id} for {cbm_username}: {reward:.2f} Gold credited. {verification_note}")
-                results.append({
-                    "claim_id": claim_id,
-                    "success": ok,
-                    "message": msg,
-                    "details": details
-                })
-            else:
-                rem_sec = max(0, int(expires_at - now)) if expires_at > 0 else 900
-                logger.info(
-                    f"[Admin Election] Claim {claim_id} ({voter_acc}, {votes} votes) pending in-game vote. "
-                    f"Candidate points: {current_admin_points}, uncredited: {uncredited_points}, time left: {rem_sec}s."
-                )
+            results.append({
+                "claim_id": claim_id,
+                "success": True,
+                "message": f"Claim held in PENDING_REVIEW for officer authorization: {verification_note}",
+                "status": "PENDING_REVIEW"
+            })
 
         return results
 

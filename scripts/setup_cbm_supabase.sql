@@ -350,3 +350,28 @@ DROP POLICY IF EXISTS "Allow public read cbm_referrals" ON public.cbm_referrals;
 CREATE POLICY "Allow public read cbm_referrals" ON public.cbm_referrals FOR SELECT TO anon, authenticated USING (TRUE);
 DROP POLICY IF EXISTS "Service role manage cbm_referrals" ON public.cbm_referrals;
 CREATE POLICY "Service role manage cbm_referrals" ON public.cbm_referrals FOR ALL TO service_role USING (TRUE);
+
+-- -----------------------------------------------------------------------------
+-- 9. FEDERATED OIDC IDENTITIES & VIRTUAL CREDIT METERING
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.cbm_user_identities (
+    id BIGSERIAL PRIMARY KEY,
+    account_name TEXT NOT NULL REFERENCES public.cbm_accounts(account_name) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_sub TEXT NOT NULL,
+    email TEXT,
+    email_verified BOOLEAN DEFAULT FALSE,
+    profile_data JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_provider_sub UNIQUE (provider, provider_sub)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cbm_identities_user ON public.cbm_user_identities (account_name);
+CREATE INDEX IF NOT EXISTS idx_cbm_identities_lookup ON public.cbm_user_identities (provider, provider_sub);
+
+ALTER TABLE public.cbm_user_identities ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role access identities" ON public.cbm_user_identities;
+CREATE POLICY "Service role access identities" ON public.cbm_user_identities FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+

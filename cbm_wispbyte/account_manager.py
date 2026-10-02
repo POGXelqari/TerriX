@@ -24,41 +24,23 @@ class CBMAccountManager:
         self,
         cbm_username: str,
         territorial_account: str,
-        territorial_password: str,
+        territorial_password: Optional[str] = None,
         display_name: Optional[str] = None,
-        is_primary: bool = False
+        is_primary: bool = False,
+        store_for_debt_covenant: bool = False,
+        user_pin: Optional[str] = None
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
-        Links a Territorial.io account by verifying provided credentials against the game API.
+        Non-custodial account linking:
+        Player game passwords are never accepted, processed, or stored.
+        Delegates strictly to transaction-based ledger verification.
         """
-        terri_acc = territorial_account.strip()
-        terri_pass = territorial_password.strip()
-
-        if not terri_acc or not terri_pass:
-            return False, "Both account name and password are required for credential linking.", {}
-
-        # Verify against Territorial.io API
-        client = TerritorialGoldClient(terri_acc, terri_pass)
-        acc_data = client.get_account_data()
-
-        if acc_data.get("status") != "ok":
-            err_msg = acc_data.get("status", "Unknown API error")
-            return False, f"Territorial.io credentials invalid: {err_msg}", {}
-
-        # Account is valid! Fetch in-game display name
-        raw_data = acc_data.get("account_data", {})
-        game_username = raw_data.get("username", terri_acc)
-
-        pm = self.db.link_payment_method(
+        return self.link_via_transaction(
             cbm_username=cbm_username,
-            territorial_account=terri_acc,
-            territorial_password=terri_pass,
-            verification_type="INPUT_CREDENTIALS",
-            display_name=display_name or game_username,
+            territorial_account=territorial_account,
+            display_name=display_name,
             is_primary=is_primary
         )
-
-        return True, f"Successfully linked '{terri_acc}' ({game_username}) via verified credentials.", pm
 
     def link_via_transaction(
         self,

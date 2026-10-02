@@ -135,7 +135,7 @@ export const spawnOptimizer = new (function() {
 
     for (let p = 0; p < gHumans; p++) {
       if (p === myId) continue;
-      if (pd.nU && pd.nU[p] === 0) continue;
+      if (!pd.hN || pd.hN[p] === 0) continue;
 
       let x = -1;
       let y = -1;
@@ -277,7 +277,8 @@ export const spawnOptimizer = new (function() {
   // 4. Lifecycle Update & Automated Dispatch
   this.update = function(context) {
     const settings = getSettings();
-    if (!settings.spawnOptimizer) return;
+    // Allow execution if either the visual optimizer or auto-picker is active
+    if (!settings.spawnOptimizer && !settings.autoSpawnPicker) return;
 
     // Active multiplayer pre-match spawn selection only
     const isSingleplayer = getVar("gIsSingleplayer");
@@ -289,11 +290,12 @@ export const spawnOptimizer = new (function() {
       return;
     }
 
-    // Auto-disable if local player has already placed a spawn
+    // Check if player has ACTUALLY placed a spawn (territory > 0, NOT pd.nU)
     const myId = getVar("playerId");
     const pd = window.ah;
-    if (pd && pd.nU && pd.nU[myId] !== 0) {
+    if (pd && pd.hN && pd.hN[myId] > 0) {
       userOverridden = true;
+      return;
     }
 
     const now = performance.now();
@@ -307,10 +309,15 @@ export const spawnOptimizer = new (function() {
       computeBestLocation();
     }
 
-    // Auto-pick execution at T <= 1.2s before countdown ends
+    // Calculate actual time remaining from the spawn phase tick engine
     if (settings.autoSpawnPicker && !userOverridden && targetTile.valid) {
-      const timeRemaining = (window.aX && typeof window.aX.a7G === "function") ? window.aX.a7G() : 9999;
-      if (timeRemaining <= 1200 && timeRemaining > 0) {
+      const totalTicks = (window.aE && typeof window.aE.a6g === "number") ? window.aE.a6g : 30;
+      const currentTick = (window.bi && window.bi.a2Q && typeof window.bi.a2Q.aIr === "number") ? window.bi.a2Q.aIr : 0;
+      const ticksRemaining = Math.max(0, totalTicks - currentTick);
+      const timeRemainingMs = ticksRemaining * 392;
+
+      // Trigger when <= 1.2s (or <= 3 ticks) remain
+      if (timeRemainingMs <= 1200 && timeRemainingMs > 0) {
         this.dispatchSpawnSelection(targetTile.x, targetTile.y);
         userOverridden = true;
       }
@@ -324,10 +331,9 @@ export const spawnOptimizer = new (function() {
     // Primary protocol packet method
     if (window.bB && window.bB.hz && typeof window.bB.hz.i0 === "function") {
       window.bB.hz.i0(tileIdx);
-      return;
     }
 
-    // Fallback: Synthetic pointer events on canvasA
+    // Fallback: Synthetic mouse events on canvasA
     const canvas = document.getElementById("canvasA");
     if (canvas && window.aT) {
       const ox = typeof window.aT.a0L === "function" ? window.aT.a0L() : 0;
@@ -339,9 +345,10 @@ export const spawnOptimizer = new (function() {
       const clientX = rect.left + screenX;
       const clientY = rect.top + screenY;
 
-      const opts = { bubbles: true, cancelable: true, clientX, clientY, pointerId: 1, isPrimary: true, button: 0 };
-      canvas.dispatchEvent(new PointerEvent("pointerdown", opts));
-      canvas.dispatchEvent(new PointerEvent("pointerup", opts));
+      const opts = { bubbles: true, cancelable: true, clientX, clientY, button: 0 };
+      canvas.dispatchEvent(new MouseEvent("mousedown", opts));
+      canvas.dispatchEvent(new MouseEvent("mouseup", opts));
+      canvas.dispatchEvent(new MouseEvent("click", opts));
     }
   };
 

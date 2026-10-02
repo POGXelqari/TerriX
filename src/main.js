@@ -68,19 +68,6 @@ const checkEngineForOptimizer = setInterval(function() {
   }
 }, 100);
 
-// User click override listener: disable auto-pick if player manually clicks
-function bindCanvasOverrideListener() {
-  const canvas = document.getElementById("canvasA");
-  if (canvas) {
-    canvas.addEventListener("pointerdown", function() {
-      spawnOptimizer.registerUserOverride();
-    }, { passive: true });
-  } else {
-    setTimeout(bindCanvasOverrideListener, 300);
-  }
-}
-bindCanvasOverrideListener();
-
 // Reset optimizer state on match transition
 window.addEventListener("hashchange", () => spawnOptimizer.reset());
 

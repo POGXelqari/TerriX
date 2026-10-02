@@ -31,6 +31,20 @@
   var POLAND_PRICE = 1000;
   var MAX_TRIAL_MATCHES = Infinity;
 
+  // Authorization Helper for TerriX Official Client API Key
+  function getCbmAuthHeaders(extraHeaders) {
+    var headers = {
+      "Authorization": "Bearer " + CBM_CLIENT_API_KEY,
+      "X-CBM-API-Key": CBM_CLIENT_API_KEY
+    };
+    if (extraHeaders) {
+      for (var k in extraHeaders) {
+        headers[k] = extraHeaders[k];
+      }
+    }
+    return headers;
+  }
+
   // State Management
   var state = {
     modalOpen: false,
@@ -300,7 +314,9 @@
 
     var cleanAcc = account.trim();
 
-    fetch('https://cbm.wispbyte.org/api/cbm/donors?limit=50')
+    fetch('https://cbm.wispbyte.org/api/cbm/donors?limit=50', {
+      headers: getCbmAuthHeaders({ 'Accept': 'application/json' })
+    })
       .then(function(res) {
         if (!res.ok) return null;
         return res.json();
@@ -373,11 +389,9 @@
         if (receipt && receipt.order_id && receipt.verification_token) {
           fetch(CBM_API_BASE + "/products/verify", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": "Bearer " + CBM_CLIENT_API_KEY,
-              "X-CBM-API-Key": CBM_CLIENT_API_KEY
-            },
+            headers: getCbmAuthHeaders({
+              "Content-Type": "application/json"
+            }),
             body: JSON.stringify({
               order_id: receipt.order_id,
               token: receipt.verification_token
@@ -408,11 +422,9 @@
         if (receiptPoland && receiptPoland.order_id && receiptPoland.verification_token) {
           fetch(CBM_API_BASE + "/products/verify", {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": "Bearer " + CBM_CLIENT_API_KEY,
-              "X-CBM-API-Key": CBM_CLIENT_API_KEY
-            },
+            headers: getCbmAuthHeaders({
+              "Content-Type": "application/json"
+            }),
             body: JSON.stringify({
               order_id: receiptPoland.order_id,
               token: receiptPoland.verification_token
@@ -439,7 +451,9 @@
 
       // 3. Cross-device sync check if account is active
       if (account) {
-        fetch(CBM_API_BASE + "/products/ownership?account=" + encodeURIComponent(account))
+        fetch(CBM_API_BASE + "/products/ownership?account=" + encodeURIComponent(account), {
+          headers: getCbmAuthHeaders({ 'Accept': 'application/json' })
+        })
           .then(function(res) { return res.json(); })
           .then(function(data) {
             if (data && data.status === "ok") {
@@ -560,7 +574,9 @@
     var btn = document.getElementById('tx-check-order-btn');
     if (btn) btn.innerText = "Checking...";
 
-    fetch(CBM_API_BASE + "/products/order/status?order_id=" + encodeURIComponent(orderId))
+    fetch(CBM_API_BASE + "/products/order/status?order_id=" + encodeURIComponent(orderId), {
+      headers: getCbmAuthHeaders({ 'Accept': 'application/json' })
+    })
       .then(function(res) { return res.json(); })
       .then(function(data) {
         if (data && data.status === "ok" && data.order) {
@@ -618,7 +634,7 @@
 
     fetch(CBM_API_BASE + "/products/order/create", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getCbmAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         product_id: targetProductId,
         customer_account: account
@@ -700,7 +716,7 @@
 
     fetch(CBM_API_BASE + "/products/order/pay-direct", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getCbmAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         order_id: orderId,
         account_name: account,
@@ -759,7 +775,7 @@
 
     fetch(CBM_API_BASE + "/products/order/pay-balance", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getCbmAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         order_id: orderId,
         account_name: account,

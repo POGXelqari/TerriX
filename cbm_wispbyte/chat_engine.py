@@ -599,11 +599,12 @@ class DisposableChatRoom:
         auth_type: str = "TERRITORIAL_ANONYMOUS",
         is_cbm_verified: bool = False,
         cbm_role: Optional[str] = None,
-        is_whitelisted: bool = False
+        is_whitelisted: bool = False,
+        client_app: Optional[str] = None
     ) -> Tuple[bool, Any]:
         """
         Validates, moderates, parses, and pushes a message to the FIFO ring buffer.
-        Supports dual CBM Member Auth and Anonymous Territorial.io Auth.
+        Supports dual CBM Member Auth, TerriX Official Client Auth, and Anonymous Territorial.io Auth.
         """
         with self.lock:
             if self.is_ended:
@@ -662,10 +663,11 @@ class DisposableChatRoom:
                 "sender_name": clean_sender,
                 "sender_clan": clean_clan,
                 "player_index": player_index,
-                "auth_type": auth_type,                 # "CBM_MEMBER" or "TERRITORIAL_ANONYMOUS"
+                "auth_type": auth_type,                 # "CBM_MEMBER", "TERRITORIAL_OFFICIAL_CLIENT", or "TERRITORIAL_ANONYMOUS"
                 "is_cbm_verified": bool(is_cbm_verified),
                 "is_whitelisted": bool(is_whitelisted),
                 "cbm_role": html.escape(cbm_role[:20]) if cbm_role else None,
+                "client_app": html.escape(client_app[:50]) if client_app else None,
                 "content": escaped_content,
                 "stickers": detected_stickers,
                 "og_embeds": og_embeds,

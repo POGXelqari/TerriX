@@ -21,9 +21,24 @@
   'use strict';
 
   var CBM_API_BASE = 'https://cbm.wispbyte.org';
+  var CBM_CLIENT_API_KEY = 'cbm_live_2063e984d4e66cbd90cc1fcc33e54a1199d5a978';
   var BUBBLE_LIFETIME_MS = 6000;
   var BUBBLE_FADE_START_MS = 4200;
   var POLL_INTERVAL_MS = 1500;
+
+  // Authorization Header Generator for TerriX Official Client API Key
+  function getCbmChatHeaders(extraHeaders) {
+    var headers = {
+      'Authorization': 'Bearer ' + CBM_CLIENT_API_KEY,
+      'X-CBM-API-Key': CBM_CLIENT_API_KEY
+    };
+    if (extraHeaders) {
+      for (var k in extraHeaders) {
+        headers[k] = extraHeaders[k];
+      }
+    }
+    return headers;
+  }
 
   // Custom Sticker glyph replacements for text-only rendering in-game
   var STICKER_GLYPHS = {
@@ -171,7 +186,10 @@
         url += '&since_id=' + encodeURIComponent(state.lastMessageId);
       }
 
-      var res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      var res = await fetch(url, {
+        method: 'GET',
+        headers: getCbmChatHeaders({ 'Accept': 'application/json' })
+      });
       if (!res.ok) return;
 
       var data = await res.json();
@@ -216,7 +234,7 @@
     try {
       var res = await fetch(CBM_API_BASE + '/api/cbm/chat/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getCbmChatHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
       var data = await res.json();

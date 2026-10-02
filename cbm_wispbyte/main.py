@@ -2477,24 +2477,44 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not room_id:
                 return self._send_json(400, {"status": "error", "message": "room_id parameter required."})
 
+            # Check client API Key authorization (e.g. TerriX Official Client)
+            auth_header = self.headers.get("Authorization", "").strip()
+            api_key_hdr = self.headers.get("X-CBM-API-Key", "").strip()
+            token_key = auth_header[7:].strip() if auth_header.startswith("Bearer ") else (api_key_hdr or str(params.get("api_key") or "").strip())
+            is_client_authorized = False
+            client_app_name = None
+            if token_key and (token_key.startswith("cbm_live_") or token_key.startswith("cbm_test_") or token_key.startswith("cbm_key_") or token_key.startswith("cbm_")):
+                key_valid, key_record = db.verify_api_key(token_key)
+                if key_valid and key_record:
+                    is_client_authorized = True
+                    client_app_name = key_record.get("app_name")
+
             room = chat_engine.get_room(room_id)
             if not room:
-                return self._send_json(200, {
+                resp = {
                     "status": "ok",
                     "room_id": room_id,
                     "messages": [],
                     "count": 0,
                     "is_active": False
-                })
+                }
+                if is_client_authorized:
+                    resp["client_authorized"] = True
+                    resp["client_app"] = client_app_name
+                return self._send_json(200, resp)
 
             messages = room.get_messages(since_id=since_id)
-            return self._send_json(200, {
+            resp = {
                 "status": "ok",
                 "room_id": room_id,
                 "messages": messages,
                 "count": len(messages),
                 "is_active": not room.is_ended
-            })
+            }
+            if is_client_authorized:
+                resp["client_authorized"] = True
+                resp["client_app"] = client_app_name
+            return self._send_json(200, resp)
 
         elif path == "/api/cbm/chat/stickers":
             room_id = (params.get("room_id") or "").strip()
@@ -5110,15 +5130,32 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             # Pre-flight content moderation endpoint
             content = (body.get("content") or "").strip()
             image_b64 = body.get("image_data") or body.get("image_b64") or None
+
+            # Check client API Key authorization (e.g. TerriX Official Client)
+            auth_header = self.headers.get("Authorization", "").strip()
+            api_key_hdr = self.headers.get("X-CBM-API-Key", "").strip()
+            token_key = auth_header[7:].strip() if auth_header.startswith("Bearer ") else (api_key_hdr or str(body.get("api_key") or "").strip())
+            is_client_authorized = False
+            client_app_name = None
+            if token_key and (token_key.startswith("cbm_live_") or token_key.startswith("cbm_test_") or token_key.startswith("cbm_key_") or token_key.startswith("cbm_")):
+                key_valid, key_record = db.verify_api_key(token_key)
+                if key_valid and key_record:
+                    is_client_authorized = True
+                    client_app_name = key_record.get("app_name")
+
             safety_res = check_message_safety(content, image_b64=image_b64)
-            return self._send_json(200, {
+            resp = {
                 "status": "ok",
                 "is_safe": safety_res.get("is_safe", True),
                 "reason": safety_res.get("reason", ""),
                 "categories": safety_res.get("categories", []),
                 "layer": safety_res.get("layer", "L3_NEMOTRON_3.5"),
                 "model": safety_res.get("model", "nvidia/nemotron-3.5-content-safety")
-            })
+            }
+            if is_client_authorized:
+                resp["client_authorized"] = True
+                resp["client_app"] = client_app_name
+            return self._send_json(200, resp)
 
         elif path == "/api/cbm/chat/send":
             room_id = (body.get("room_id") or "").strip()
@@ -5128,6 +5165,20 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             room = chat_engine.get_room(room_id)
             if not room:
                 room = chat_engine.get_or_create_room(room_id, creator_name=body.get("sender_name", "Anonymous"))
+
+            # Check client API Key authorization (e.g. TerriX Official Client)
+            auth_header = self.headers.get("Authorization", "").strip()
+            api_key_hdr = self.headers.get("X-CBM-API-Key", "").strip()
+            token_key = auth_header[7:].strip() if auth_header.startswith("Bearer ") else (api_key_hdr or str(body.get("api_key") or "").strip())
+            is_client_authorized = False
+            client_app_name = None
+            key_record = None
+            if token_key and (token_key.startswith("cbm_live_") or token_key.startswith("cbm_test_") or token_key.startswith("cbm_key_") or token_key.startswith("cbm_")):
+                key_valid, k_rec = db.verify_api_key(token_key)
+                if key_valid and k_rec:
+                    is_client_authorized = True
+                    client_app_name = k_rec.get("app_name")
+                    key_record = k_rec
 
             # Dual Authentication: CBM Member Auth vs. Anonymous Territorial.io Auth
             auth_type = "TERRITORIAL_ANONYMOUS"
@@ -5164,18 +5215,34 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         "status": "error",
                         "message": f"CBM account '{cbm_user}' not found."
                     })
+            elif is_client_authorized:
+                # Authorized Client (e.g. TerriX Official Client)
+                auth_type = "TERRITORIAL_OFFICIAL_CLIENT"
+                is_cbm_verified = True
+                sender_name = (body.get("sender_name") or body.get("player_name") or "TerriX Player").strip()
+                sender_clan = (body.get("sender_clan") or body.get("clan") or "").strip()
             else:
                 # Anonymous Territorial.io Player
                 sender_name = (body.get("sender_name") or body.get("player_name") or "Anonymous").strip()
                 sender_clan = (body.get("sender_clan") or body.get("clan") or "").strip()
 
-            # Token-bucket burst rate limiting per IP + sender
-            rate_key = f"{client_ip}_{sender_name}"
-            if not room.check_rate_limit(rate_key):
-                return self._send_json(429, {
-                    "status": "error",
-                    "message": "Chat rate limit exceeded. Please wait a moment before sending more messages."
-                }, headers={"Retry-After": "3"})
+            # Token-bucket rate limiting (prioritize API Key RPM for authorized client)
+            if is_client_authorized and key_record:
+                key_id = key_record.get("key_id", "terrix_official")
+                key_rpm = int(key_record.get("rate_limit_rpm", 600))
+                allowed, _ = rate_limiter.check_rate_limit(f"api_key_chat_{key_id}_{client_ip}", limit=key_rpm, period_seconds=60)
+                if not allowed:
+                    return self._send_json(429, {
+                        "status": "error",
+                        "message": "Chat rate limit exceeded for client API key. Please slow down."
+                    }, headers={"Retry-After": "2"})
+            else:
+                rate_key = f"{client_ip}_{sender_name}"
+                if not room.check_rate_limit(rate_key):
+                    return self._send_json(429, {
+                        "status": "error",
+                        "message": "Chat rate limit exceeded. Please wait a moment before sending more messages."
+                    }, headers={"Retry-After": "3"})
 
             content = body.get("content", "")
             player_index = body.get("player_index")
@@ -5212,7 +5279,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 auth_type=auth_type,
                 is_cbm_verified=is_cbm_verified,
                 cbm_role=cbm_role,
-                is_whitelisted=is_whitelisted
+                is_whitelisted=is_whitelisted,
+                client_app=client_app_name
             )
             if not ok:
                 return self._send_json(400, {"status": "error", "message": msg_or_err})

@@ -2043,18 +2043,18 @@
         if (R > 0) { front.lastP2Troops = R; front.lastWarTime = now; }
         if (front.lastTilesCount !== segment.tiles.length) {
           front.lastTilesCount = segment.tiles.length;
-          front.lastWarTime = now;
+          if (L > 0 || R > 0) front.lastWarTime = now;
         }
 
-        var isWarActive = (now - front.lastWarTime) < 15000;
+        var isWarActive = (L > 0 || R > 0);
         var targetAlpha = isWarActive ? 1.0 : 0.0;
         if (!isWarActive) {
           front.lastPTroops = 0;
           front.lastP2Troops = 0;
         }
 
-        var troopsP1 = L > 0 ? L : (front.lastPTroops || 0);
-        var troopsP2 = R > 0 ? R : (front.lastP2Troops || 0);
+        var troopsP1 = L;
+        var troopsP2 = R;
 
         // Calculate Centroid in Tile Coordinates
         var sumX = 0, sumY = 0;

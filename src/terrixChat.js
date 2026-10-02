@@ -99,40 +99,70 @@
       if (typeof context.game.playerId === 'number') return context.game.playerId;
       if (typeof context.game.fJ === 'number') return context.game.fJ;
     }
+    if (window.aE) {
+      if (typeof window.aE.playerId === 'number') return window.aE.playerId;
+      if (typeof window.aE.fJ === 'number') return window.aE.fJ;
+    }
     return null;
+  }
+
+  function isMatchActive() {
+    var g = window.aE || (window.__TERRIX_LAST_CTX__ && window.__TERRIX_LAST_CTX__.game);
+    var gs = g && typeof g.a2G === 'number' ? g.a2G : 0;
+    return gs === 1 || gs === 2;
   }
 
   // Deterministic Match Room ID generator
   function updateMatchRoomId(context) {
     try {
-      if (context && context.playerData && context.playerData.rawPlayerNames) {
-        var names = context.playerData.rawPlayerNames;
-        if (names && names.length > 0) {
-          // Take first 12 player names sorted to derive a deterministic room hash
-          var sample = [];
-          for (var i = 0; i < Math.min(names.length, 12); i++) {
-            if (names[i]) sample.push(String(names[i]).trim());
-          }
-          if (sample.length > 0) {
-            sample.sort();
-            var combined = sample.join('|');
-            var hash = 0;
-            for (var c = 0; c < combined.length; c++) {
-              hash = ((hash << 5) - hash) + combined.charCodeAt(c);
-              hash |= 0;
-            }
-            var hexHash = (hash >>> 0).toString(16);
-            state.currentRoomId = 'match_' + hexHash;
-            return;
-          }
+      var g = (context && context.game) || window.aE;
+      var bV = window.bV;
+      var gs = g && typeof g.a2G === 'number' ? g.a2G : 0;
+
+      if ((gs === 1 || gs === 2) && g && bV) {
+        var spawningSeed = (g.data && g.data.spawningSeed != null) ? g.data.spawningSeed : 0;
+        var mapSeed = (bV.mapSeed != null) ? bV.mapSeed : 0;
+        var mapIndex = (bV.fF != null) ? bV.fF : 0;
+        var newRoomId = 'match_' + spawningSeed + '_' + mapSeed + '_' + mapIndex;
+
+        if (newRoomId !== state.currentRoomId) {
+          state.currentRoomId = newRoomId;
+          state.lastMessageId = null;
+          state.activeBubbles = [];
+          state.playerAnchors = {};
         }
-      }
-      if (window.location.hash && window.location.hash.length > 1) {
-        state.currentRoomId = 'lobby_' + window.location.hash.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 16);
         return;
       }
     } catch(e) {}
-    state.currentRoomId = 'match_global';
+    if (state.currentRoomId !== 'match_global') {
+      state.currentRoomId = 'match_global';
+      state.lastMessageId = null;
+      state.activeBubbles = [];
+      state.playerAnchors = {};
+    }
+  }
+
+  function updateChatLifecycle(context) {
+    var active = isMatchActive();
+    var fab = document.getElementById('terrix-chat-fab');
+    var bar = document.getElementById('terrix-chat-bar');
+
+    if (!active) {
+      if (fab) fab.classList.add('inactive-game');
+      if (bar) bar.classList.add('inactive-game');
+      if (state.inboxOpen) closeChatInbox();
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+    } else {
+      if (fab) fab.classList.remove('inactive-game');
+      if (bar) bar.classList.remove('inactive-game');
+      if (!state.pollTimer) {
+        state.pollTimer = setInterval(pollChatMessages, POLL_INTERVAL_MS);
+      }
+      updateMatchRoomId(context);
+    }
   }
 
   // Format message text for text-only rendering in-game
@@ -321,7 +351,7 @@
     var dt = Math.min(Math.max((now - (state.lastFrameTime || now)) / 1000.0, 0.001), 0.1);
     state.lastFrameTime = now;
 
-    updateMatchRoomId(context);
+    updateChatLifecycle(context);
 
     if (state.activeBubbles.length === 0) return;
 
@@ -359,9 +389,10 @@
 
       // Resolve player index
       var pIdx = bubble.player_index;
-      if ((pIdx === null || pIdx === undefined) && pd && pd.rawPlayerNames) {
-        for (var p = 0; p < pd.rawPlayerNames.length; p++) {
-          if (pd.rawPlayerNames[p] && pd.rawPlayerNames[p].indexOf(bubble.sender_name) !== -1) {
+      var rawNames = (pd && (pd.a2w || pd.rawPlayerNames)) || (window.ah && (window.ah.a2w || window.ah.rawPlayerNames));
+      if ((pIdx === null || pIdx === undefined) && rawNames) {
+        for (var p = 0; p < rawNames.length; p++) {
+          if (rawNames[p] && String(rawNames[p]).indexOf(bubble.sender_name) !== -1) {
             pIdx = p;
             bubble.player_index = p;
             break;
@@ -591,6 +622,12 @@
     '  from { opacity: 0; transform: translate(-50%, 10px); }',
     '  to { opacity: 1; transform: translate(-50%, 0); }',
     '}',
+    '.terrix-chat-fab.inactive-game {',
+    '  display: none !important;',
+    '}',
+    '.terrix-chat-bar.inactive-game {',
+    '  display: none !important;',
+    '}',
     '@media (max-height: 600px) {',
     '  .terrix-chat-fab {',
     '    bottom: 48px !important;',
@@ -714,11 +751,12 @@
 
     // 2. Ensure Unmoveable 3D Circle Button
     var fab = document.getElementById('terrix-chat-fab');
+    var matchActive = isMatchActive();
     if (!fab || !docBody.contains(fab)) {
       if (fab && fab.parentNode) fab.parentNode.removeChild(fab);
       fab = document.createElement('div');
       fab.id = 'terrix-chat-fab';
-      fab.className = 'terrix-chat-fab' + (state.inboxOpen ? ' active' : '');
+      fab.className = 'terrix-chat-fab' + (state.inboxOpen ? ' active' : '') + (!matchActive ? ' inactive-game' : '');
       fab.title = 'In-Match Chat (Press /)';
       fab.innerHTML = [
         '<div style="position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center;">',
@@ -741,6 +779,9 @@
         toggleChatInbox();
       };
       docBody.appendChild(fab);
+    } else {
+      if (!matchActive) fab.classList.add('inactive-game');
+      else fab.classList.remove('inactive-game');
     }
 
     // 3. Ensure Floating Chat Inbox Bar
@@ -749,7 +790,7 @@
       if (bar && bar.parentNode) bar.parentNode.removeChild(bar);
       bar = document.createElement('div');
       bar.id = 'terrix-chat-bar';
-      bar.className = 'terrix-chat-bar';
+      bar.className = 'terrix-chat-bar' + (!matchActive ? ' inactive-game' : '');
       if (state.inboxOpen) bar.classList.add('open');
 
       bar.innerHTML = [
@@ -820,6 +861,7 @@
     // Use capture phase so TerriX Chat hotkey '/' is never swallowed by game scripts
     window.addEventListener('keydown', function(e) {
       if (e.key === '/' && !state.inboxOpen) {
+        if (!isMatchActive()) return;
         var active = document.activeElement;
         var tag = active ? active.tagName.toLowerCase() : '';
         if (tag === 'input' || tag === 'textarea' || (active && active.isContentEditable)) {
@@ -899,8 +941,11 @@
       }
     });
 
-    // Periodic heartbeat check
-    setInterval(ensureChatDOM, 2500);
+    // Periodic heartbeat check & lifecycle sync
+    setInterval(function() {
+      ensureChatDOM();
+      updateChatLifecycle(window.__TERRIX_LAST_CTX__);
+    }, 2000);
   }
 
   function updateAuthBadge() {
@@ -919,6 +964,7 @@
   }
 
   function openChatInbox() {
+    if (!isMatchActive()) return;
     state.inboxOpen = true;
     ensureChatDOM();
     updateAuthBadge();
@@ -1027,8 +1073,8 @@
     bindGlobalKeyboard();
     startDOMWatchers();
 
-    // Start background poll timer
-    if (!state.pollTimer) {
+    // Start background poll timer only if currently in an active match
+    if (!state.pollTimer && isMatchActive()) {
       state.pollTimer = setInterval(pollChatMessages, POLL_INTERVAL_MS);
     }
 

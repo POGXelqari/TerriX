@@ -44,7 +44,9 @@ var settings = {
   mutePingLanguage: false,
   mutePingDirect: false,
   hideInappropriateNames: false,
-  followedAccountNicknames: {}
+  followedAccountNicknames: {},
+  spawnOptimizer: false,
+  autoSpawnPicker: false
 };
 __fx.settings = settings;
 const discontinuedSettings = ["hideAllLinks", "fontName"];
@@ -532,6 +534,19 @@ const settingsManager = new (function () {
     LobbyReminderRulesInput,
     SectionHeader("Muted lobby pings"),
     MutePingSection,
+    SectionHeader("Automation & Analysis"),
+    {
+      for: "spawnOptimizer",
+      type: "checkbox",
+      label: "Spawn Optimizer",
+      note: "Calculates and animates the optimal spawn location based on player density, terrain reachability, and coastline proximity."
+    },
+    {
+      for: "autoSpawnPicker",
+      type: "checkbox",
+      label: "Auto Spawn Picker",
+      note: "Automatically locks in the calculated optimal spawn point 1.2s before the countdown ends if no manual spawn was selected."
+    },
     SectionHeader("Other"),
     {
       for: "hideInappropriateNames",

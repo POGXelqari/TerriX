@@ -21,6 +21,7 @@ import nameFilter from './nameFilter.js';
 import followedAccounts from './followedAccounts.js';
 import './terrixCosmetics.js';
 import './terrixChat.js';
+import { spawnOptimizer } from './spawnOptimizer.js';
 
 window.__fx = window.__fx || {};
 const __fx = window.__fx;
@@ -54,6 +55,34 @@ __fx.pingFilter = pingFilter;
 __fx.nameFilter = nameFilter;
 __fx.followedAccounts = followedAccounts;
 __fx.chat = window.__fx.chat;
+__fx.spawnOptimizer = spawnOptimizer;
+
+// Register Spawn Optimizer Frame Lifecycle Hook
+const checkEngineForOptimizer = setInterval(function() {
+  if (window.__TERRIX_ENGINE__ && typeof window.__TERRIX_ENGINE__.onRenderFrame === 'function') {
+    clearInterval(checkEngineForOptimizer);
+    window.__TERRIX_ENGINE__.onRenderFrame(function(context) {
+      spawnOptimizer.update(context);
+      spawnOptimizer.render(context);
+    });
+  }
+}, 100);
+
+// User click override listener: disable auto-pick if player manually clicks
+function bindCanvasOverrideListener() {
+  const canvas = document.getElementById("canvasA");
+  if (canvas) {
+    canvas.addEventListener("pointerdown", function() {
+      spawnOptimizer.registerUserOverride();
+    }, { passive: true });
+  } else {
+    setTimeout(bindCanvasOverrideListener, 300);
+  }
+}
+bindCanvasOverrideListener();
+
+// Reset optimizer state on match transition
+window.addEventListener("hashchange", () => spawnOptimizer.reset());
 
 console.log('Successfully loaded FX Client');
 

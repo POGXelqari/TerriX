@@ -56,3 +56,30 @@ This directory contains the self-contained, continuous Python backend runtime fo
 * **Reserve-Backed Lending:** Loans cannot exceed **0.05%** of unencumbered bank reserves.
 * **Activation Floor:** If $0.05\%$ of reserves $\le 1,000\text{ Gold}$, the lending facility is **strictly locked**.
 * **Minimum Activation Reserves:** The bank must accumulate at least **$2,000,000\text{ Gold}$** in unencumbered reserves before any loan can be originated.
+
+---
+
+## 4. CBM AutoMod Discord Bot (Nemotron-3.5-Content-Safety NIM)
+
+The official **CBM | AutoMod** (registered as `CBM | Content Safety`) is an automated, stealth Discord content safety moderation bot integrated with NVIDIA's 4B multimodal `nvidia/nemotron-3.5-content-safety` NIM model.
+
+### Key Capabilities:
+- **Stealth Purging:** Violating messages are silently deleted (`await message.delete()`) with zero in-channel feedback or pings to offenders.
+- **Moderator Audit Logging:** High-fidelity incident cards with violating categories, author tag, ID, creation date, snippet, and latency metrics are dispatched exclusively to the configured `#mod-logs` channel.
+- **Tiered Moderation Pipeline:**
+  1. Layer 1: Homoglyph & regex normalizer (<1ms)
+  2. Layer 2: SHA-256 in-memory LRU cache (<1ms)
+  3. Layer 3: NVIDIA Nemotron-3.5 NIM multimodal model (200-500ms) with circuit breaker fallback.
+- **Multimodal Support:** Analyzes text and image attachments (PNG, JPEG, WebP up to 4MB).
+
+### Setup & Usage:
+1. **Invite Bot to Server:**
+   [Install CBM AutoMod to Server (Guild Install)](https://discord.com/oauth2/authorize?client_id=1556061160288034898&permissions=124928&integration_type=0&scope=bot+applications.commands)
+2. **Configure in Discord:**
+   `/setup log_channel:#automod-logs ignore_channel:#general`
+3. **Run Daemon:**
+   ```bash
+   py -3.12 cbm_wispbyte/run_automod.py
+   # or test configuration:
+   py -3.12 cbm_wispbyte/run_automod.py --check
+   ```

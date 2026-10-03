@@ -910,6 +910,23 @@ class CBMDatabase:
                 SET callback_url = 'https://pogxelqari.github.io/TerriX/client/'
                 WHERE callback_url LIKE '%territorial.io%'
             """)
+            # Ensure creator entitlement orders exist for all active products
+            cur.execute("SELECT product_id, owner_account, created_at FROM cbm_products WHERE status != 'ARCHIVED'")
+            for p_id, p_owner, p_created in cur.fetchall():
+                c_oid = f"ord_creator_{p_id}"
+                c_tok = f"tok_creator_{p_id}_{hashlib.sha256(p_owner.encode('utf-8')).hexdigest()[:16]}"
+                p_ts = float(p_created) if p_created else time.time()
+                cur.execute("""
+                    INSERT OR IGNORE INTO cbm_product_orders (
+                        order_id, product_id, buyer_cbm_username, buyer_territorial_account,
+                        price_gold, price_cents, owner_share_cents, cushion_share_cents,
+                        payment_method, tx_hash, verification_token, status,
+                        expires_at, fulfilled_at, created_at
+                    ) VALUES (?, ?, ?, ?, 0.0, 0, 0, 0, 'CREATOR_ENTITLEMENT', ?, ?, 'FULFILLED', 0.0, ?, ?)
+                """, (
+                    c_oid, p_id, p_owner, p_owner,
+                    f"tx_creator_{p_id}", c_tok, p_ts, p_ts
+                ))
             conn.commit()
         except Exception:
             pass
@@ -2012,6 +2029,36 @@ class CBMDatabase:
         safe["primary_territorial_account"] = raw.get("primary_territorial_account")
         safe["is_verified"] = self.is_account_verified(safe.get("account_name", account_name))
         return safe
+
+    def _get_all_account_aliases(self, account: str) -> List[str]:
+        """Resolves an account name or alias to all associated identifiers (CBM username, in-game name, display name)."""
+        clean = (account or "").strip()
+        if not clean:
+            return []
+        aliases = {clean}
+        raw = self._get_account_raw(clean)
+        if raw:
+            for k in ("account_name", "display_name", "primary_territorial_account"):
+                v = raw.get(k)
+                if v and isinstance(v, str) and v.strip():
+                    aliases.add(v.strip())
+            canonical = raw.get("account_name")
+            if canonical:
+                try:
+                    conn = self._get_sqlite_conn()
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT territorial_account_name, display_name FROM cbm_payment_methods WHERE cbm_username = ? COLLATE NOCASE",
+                        (canonical,)
+                    )
+                    for r in cur.fetchall():
+                        if r[0] and str(r[0]).strip():
+                            aliases.add(str(r[0]).strip())
+                        if r[1] and str(r[1]).strip():
+                            aliases.add(str(r[1]).strip())
+                except Exception:
+                    pass
+        return list(aliases)
 
     # --- CBM Password Authentication ---
     @staticmethod
@@ -5708,6 +5755,19 @@ class CBMDatabase:
                 (image_url or "").strip(), p_gold, price_cents, clean_callback,
                 (webhook_url or "").strip(), now, now
             ))
+            creator_order_id = f"ord_creator_{product_id}"
+            creator_token = f"tok_creator_{product_id}_{hashlib.sha256(clean_owner.encode('utf-8')).hexdigest()[:16]}"
+            cur.execute("""
+                INSERT OR IGNORE INTO cbm_product_orders (
+                    order_id, product_id, buyer_cbm_username, buyer_territorial_account,
+                    price_gold, price_cents, owner_share_cents, cushion_share_cents,
+                    payment_method, tx_hash, verification_token, status,
+                    expires_at, fulfilled_at, created_at
+                ) VALUES (?, ?, ?, ?, 0.0, 0, 0, 0, 'CREATOR_ENTITLEMENT', ?, ?, 'FULFILLED', 0.0, ?, ?)
+            """, (
+                creator_order_id, product_id, clean_owner, clean_owner,
+                f"tx_creator_{product_id}", creator_token, now, now
+            ))
             conn.commit()
         except Exception as e:
             conn.rollback()
@@ -6118,6 +6178,40 @@ class CBMDatabase:
         """, (clean_id,))
         row = cur.fetchone()
         if not row:
+            if clean_id.startswith("ord_creator_"):
+                prod_id = clean_id[len("ord_creator_"):]
+                prod = self.get_product(prod_id)
+                if prod:
+                    owner = prod["owner_account"]
+                    ctok = f"tok_creator_{prod_id}_{hashlib.sha256(owner.encode('utf-8')).hexdigest()[:16]}"
+                    pts = prod.get("created_at") or time.time()
+                    return {
+                        "order_id": clean_id,
+                        "product_id": prod_id,
+                        "buyer_cbm_username": owner,
+                        "buyer_territorial_account": owner,
+                        "price_gold": 0.0,
+                        "price_cents": 0,
+                        "owner_share_gold": 0.0,
+                        "cushion_share_gold": 0.0,
+                        "payment_method": "CREATOR_ENTITLEMENT",
+                        "tx_hash": f"tx_creator_{prod_id}",
+                        "verification_token": ctok,
+                        "token_secret": ctok,
+                        "status": "FULFILLED",
+                        "expires_at": "",
+                        "expires_at_iso": "",
+                        "expires_at_timestamp": 0.0,
+                        "remaining_seconds": 0,
+                        "fulfilled_at": pts,
+                        "created_at": pts,
+                        "product_name": prod.get("name", "Product"),
+                        "owner_account": owner,
+                        "callback_url": prod.get("callback_url", "https://pogxelqari.github.io/TerriX/client/"),
+                        "return_url": prod.get("callback_url", "https://pogxelqari.github.io/TerriX/client/"),
+                        "target_vault_account": os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC"),
+                        "is_creator": True
+                    }
             return None
 
         now = time.time()
@@ -6159,7 +6253,8 @@ class CBMDatabase:
             "owner_account": row[16] or "",
             "callback_url": cb_url,
             "return_url": cb_url,
-            "target_vault_account": os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
+            "target_vault_account": os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC"),
+            "is_creator": bool(row[8] == "CREATOR_ENTITLEMENT" or clean_id.startswith("ord_creator_"))
         }
 
     def get_product_order_by_tx(self, tx_hash: str) -> Optional[Dict[str, Any]]:
@@ -6367,49 +6462,107 @@ class CBMDatabase:
             "buyer_territorial_account": order.get("buyer_territorial_account"),
             "buyer_cbm_username": order.get("buyer_cbm_username"),
             "status": "FULFILLED",
+            "is_creator": bool(order.get("is_creator", False)),
             "fulfilled_at": order.get("fulfilled_at"),
             "created_at": order.get("created_at")
         }
 
     def get_account_owned_products(self, account: str) -> List[str]:
-        """Returns a list of distinct product_id strings fulfilled for a player account."""
+        """Returns a list of distinct product_id strings fulfilled or created for a player account."""
         clean_acc = (account or "").strip()
         if not clean_acc:
             return []
+        aliases = self._get_all_account_aliases(clean_acc)
+        if not aliases:
+            aliases = [clean_acc]
+
         conn = self._get_sqlite_conn()
         cur = conn.cursor()
-        cur.execute("""
+        placeholders = ",".join("?" for _ in aliases)
+
+        # 1. Fulfilled orders where buyer matches any alias
+        cur.execute(f"""
             SELECT DISTINCT product_id FROM cbm_product_orders
             WHERE status = 'FULFILLED'
-              AND (buyer_territorial_account = ? COLLATE NOCASE OR buyer_cbm_username = ? COLLATE NOCASE)
-        """, (clean_acc, clean_acc))
-        return [r[0] for r in cur.fetchall() if r[0]]
+              AND (buyer_territorial_account IN ({placeholders}) COLLATE NOCASE 
+                   OR buyer_cbm_username IN ({placeholders}) COLLATE NOCASE)
+        """, aliases + aliases)
+        purchased = [r[0] for r in cur.fetchall() if r[0]]
+
+        # 2. Created products where owner_account matches any alias
+        cur.execute(f"""
+            SELECT DISTINCT product_id FROM cbm_products
+            WHERE owner_account IN ({placeholders}) COLLATE NOCASE
+              AND status != 'ARCHIVED'
+        """, aliases)
+        created = [r[0] for r in cur.fetchall() if r[0]]
+
+        seen = set()
+        result = []
+        for pid in (purchased + created):
+            if pid not in seen:
+                seen.add(pid)
+                result.append(pid)
+        return result
 
     def get_product_receipt_for_account(self, account: str, product_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves the latest fulfilled order receipt for an account and product."""
+        """Retrieves the latest fulfilled order receipt or creator entitlement receipt for an account and product."""
         clean_acc = (account or "").strip()
         clean_prod = (product_id or "").strip()
         if not clean_acc or not clean_prod:
             return None
+
+        aliases = self._get_all_account_aliases(clean_acc)
+        if not aliases:
+            aliases = [clean_acc]
+
         conn = self._get_sqlite_conn()
         cur = conn.cursor()
-        cur.execute("""
+        placeholders = ",".join("?" for _ in aliases)
+
+        # 1. Check fulfilled orders in cbm_product_orders
+        cur.execute(f"""
             SELECT order_id, verification_token, fulfilled_at, created_at
             FROM cbm_product_orders
             WHERE status = 'FULFILLED'
               AND product_id = ?
-              AND (buyer_territorial_account = ? COLLATE NOCASE OR buyer_cbm_username = ? COLLATE NOCASE)
+              AND (buyer_territorial_account IN ({placeholders}) COLLATE NOCASE 
+                   OR buyer_cbm_username IN ({placeholders}) COLLATE NOCASE)
             ORDER BY fulfilled_at DESC LIMIT 1
-        """, (clean_prod, clean_acc, clean_acc))
+        """, [clean_prod] + aliases + aliases)
         row = cur.fetchone()
-        if not row:
-            return None
-        return {
-            "order_id": row[0],
-            "verification_token": row[1],
-            "fulfilled_at": float(row[2]) if row[2] else None,
-            "created_at": float(row[3]) if row[3] else None
-        }
+        if row:
+            is_c = str(row[0]).startswith("ord_creator_")
+            return {
+                "order_id": row[0],
+                "verification_token": row[1],
+                "fulfilled_at": float(row[2]) if row[2] else None,
+                "created_at": float(row[3]) if row[3] else None,
+                "is_creator": is_c
+            }
+
+        # 2. Check if account is the creator/owner of the product
+        cur.execute(f"""
+            SELECT product_id, owner_account, created_at
+            FROM cbm_products
+            WHERE product_id = ?
+              AND owner_account IN ({placeholders}) COLLATE NOCASE
+        """, [clean_prod] + aliases)
+        prow = cur.fetchone()
+        if prow:
+            owner = prow[1]
+            cid = f"ord_creator_{clean_prod}"
+            ctok = f"tok_creator_{clean_prod}_{hashlib.sha256(owner.encode('utf-8')).hexdigest()[:16]}"
+            pts = float(prow[2]) if prow[2] else time.time()
+            return {
+                "order_id": cid,
+                "verification_token": ctok,
+                "fulfilled_at": pts,
+                "created_at": pts,
+                "is_creator": True
+            }
+
+        return None
 
     # -------------------------------------------------------------------------
     # Referral Reward Program Engine

@@ -61,6 +61,7 @@
     receipt: null,              // { order_id, verification_token, account_name, verified_at }
     receiptPoland: null,        // Poland pattern receipt { order_id, verification_token, account_name, verified_at }
     ownedPatterns: {},
+    isCreator: {},              // Tracks creator pattern products e.g. { 'hello_kitty': true, 'poland': true }
     equippedPattern: null,
     trial: {
       eligible: false,
@@ -85,9 +86,19 @@
     lastTileCount: 0
   };
 
+  function getCbmAccount() {
+    try {
+      return (localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '').trim();
+    } catch(e) {
+      return '';
+    }
+  }
+
   function getActiveAccount() {
     try {
-      return (localStorage.getItem('d105') || '').trim();
+      var d105 = (localStorage.getItem('d105') || '').trim();
+      var cbm = getCbmAccount();
+      return d105 || cbm || '';
     } catch(e) {
       return '';
     }
@@ -118,6 +129,18 @@
           state.receiptPoland = JSON.parse(rawReceiptPoland);
           if (state.receiptPoland && state.receiptPoland.order_id) {
             state.ownedPatterns['poland'] = true;
+          }
+        } catch(e) {}
+      }
+
+      var creatorState = localStorage.getItem('terrix_cbm_creator_patterns');
+      if (creatorState) {
+        try {
+          state.isCreator = JSON.parse(creatorState) || {};
+          for (var cp in state.isCreator) {
+            if (state.isCreator[cp]) {
+              state.ownedPatterns[cp] = true;
+            }
           }
         } catch(e) {}
       }
@@ -190,6 +213,8 @@
       } else {
         localStorage.removeItem('terrix_cbm_receipt_poland');
       }
+
+      localStorage.setItem('terrix_cbm_creator_patterns', JSON.stringify(state.isCreator || {}));
 
       var currentAcc = getActiveAccount();
       if (currentAcc) {
@@ -402,14 +427,19 @@
             if (data && data.valid && data.order && data.order.status === "FULFILLED") {
               state.ownedPatterns['hello_kitty'] = true;
               state.receipt = receipt;
+              if (data.order.is_creator || (receipt.order_id && String(receipt.order_id).indexOf('ord_creator_') === 0)) {
+                state.isCreator['hello_kitty'] = true;
+              }
               savePersistedState();
               updateShopUI();
             } else {
-              delete state.ownedPatterns['hello_kitty'];
-              state.receipt = null;
-              if (state.equippedPattern === 'hello_kitty') state.equippedPattern = null;
-              savePersistedState();
-              updateShopUI();
+              if (!state.isCreator['hello_kitty']) {
+                delete state.ownedPatterns['hello_kitty'];
+                state.receipt = null;
+                if (state.equippedPattern === 'hello_kitty') state.equippedPattern = null;
+                savePersistedState();
+                updateShopUI();
+              }
             }
           })
           .catch(function(err) {});
@@ -435,14 +465,19 @@
             if (data && data.valid && data.order && data.order.status === "FULFILLED") {
               state.ownedPatterns['poland'] = true;
               state.receiptPoland = receiptPoland;
+              if (data.order.is_creator || (receiptPoland.order_id && String(receiptPoland.order_id).indexOf('ord_creator_') === 0)) {
+                state.isCreator['poland'] = true;
+              }
               savePersistedState();
               updateShopUI();
             } else {
-              delete state.ownedPatterns['poland'];
-              state.receiptPoland = null;
-              if (state.equippedPattern === 'poland') state.equippedPattern = null;
-              savePersistedState();
-              updateShopUI();
+              if (!state.isCreator['poland']) {
+                delete state.ownedPatterns['poland'];
+                state.receiptPoland = null;
+                if (state.equippedPattern === 'poland') state.equippedPattern = null;
+                savePersistedState();
+                updateShopUI();
+              }
             }
           })
           .catch(function(err) {});
@@ -450,27 +485,63 @@
       }
 
       // 3. Cross-device sync check if account is active
-      if (account) {
-        fetch(CBM_API_BASE + "/products/ownership?account=" + encodeURIComponent(account), {
+      var accountsToCheck = [];
+      if (account) accountsToCheck.push(account);
+      var cbmAcc = getCbmAccount();
+      if (cbmAcc && (!account || cbmAcc.toLowerCase() !== account.toLowerCase())) {
+        accountsToCheck.push(cbmAcc);
+      }
+
+      accountsToCheck.forEach(function(targetAcc) {
+        fetch(CBM_API_BASE + "/products/ownership?account=" + encodeURIComponent(targetAcc), {
           headers: getCbmAuthHeaders({ 'Accept': 'application/json' })
         })
           .then(function(res) { return res.json(); })
           .then(function(data) {
             if (data && data.status === "ok") {
-              if (data.has_hello_kitty && data.receipt) {
+              var ownedList = data.owned_products || [];
+              var createdList = data.created_products || [];
+
+              if (data.has_hello_kitty || ownedList.indexOf('prod_hellokitty') >= 0 || createdList.indexOf('prod_hellokitty') >= 0) {
                 state.ownedPatterns['hello_kitty'] = true;
-                state.receipt = data.receipt;
+                if (createdList.indexOf('prod_hellokitty') >= 0 || (data.receipt && data.receipt.is_creator)) {
+                  state.isCreator['hello_kitty'] = true;
+                }
+                if (data.receipt) {
+                  state.receipt = data.receipt;
+                }
               }
-              if (data.has_poland && data.receipt_poland) {
+
+              if (data.has_poland || ownedList.indexOf('prod_poland') >= 0 || createdList.indexOf('prod_poland') >= 0) {
                 state.ownedPatterns['poland'] = true;
-                state.receiptPoland = data.receipt_poland;
+                if (createdList.indexOf('prod_poland') >= 0 || (data.receipt_poland && data.receipt_poland.is_creator)) {
+                  state.isCreator['poland'] = true;
+                }
+                if (data.receipt_poland) {
+                  state.receiptPoland = data.receipt_poland;
+                }
               }
+
+              for (var i = 0; i < createdList.length; i++) {
+                var cPid = createdList[i];
+                if (cPid === 'prod_hellokitty') {
+                  state.ownedPatterns['hello_kitty'] = true;
+                  state.isCreator['hello_kitty'] = true;
+                } else if (cPid === 'prod_poland') {
+                  state.ownedPatterns['poland'] = true;
+                  state.isCreator['poland'] = true;
+                } else {
+                  state.ownedPatterns[cPid] = true;
+                  state.isCreator[cPid] = true;
+                }
+              }
+
               savePersistedState();
               updateShopUI();
             }
           })
           .catch(function() {});
-      }
+      });
     } catch(e) {
       console.warn("[TerriX Cosmetics] Receipt parse error:", e);
     }
@@ -1478,7 +1549,20 @@
 
     // Action Buttons
     var buttonsHtml = '';
-    if (isOwned) {
+    var isCreator = !!(state.isCreator && state.isCreator['hello_kitty']);
+    if (isCreator) {
+      if (isEquipped) {
+        buttonsHtml = '<button class="terrix-action-btn green" id="tx-equip-btn">Equipped &check; (Creator Free Access)</button>' +
+                      '<button class="terrix-action-btn secondary" id="tx-unequip-btn">Unequip</button>';
+      } else {
+        buttonsHtml = '<button class="terrix-action-btn gold" id="tx-equip-btn">Equip Hello Kitty Pattern (Free - Product Creator)</button>';
+      }
+      if (slipContainer) {
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
+          '<span>&#10004;</span> Verified Product Creator &bull; Free Lifetime Access' +
+          '</div>';
+      }
+    } else if (isOwned) {
       if (isEquipped) {
         buttonsHtml = '<button class="terrix-action-btn green" id="tx-equip-btn">Equipped &check;</button>' +
                       '<button class="terrix-action-btn secondary" id="tx-unequip-btn">Unequip</button>';
@@ -1534,7 +1618,7 @@
       equipBtn.onclick = function() {
         state.equippedPattern = 'hello_kitty';
         savePersistedState();
-        showNotification("Hello Kitty Pattern equipped!");
+        showNotification(isCreator ? "Hello Kitty Pattern equipped (Product Creator)!" : "Hello Kitty Pattern equipped!");
         updateShopUI();
       };
     }
@@ -1558,12 +1642,24 @@
     var slipContainer = document.getElementById('tx-slip-container-poland');
     if (!btnContainer) return;
 
+    var isCreator = !!(state.isCreator && state.isCreator['poland']);
     var isOwned = !!state.ownedPatterns['poland'];
     var isDonorPerk = !!(state.donorPerks && state.donorPerks.polandUnlocked);
     var isEquipped = state.equippedPattern === 'poland';
     var buttonsHtml = '';
 
-    if (isOwned) {
+    if (isCreator) {
+      if (isEquipped) {
+        buttonsHtml = '<button class="terrix-action-btn green" id="tx-poland-equip-btn">Equipped &check; (Creator Free Access)</button>' +
+                      '<button class="terrix-action-btn secondary" id="tx-poland-unequip-btn">Unequip</button>';
+      } else {
+        buttonsHtml = '<button class="terrix-action-btn gold" id="tx-poland-equip-btn">Equip Poland Pattern (Free - Product Creator)</button>';
+      }
+      if (slipContainer) {
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
+          '<span>&#10004;</span> Verified Product Creator &bull; Free Lifetime Access</div>';
+      }
+    } else if (isOwned) {
       if (isEquipped) {
         buttonsHtml = '<button class="terrix-action-btn green" id="tx-poland-equip-btn">Equipped &check;</button>' +
                       '<button class="terrix-action-btn secondary" id="tx-poland-unequip-btn">Unequip</button>';
@@ -1621,7 +1717,7 @@
       polandEquipBtn.onclick = function() {
         state.equippedPattern = 'poland';
         savePersistedState();
-        showNotification("Poland Pattern equipped!");
+        showNotification(isCreator ? "Poland Pattern equipped (Product Creator)!" : "Poland Pattern equipped!");
         updateShopUI();
       };
     }
@@ -1750,11 +1846,15 @@
     if (!state.currentMatchDeducted) {
       state.currentMatchDeducted = true;
       if (state.equippedPattern === 'poland') {
-        if (state.donorPerks && state.donorPerks.polandUnlocked && !state.ownedPatterns['poland']) {
+        if (state.isCreator && state.isCreator['poland']) {
+          showNotification("Poland Flag Territory Pattern Active (Product Creator)!");
+        } else if (state.donorPerks && state.donorPerks.polandUnlocked && !state.ownedPatterns['poland']) {
           showNotification("Poland Flag Territory Pattern Active (CBM Donor Perk)!");
         } else {
           showNotification("Poland Flag Territory Pattern Active!");
         }
+      } else if (state.isCreator && state.isCreator['hello_kitty']) {
+        showNotification("Hello Kitty Territory Pattern Active (Product Creator)!");
       } else if (state.trial && state.trial.active) {
         showNotification("Hello Kitty Territory Pattern Active (Trial)!");
       } else {

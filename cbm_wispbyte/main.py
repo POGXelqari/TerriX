@@ -2652,14 +2652,24 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 if not account:
                     return self._send_json(400, {"status": "error", "message": "account parameter required."})
                 owned = db.get_account_owned_products(account)
-                receipt = db.get_product_receipt_for_account(account, "prod_hellokitty")
-                has_hk = "prod_hellokitty" in owned
+                receipt_hk = db.get_product_receipt_for_account(account, "prod_hellokitty")
+                receipt_poland = db.get_product_receipt_for_account(account, "prod_poland")
+                created_prods = db.list_products_by_owner(account, include_archived=False)
+                created_ids = [p["product_id"] for p in created_prods] if created_prods else []
+                all_owned = list(dict.fromkeys(owned + created_ids))
+                is_creator = len(created_ids) > 0
+                has_hk = ("prod_hellokitty" in all_owned)
+                has_poland = ("prod_poland" in all_owned)
                 return self._send_json(200, {
                     "status": "ok",
                     "account": account,
-                    "owned_products": owned,
+                    "owned_products": all_owned,
+                    "created_products": created_ids,
+                    "is_creator": is_creator,
                     "has_hello_kitty": has_hk,
-                    "receipt": receipt
+                    "has_poland": has_poland,
+                    "receipt": receipt_hk,
+                    "receipt_poland": receipt_poland
                 })
             else:
                 product_id = sub
@@ -2889,14 +2899,24 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     if not account:
                         return self._send_api_v1_json(400, {"status": "error", "message": "account parameter required."}, key_record=key_rec)
                     owned = db.get_account_owned_products(account)
-                    receipt = db.get_product_receipt_for_account(account, "prod_hellokitty")
-                    has_hk = "prod_hellokitty" in owned
+                    receipt_hk = db.get_product_receipt_for_account(account, "prod_hellokitty")
+                    receipt_poland = db.get_product_receipt_for_account(account, "prod_poland")
+                    created_prods = db.list_products_by_owner(account, include_archived=False)
+                    created_ids = [p["product_id"] for p in created_prods] if created_prods else []
+                    all_owned = list(dict.fromkeys(owned + created_ids))
+                    is_creator = len(created_ids) > 0
+                    has_hk = ("prod_hellokitty" in all_owned)
+                    has_poland = ("prod_poland" in all_owned)
                     return self._send_api_v1_json(200, {
                         "status": "ok",
                         "account": account,
-                        "owned_products": owned,
+                        "owned_products": all_owned,
+                        "created_products": created_ids,
+                        "is_creator": is_creator,
                         "has_hello_kitty": has_hk,
-                        "receipt": receipt
+                        "has_poland": has_poland,
+                        "receipt": receipt_hk,
+                        "receipt_poland": receipt_poland
                     }, key_record=key_rec)
                 else:
                     product_id = sub

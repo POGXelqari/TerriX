@@ -106,34 +106,70 @@
     return null;
   }
 
-  function isMatchActive() {
+  // 1. Strict Multiplayer Match Gate
+  function isMultiplayerMatchActive() {
     var g = window.aE || (window.__TERRIX_LAST_CTX__ && window.__TERRIX_LAST_CTX__.game);
-    var gs = g && typeof g.a2G === 'number' ? g.a2G : 0;
-    return gs === 1 || gs === 2;
+    if (!g) return false;
+    var gs = typeof g.a2G === 'number' ? g.a2G : (typeof g.gameState === 'number' ? g.gameState : 0);
+    if (gs !== 1 && gs !== 2) return false;
+
+    // Reject singleplayer matches
+    var isSingle = Boolean(g.lE || g.gIsSingleplayer || (window.__fx && typeof window.__fx.getVar === 'function' && window.__fx.getVar("gIsSingleplayer")));
+    if (isSingle) return false;
+
+    // Reject replay reviews
+    var isReplay = Boolean(g.hi || g.gIsReplay || (window.__fx && typeof window.__fx.getVar === 'function' && window.__fx.getVar("gIsReplay")));
+    if (isReplay) return false;
+
+    return true;
+  }
+  var isMatchActive = isMultiplayerMatchActive;
+
+  // 2. Deterministic Map Room ID Generator (scoped to map name/index across all clients)
+  function getCurrentMapIdentifier() {
+    var bV = window.bV;
+    var g = window.aE || (window.__TERRIX_LAST_CTX__ && window.__TERRIX_LAST_CTX__.game);
+    if (!bV) return 'unknown';
+
+    var mapIdx = (typeof bV.fF === 'number') ? bV.fF : (g && g.data && typeof g.data.mapProceduralIndex === 'number' ? g.data.mapProceduralIndex : 0);
+    var rawName = '';
+
+    if (bV.yd && bV.yd.aOh && bV.yd.aOh[mapIdx]) {
+      rawName = bV.yd.aOh[mapIdx];
+    } else if (bV.yd && bV.yd.ye && bV.yd.ye[mapIdx] && bV.yd.ye[mapIdx].name) {
+      rawName = bV.yd.ye[mapIdx].name;
+    } else if (g && g.data && g.data.mapName) {
+      rawName = g.data.mapName;
+    }
+
+    if (rawName && typeof rawName === 'string') {
+      var sanitized = rawName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      if (sanitized) return sanitized;
+    }
+
+    return 'map_' + mapIdx;
   }
 
-  // Deterministic Match Room ID generator
   function updateMatchRoomId(context) {
     try {
-      var g = (context && context.game) || window.aE;
-      var bV = window.bV;
-      var gs = g && typeof g.a2G === 'number' ? g.a2G : 0;
-
-      if ((gs === 1 || gs === 2) && g && bV) {
-        var spawningSeed = (g.data && g.data.spawningSeed != null) ? g.data.spawningSeed : 0;
-        var mapSeed = (bV.mapSeed != null) ? bV.mapSeed : 0;
-        var mapIndex = (bV.fF != null) ? bV.fF : 0;
-        var newRoomId = 'match_' + spawningSeed + '_' + mapSeed + '_' + mapIndex;
+      if (isMultiplayerMatchActive()) {
+        var mapId = getCurrentMapIdentifier();
+        var newRoomId = 'map_' + mapId;
 
         if (newRoomId !== state.currentRoomId) {
           state.currentRoomId = newRoomId;
           state.lastMessageId = null;
           state.activeBubbles = [];
           state.playerAnchors = {};
+          // Immediately poll the newly joined map room
+          pollChatMessages();
         }
         return;
       }
-    } catch(e) {}
+    } catch(e) {
+      console.warn('[TerriX Chat] Error updating match room ID:', e);
+    }
+
     if (state.currentRoomId !== 'match_global') {
       state.currentRoomId = 'match_global';
       state.lastMessageId = null;
@@ -143,7 +179,7 @@
   }
 
   function updateChatLifecycle(context) {
-    var active = isMatchActive();
+    var active = isMultiplayerMatchActive();
     var fab = document.getElementById('terrix-chat-fab');
     var bar = document.getElementById('terrix-chat-bar');
 
@@ -155,6 +191,7 @@
         clearInterval(state.pollTimer);
         state.pollTimer = null;
       }
+      state.activeBubbles = [];
     } else {
       if (fab) fab.classList.remove('inactive-game');
       if (bar) bar.classList.remove('inactive-game');
@@ -209,6 +246,7 @@
   // Poll CBM Disposable Chatroom API
   async function pollChatMessages() {
     if (document.hidden) return; // Low CPU standard: freeze on inactive tabs
+    if (!isMultiplayerMatchActive()) return;
 
     try {
       var url = CBM_API_BASE + '/api/cbm/chat/messages?room_id=' + encodeURIComponent(state.currentRoomId);
@@ -344,6 +382,7 @@
   function renderSpeechBubbles(context) {
     window.__TERRIX_LAST_CTX__ = context;
     if (!context || !context.ws) return;
+    if (!isMultiplayerMatchActive()) return;
 
     var ws = context.ws;
     var pd = context.playerData || window.ah;
@@ -355,16 +394,13 @@
 
     if (state.activeBubbles.length === 0) return;
 
-    // Camera parameters
     var zoom = (typeof context.im === 'number') ? context.im : ((typeof window.im === 'number') ? window.im : 1.0);
     var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
     var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
 
-    // Group bubbles by sender to calculate vertical stacking
     var playerStacks = {};
     var survivingBubbles = [];
 
-    // Filter out expired bubbles
     for (var i = 0; i < state.activeBubbles.length; i++) {
       var b = state.activeBubbles[i];
       if (now - b.spawnTime <= BUBBLE_LIFETIME_MS) {
@@ -372,11 +408,8 @@
       }
     }
     state.activeBubbles = survivingBubbles;
-
-    // Sort surviving bubbles chronologically
     state.activeBubbles.sort(function(a, b) { return a.spawnTime - b.spawnTime; });
 
-    // Switch context to Screen Space for crisp rendering
     ws.save();
     ws.setTransform(1, 0, 0, 1, 0, 0);
 
@@ -387,24 +420,29 @@
       var bubble = state.activeBubbles[j];
       var age = now - bubble.spawnTime;
 
-      // Resolve player index
       var pIdx = bubble.player_index;
       var rawNames = (pd && (pd.a2w || pd.rawPlayerNames)) || (window.ah && (window.ah.a2w || window.ah.rawPlayerNames));
-      if ((pIdx === null || pIdx === undefined) && rawNames) {
+
+      // Validate that player_index belongs to the sender in this game
+      var validLocalSender = false;
+      if (typeof pIdx === 'number' && rawNames && rawNames[pIdx] && String(rawNames[pIdx]).indexOf(bubble.sender_name) !== -1) {
+        validLocalSender = true;
+      } else if (rawNames) {
+        pIdx = null;
         for (var p = 0; p < rawNames.length; p++) {
           if (rawNames[p] && String(rawNames[p]).indexOf(bubble.sender_name) !== -1) {
             pIdx = p;
             bubble.player_index = p;
+            validLocalSender = true;
             break;
           }
         }
       }
 
-      // Calculate anchor coordinates
       var rawScreenX, rawScreenY;
       var hasAnchor = false;
 
-      if (pIdx !== null && pIdx !== undefined) {
+      if (validLocalSender && pIdx !== null && pIdx !== undefined) {
         var smoothAnchor = updatePlayerAnchor(pIdx, context, dt);
         if (smoothAnchor) {
           rawScreenX = (smoothAnchor.tileX + ox) * zoom;
@@ -414,21 +452,19 @@
       }
 
       if (!hasAnchor) {
-        // Fallback: screen center stack
+        // Fallback: screen center stack for participants on same map in different instances
         rawScreenX = screenW / 2.0;
         rawScreenY = (screenH / 2.0) - 80;
       }
 
-      // Track vertical stacking for this player
-      var stackKey = (pIdx !== null && pIdx !== undefined) ? ('p_' + pIdx) : 'global';
+      var stackKey = (validLocalSender && pIdx !== null && pIdx !== undefined) ? ('p_' + pIdx) : 'global';
       if (!playerStacks[stackKey]) {
         playerStacks[stackKey] = 0;
       }
       var verticalOffset = playerStacks[stackKey];
 
-      // Draw bubble and update the stack height for next bubble
       var bubbleHeight = drawTerritorialBubble(ws, rawScreenX, rawScreenY, bubble, age, verticalOffset, screenW, screenH);
-      playerStacks[stackKey] += bubbleHeight + 8; // 8px spacing between stacked bubbles
+      playerStacks[stackKey] += bubbleHeight + 8;
     }
 
     ws.restore();

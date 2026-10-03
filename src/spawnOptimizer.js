@@ -19,6 +19,10 @@ export const spawnOptimizer = new (function() {
   let lastPlayerPositionsHash = "";
   let userOverridden = false;
 
+  // Track match session to detect consecutive games autonomously
+  let currentMatchToken = "";
+  let wasInSpawningPhase = false;
+
   // Precomputed local density sample offsets (radius R = 22, grid step 4)
   const DENSITY_OFFSETS_R22 = [];
   (function() {
@@ -335,7 +339,6 @@ export const spawnOptimizer = new (function() {
   // 5. Hierarchical Search (Macro Delta = 10, Micro Delta = 1)
   function computeBestLocation() {
     const bV = window.bV;
-    if (bV && (bV.fk !== mapWidth || bV.fl !== mapHeight)) isMapAnalyzed = false;
     if (!isMapAnalyzed && !analyzeMapTopology()) return;
 
     const spawns = getActiveSpawns();
@@ -388,17 +391,36 @@ export const spawnOptimizer = new (function() {
     const settings = getSettings();
     if (!settings.spawnOptimizer && !settings.autoSpawnPicker) return;
 
-    // Strict Multiplayer Pre-Match Gate
     const isSingleplayer = getVar("gIsSingleplayer");
-    const isSelectableSpawn = getVar("gSelectableSpawn");
+    const isSelectableSpawn = Boolean(getVar("gSelectableSpawn"));
     const gameState = getVar("gameState");
 
-    if (isSingleplayer || !isSelectableSpawn || gameState !== 1) {
-      if (targetTile.valid) this.reset();
+    // Autonomous match-boundary detection via unique spawning seed and state transition
+    const g = window.aE;
+    const bV = window.bV;
+    const currentSpawningSeed = g && g.data && g.data.spawningSeed != null ? g.data.spawningSeed : 0;
+    const currentMapSeed = bV && bV.mapSeed != null ? bV.mapSeed : 0;
+    const matchToken = `${currentSpawningSeed}_${currentMapSeed}_${bV?.fF ?? 0}`;
+
+    const isSpawningPhase = (!isSingleplayer && isSelectableSpawn && gameState === 1);
+
+    // Detect transition into a new match spawning phase
+    if (isSpawningPhase) {
+      if (!wasInSpawningPhase || matchToken !== currentMatchToken) {
+        this.reset();
+        currentMatchToken = matchToken;
+        wasInSpawningPhase = true;
+      }
+    } else {
+      if (wasInSpawningPhase) {
+        wasInSpawningPhase = false;
+        targetTile.valid = false;
+        currentLerp.initialized = false;
+      }
       return;
     }
 
-    // Check if player has placed their spawn (hN > 0)
+    // Check if player has placed their spawn
     const myId = getVar("playerId");
     const pd = window.ah;
     if (pd && pd.hN && pd.hN[myId] > 0) {
@@ -532,27 +554,3 @@ export const spawnOptimizer = new (function() {
     userOverridden = true;
   };
 })();
-
-// Automatic User Override Click Hook on Map Canvas
-function hookCanvasOverride() {
-  if (typeof document === "undefined") return false;
-  const canvas = document.getElementById("canvasA");
-  if (canvas) {
-    canvas.addEventListener("pointerdown", () => {
-      const gs = getVar("gameState");
-      if (gs === 1) {
-        spawnOptimizer.registerUserOverride();
-      }
-    }, { capture: true, passive: true });
-    return true;
-  }
-  return false;
-}
-
-if (typeof document !== "undefined") {
-  if (!hookCanvasOverride()) {
-    const hookTimer = setInterval(() => {
-      if (hookCanvasOverride()) clearInterval(hookTimer);
-    }, 250);
-  }
-}

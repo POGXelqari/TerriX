@@ -43,8 +43,8 @@ function a() {
 				for (var match, a6 = new RegExp(":([0-9]+):([0-9]+)", "g"), result = []; null !== (match = a6.exec(stack));) result.push(parseInt(match[1], 10)), result.push(parseInt(match[2], 10));
 				return result.length ? result.join(" ") : 0
 			}(e);
-			return 0 === f || e.lineno <= 3 ? void console.log("Error: External Code | " + f) : (window.removeEventListener("error", d), c = e.lineno + " " + e.colno + "|" + f, __fx.reportError(e, c), alert("Error:\n" + e.filename + " " + e
-				.lineno + " " + e.colno + " " + e.message))
+			return 0 === f || e.lineno < 2 ? void console.log("Error: External Code") : (window.removeEventListener("error", d), c = e.lineno + " " + e.colno + "|" + f, __fx.reportError(e, c), alert("Error:\n" + e.filename + " " + e.lineno +
+				" " + e.colno + " " + e.message))
 		} catch (e) {
 			c = "SE|" + c + "|" + e, console.log(c), alert(c)
 		}
@@ -69,7 +69,7 @@ function dM() {
 	this.dw = 1761;
 	this.rVersion = 25, this.e0 = 0, this.dk = function() {
 		this.e1 = 2;
-		this.o = "2.16.54", this.e3 = "25 Sep 2026 [" + this.o + "]", this.hostname = window.location.hostname.toLowerCase(), this.aA = 0 <= this.hostname.indexOf("territorial.io"), this.e4 = 0 <= this.hostname.indexOf("github.io"), this.e5 =
+		this.o = "2.16.52", this.e3 = "22 Sep 2026 [" + this.o + "]", this.hostname = window.location.hostname.toLowerCase(), this.aA = 0 <= this.hostname.indexOf("territorial.io"), this.e4 = 0 <= this.hostname.indexOf("github.io"), this.e5 =
 			0 <= this.hostname.indexOf("game.territorial.io"), this.aB = function() {
 				try {
 					return window.self !== window.top
@@ -159,15 +159,7 @@ function eU() {
 		ev = 0;
 
 	function f5() {
-		if (null !== es && null !== en) {
-			eo = 0;
-			try {
-				window.turnstile.remove(en), es.remove()
-			} catch (e) {
-				console.log("turnstile remove failed " + e)
-			}
-			en = es = null
-		}
+		null !== es && null !== en && (eo = 0, window.turnstile.remove(en), es.remove(), en = es = null)
 	}
 
 	function ez(f9) {
@@ -3755,10 +3747,10 @@ function c5() {
 				.lC, b0.dk(), this.zS = this.data.numberTeams, this.data.teamPlayerCount ? this.zT = +(0 < this.data.teamPlayerCount[0]) : (this.zT = 0, this.iT && this.lE && (this.data.teamPlayerCount = new Uint16Array(9), this.data.teamPlayerCount
 					.fill(1, 1, this.zS + 1), aE.a6i.a6n())), this.a6g = this.ku <= 2 ? 30 : this.ku <= 50 ? 40 : 50, this.a6f = this.hx = this.data.selectableSpawn, this.rg = this.hx ? new a6V : null, 1 === m.e1 ? this.zL = this.ku : this.zL = this
 				.data.playerCount, this.zQ = this.zL, this.lG = this.zL - this.ku, this.a2I = 0, this.fJ = this.data.selectedPlayer, this.a2D = 0, this.a2L = 0, this.a2Y = 0, this.a28 = 0, az.a6o(this.data.spawningSeed), af.dk(), ah.dk(), ao.dk(), aj
-				.a6p(), bB.qi.rU = [], bB.hz.ql = 1, __fx.donationsTracker.reset(), __fx.leaderboardFilter.reset(), __fx.customLobby.isActive() && __fx.customLobby.hideWindow(), bj.dk(), this.a2G = 1, bg.dk(), a6q(), ad.dl(), aq.a6r(), be.dk(), ad
-				.dk(), au.dk(), bP.dk(), bQ.dk(), ap.dk(), bY.a6s(), aF.dk(), aj.a8(), aJ.dk(), aK.dk(), am.a6t(), bC.dk(), bk.dk(), bS.dk(), bh.dk(), a6u.putImageData(a6v, 0, 0), aW.dk(), aT.dk(), aS.dk(), bF.dk(), ax.dk(), aV.dk(), aX.dk(), aN
-			.dk(), aR.dk(), aO.dk(), aQ.dk(), aM.dk(), aY.dk(), aG.dk(), aH.dk(), gc(), ae.dk(), ag.dk(), b5.dk(), b6.dk(), b2.dk(), b8.dk(), b9.dk(), this.a2Z.dk(), bi.a6s(), aI.no(), 0 === ah.nU[aE.fJ] && aY.show(!1, !0), ag.nG(!0), aw.dk(), bi
-				.ds = !0, this.hi || this.lE && this.hx || a1.a2.setState(1), this.a6k = 0
+				.a6p(), bB.qi.rU = [], bB.hz.ql = 1, __fx.donationsTracker.reset(), __fx.leaderboardFilter.reset(), __fx.spawnOptimizer && __fx.spawnOptimizer.reset(), __fx.customLobby.isActive() && __fx.customLobby.hideWindow(), bj.dk(), this.a2G =
+				1, bg.dk(), a6q(), ad.dl(), aq.a6r(), be.dk(), ad.dk(), au.dk(), bP.dk(), bQ.dk(), ap.dk(), bY.a6s(), aF.dk(), aj.a8(), aJ.dk(), aK.dk(), am.a6t(), bC.dk(), bk.dk(), bS.dk(), bh.dk(), a6u.putImageData(a6v, 0, 0), aW.dk(), aT.dk(), aS
+				.dk(), bF.dk(), ax.dk(), aV.dk(), aX.dk(), aN.dk(), aR.dk(), aO.dk(), aQ.dk(), aM.dk(), aY.dk(), aG.dk(), aH.dk(), gc(), ae.dk(), ag.dk(), b5.dk(), b6.dk(), b2.dk(), b8.dk(), b9.dk(), this.a2Z.dk(), bi.a6s(), aI.no(), 0 === ah.nU[aE
+					.fJ] && aY.show(!1, !0), ag.nG(!0), aw.dk(), bi.ds = !0, this.hi || this.lE && this.hx || a1.a2.setState(1), this.a6k = 0
 		}, this.a3d = function(eY) {
 			bC.re.a6x.length ? this.a6l = bC.re.a6x : (this.a6l = bC.a6y.a1i(), __fx.replayHistory.save(this.a6l)), b1.z.a6z(), bt.clear(), this.a2G = 0, bi.a70(), a1.a2.setState(0), ab.setState(0), bX.eQ.show(eY), 2 === this.a6k ? u.z.a71(0) : 1 ===
 				this.a6k ? u.v(19) : u.v(5, 5)

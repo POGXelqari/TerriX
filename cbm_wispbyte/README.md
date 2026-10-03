@@ -77,9 +77,16 @@ The official **CBM | AutoMod** (registered as `CBM | Content Safety`) is an auto
    [Install CBM AutoMod to Server (Guild Install)](https://discord.com/oauth2/authorize?client_id=1556061160288034898&permissions=124928&integration_type=0&scope=bot+applications.commands)
 2. **Configure in Discord:**
    `/setup log_channel:#automod-logs ignore_channel:#general`
-3. **Run Daemon:**
+3. **Automated Server Startup (`start.sh`):**
+   The bot automatically starts in the background as a supervised daemon when `start.sh` runs:
+   ```bash
+   bash start.sh
+   ```
+   PID tracking is maintained in `automod.pid`, and the daemon is cleanly terminated when the master server shuts down.
+4. **Manual Daemon Execution:**
    ```bash
    py -3.12 cbm_wispbyte/run_automod.py
    # or test configuration:
    py -3.12 cbm_wispbyte/run_automod.py --check
    ```
+

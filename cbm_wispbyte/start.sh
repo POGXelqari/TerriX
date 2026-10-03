@@ -13,7 +13,7 @@ export GOMAXPROCS=1
 export PYTHONUNBUFFERED=1
 
 # 1. Install dependencies only if missing (skips 11s pip multi-thread CPU burst on restarts)
-if ! python3 -c "import dotenv, urllib3, cryptography, jwt" 2>/dev/null; then
+if ! python3 -c "import dotenv, urllib3, cryptography, jwt, discord" 2>/dev/null; then
     echo "[*] Installing missing Python dependencies..."
     pip install -r requirements.txt --no-cache-dir --quiet --disable-pip-version-check
 else
@@ -36,6 +36,18 @@ if ! command -v cloudflared &> /dev/null && [ ! -f "bin/cloudflared" ]; then
     ) &
 fi
 
-# 3. Execute Master Daemon with bytecode optimization immediately (binds port in < 1s)
+# 3. Start CBM AutoMod Discord Bot in background (if configured in environment or .env)
+if [ -f "run_automod.py" ] && python3 -c "import os; from dotenv import load_dotenv; load_dotenv(); exit(0 if os.getenv('DISCORD_BOT_TOKEN') else 1)" 2>/dev/null; then
+    echo "[*] Launching CBM AutoMod Discord Bot daemon..."
+    python3 -O run_automod.py &
+    AUTOMOD_PID=$!
+    echo $AUTOMOD_PID > automod.pid
+    echo "[+] CBM AutoMod daemon active (PID: $AUTOMOD_PID)."
+else
+    echo "[*] DISCORD_BOT_TOKEN not configured. Skipping AutoMod startup."
+fi
+
+# 4. Execute Master Daemon with bytecode optimization immediately (binds port in < 1s)
 echo "[*] Starting CBM Master Runtime..."
 exec python3 -O main.py
+

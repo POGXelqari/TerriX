@@ -58,3 +58,16 @@
     - Invite link and deployment steps documented in `cbm_wispbyte/README.md`.
   - **Verification**: Run launcher with `--help` or `--check-config`.
   - **Files**: `cbm_wispbyte/run_automod.py`, `cbm_wispbyte/README.md`
+
+## Phase 5: Server Startup Integration (`start.sh`)
+- [x] **Task 8: Server Startup Script Integration (`start.sh`)**
+  - **Acceptance Criteria**:
+    - `cbm_wispbyte/requirements.txt` includes `discord.py>=2.3.0`.
+    - `cbm_wispbyte/start.sh` validates `discord` in fast-path dependency check.
+    - `cbm_wispbyte/start.sh` launches `run_automod.py` in background when `DISCORD_BOT_TOKEN` is present, tracking PID.
+    - `cbm_wispbyte/run_automod.py` implements a robust subprocess supervisor loop for seamless auto-recovery.
+    - `cbm_wispbyte/main.py` signal handler cleans up background automod process if tracked.
+  - **Verification**: Bash syntax validation, Python environment validation, and automated test suite.
+  - **Files**: `cbm_wispbyte/start.sh`, `cbm_wispbyte/requirements.txt`, `cbm_wispbyte/run_automod.py`, `cbm_wispbyte/main.py`
+
+

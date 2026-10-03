@@ -5842,7 +5842,19 @@ def main():
         deposit_daemon.stop()
         if tunnel_mgr:
             tunnel_mgr.stop()
+        # Clean up background AutoMod Discord Bot daemon if running
+        try:
+            pid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automod.pid")
+            if os.path.exists(pid_file):
+                with open(pid_file, "r") as f:
+                    bot_pid = int(f.read().strip())
+                os.kill(bot_pid, signal.SIGTERM)
+                if os.path.exists(pid_file):
+                    os.remove(pid_file)
+        except Exception:
+            pass
         sys.exit(0)
+
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)

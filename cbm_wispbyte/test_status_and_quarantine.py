@@ -92,7 +92,7 @@ class TestStatusAndQuarantine(unittest.TestCase):
         clear_discord_quarantine()
         telemetry = self.status_engine.get_system_telemetry()
         self.assertEqual(telemetry["status"], "ok")
-        self.assertEqual(len(telemetry["services"]), 7)
+        self.assertEqual(len(telemetry["services"]), 8)
 
         # 2. Discord 1015 Quarantine must be ISOLATED from core banking
         record_discord_quarantine(

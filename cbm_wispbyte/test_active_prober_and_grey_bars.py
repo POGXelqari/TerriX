@@ -171,21 +171,69 @@ class TestActiveProberAndGreyBars(unittest.TestCase):
         )
 
         results = self.status_engine.probe_all_services()
-        self.assertEqual(len(results), 7)
+        self.assertEqual(len(results), 8)
         self.assertIn("web_portal", results)
-        self.assertIn("vault_daemon", results)
-        self.assertIn("lending_engine", results)
-        self.assertIn("credit_billing", results)
+        self.assertIn("primary_ingress", results)
+        self.assertIn("quarantine_quick_tunnel", results)
 
-        # Verify today's row exists in cbm_service_daily_uptime
+        # Verify today's row exists in cbm_service_daily_uptime (7 services, as quarantine_quick_tunnel has zero records outside quarantine)
         today_str = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
         conn = self.db._get_sqlite_conn()
         cur = conn.cursor()
         cur.execute("SELECT service_id, total_probes, successful_probes, uptime_percent FROM cbm_service_daily_uptime WHERE day_date = ?", (today_str,))
         rows = cur.fetchall()
         self.assertEqual(len(rows), 7)
-        for r in rows:
-            self.assertGreaterEqual(r[1], 1)  # total_probes >= 1
+        recorded_ids = {r[0] for r in rows}
+        self.assertNotIn("quarantine_quick_tunnel", recorded_ids)
+        self.assertIn("primary_ingress", recorded_ids)
+
+    def test_quarantine_quick_tunnel_zero_telemetry_outside_quarantine(self):
+        """Quarantine Quick Tunnel must have ZERO telemetry recorded outside 25h quarantine."""
+        clear_discord_quarantine()
+
+        # 1. Outside quarantine: status is standby and in_quarantine is False
+        probe_res = self.status_engine.probe_quarantine_quick_tunnel()
+        self.assertEqual(probe_res["status"], "standby")
+        self.assertFalse(probe_res.get("in_quarantine", False))
+
+        # Check 90-day history outside quarantine: all 90 bars must be grey ('no_data')
+        history = self.status_engine.get_90_day_history("quarantine_quick_tunnel")
+        self.assertEqual(len(history), 90)
+        for d in history:
+            self.assertEqual(d["status"], "no_data")
+            self.assertIsNone(d["uptime_percent"])
+
+        # System telemetry returns uptime_90d_percent as None for standby quick tunnel
+        self.status_engine._cached_telemetry_time = 0.0
+        telemetry = self.status_engine.get_system_telemetry()
+        qt_svc = next(s for s in telemetry["services"] if s["id"] == "quarantine_quick_tunnel")
+        self.assertEqual(qt_svc["current_status"], "standby")
+        self.assertIsNone(qt_svc["uptime_90d_percent"])
+
+        # 2. Inside active 25h quarantine window: telemetry becomes active
+        record_discord_quarantine(
+            reason="CLOUDFLARE_1015_IP_RATE_LIMITED",
+            http_code=429,
+            error_text="Ray ID: quicktunnel_test_ray"
+        )
+        self.assertTrue(self.status_engine.is_quarantine_active())
+
+        active_probe = self.status_engine.probe_quarantine_quick_tunnel()
+        self.assertTrue(active_probe.get("in_quarantine", False))
+        self.assertEqual(active_probe["status"], "operational")
+
+        # Running probe_all_services now commits telemetry for quarantine_quick_tunnel
+        self.status_engine.probe_all_services()
+        today_str = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        conn = self.db._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT total_probes, uptime_percent FROM cbm_service_daily_uptime WHERE service_id = 'quarantine_quick_tunnel' AND day_date = ?", (today_str,))
+        row = cur.fetchone()
+        self.assertIsNotNone(row)
+        self.assertGreaterEqual(row[0], 1)
+
+        # Clear quarantine cleanup
+        clear_discord_quarantine()
 
 
 if __name__ == "__main__":

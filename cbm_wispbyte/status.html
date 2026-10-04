@@ -199,6 +199,11 @@
       color: var(--text-dim);
       border: 1px solid rgba(255, 255, 255, 0.15);
     }
+    .badge-standby {
+      background: rgba(148, 163, 184, 0.12);
+      color: #94a3b8;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+    }
 
     /* 90-Day Bar Graph */
     .bars-wrapper {
@@ -380,7 +385,8 @@
         const isOp = s.current_status === 'operational';
         const isOutage = s.current_status === 'outage';
         const isUnconf = s.current_status === 'unconfigured';
-        const badgeClass = isOp ? 'badge-op' : (isOutage ? 'badge-outage' : (isUnconf ? 'badge-muted' : 'badge-deg'));
+        const isStandby = s.current_status === 'standby';
+        const badgeClass = isOp ? 'badge-op' : (isOutage ? 'badge-outage' : (isUnconf ? 'badge-muted' : (isStandby ? 'badge-standby' : 'badge-deg')));
 
         // Render 90 bars
         const barsHtml = s.history_90d.map(b => {
@@ -394,6 +400,15 @@
 
         const latencyText = s.latency_ms && s.latency_ms > 0 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">(${s.latency_ms}ms)</span>` : '';
 
+        let uptimeLabel = `${s.uptime_90d_percent}% uptime`;
+        if (s.id === 'quarantine_quick_tunnel' && (s.uptime_90d_percent === null || s.uptime_90d_percent === undefined)) {
+          uptimeLabel = 'Standby (Zero Active Quarantine)';
+        } else if (s.uptime_90d_percent === null || s.uptime_90d_percent === undefined) {
+          uptimeLabel = 'No Telemetry Recorded';
+        }
+
+        const slaTarget = s.id === 'quarantine_quick_tunnel' ? 'Quarantine Standby' : '100% SLA Target';
+
         return `
           <div class="service-row">
             <div class="service-header">
@@ -405,14 +420,14 @@
                 </div>
               </div>
               <div style="display: flex; align-items: center; gap: 12px;">
-                <span style="font-size: 13px; font-weight: 700; color: #fff;">${s.uptime_90d_percent}% uptime</span>
+                <span style="font-size: 13px; font-weight: 700; color: #fff;">${uptimeLabel}</span>
                 <span class="service-badge ${badgeClass}">${s.status_label}</span>
               </div>
             </div>
             <div class="bars-wrapper" onmouseleave="hideTooltip()">${barsHtml}</div>
             <div class="bar-footer">
               <span>90 days ago</span>
-              <span>100% SLA Target</span>
+              <span>${slaTarget}</span>
               <span>Today</span>
             </div>
           </div>

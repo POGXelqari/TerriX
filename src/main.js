@@ -19,12 +19,15 @@ import lobbyReminders from './lobbyReminders.js';
 import pingFilter from './pingFilter.js';
 import nameFilter from './nameFilter.js';
 import followedAccounts from './followedAccounts.js';
+import { getVar } from "./gameInterface.js";
 import './terrixCosmetics.js';
 import './terrixChat.js';
 import { spawnOptimizer } from './spawnOptimizer.js';
 
 window.__fx = window.__fx || {};
 const __fx = window.__fx;
+window.getVar = getVar;
+__fx.getVar = getVar;
 __fx.version = version + " " + lastUpdated;
 __fx.isCustomLobbyVersion = window.location.href.startsWith("https://fxclient.github.io/custom-lobbies")
 

@@ -24,9 +24,12 @@ import urllib.request
 import urllib.error
 import threading
 import queue
+from contextlib import contextmanager
 from typing import Dict, Any, Optional, List, Tuple, Set, Union
 
 _DB_WRITE_LOCK = threading.RLock()
+_PENDING_IMPRESSIONS: Dict[str, int] = {}
+_PENDING_IMPRESSIONS_LOCK = threading.Lock()
 
 try:
     import urllib3
@@ -939,10 +942,15 @@ class CBMDatabase:
                         'Official KILR Clan Logo territory pattern for TerriX Client. Free to equip with verified client requirement.',
                         '/assets/patterns/kilr-clanlogo-pattern.png', 0.0, 0,
                         'https://pogxelqari.github.io/TerriX/client/', 'ACTIVE', 0, 0.0,
-                        1, '{"description": "Client verified clan requirement", "attestation_ttl": 3600}', ?, ?
+                        1, '{"clan": "KILR", "description": "Official [KILR] clan tag required", "attestation_ttl": 2592000}', ?, ?
                     )
                 """, (now_seed3, now_seed3))
 
+            cur.execute("""
+                UPDATE cbm_products
+                SET requirement_meta = '{"clan": "KILR", "description": "Official [KILR] clan tag required", "attestation_ttl": 2592000}'
+                WHERE product_id = 'prod_kilr' AND (requirement_meta IS NULL OR requirement_meta NOT LIKE '%KILR%')
+            """)
 
             cur.execute("""
                 UPDATE cbm_products
@@ -1094,6 +1102,67 @@ class CBMDatabase:
         conn.execute("PRAGMA wal_autocheckpoint = 250;")
         conn.execute("PRAGMA mmap_size = 33554432;")
         return conn
+
+    @contextmanager
+    def write_transaction(self, timeout: float = 30.0):
+        """
+        Serialized process-wide write transaction.
+        Acquires _DB_WRITE_LOCK and executes BEGIN IMMEDIATE on a fresh connection.
+        Ensures atomic commits/rollbacks and guarantees zero lock contention with readers.
+        """
+        with _DB_WRITE_LOCK:
+            conn = self.get_write_connection(timeout=timeout)
+            try:
+                cur = conn.cursor()
+                cur.execute("BEGIN IMMEDIATE;")
+                yield conn, cur
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    def record_publisher_impression(self, publisher_account: str) -> bool:
+        """Buffers an impression in-memory to prevent SQLite lock contention on high-frequency serve endpoints."""
+        if not publisher_account:
+            return False
+        with _PENDING_IMPRESSIONS_LOCK:
+            _PENDING_IMPRESSIONS[publisher_account] = _PENDING_IMPRESSIONS.get(publisher_account, 0) + 1
+        return True
+
+    def flush_pending_impressions(self) -> int:
+        """Flushes buffered impressions to SQLite in a single atomic write transaction."""
+        with _PENDING_IMPRESSIONS_LOCK:
+            if not _PENDING_IMPRESSIONS:
+                return 0
+            to_flush = dict(_PENDING_IMPRESSIONS)
+            _PENDING_IMPRESSIONS.clear()
+
+        flushed = 0
+        now_ts = time.time()
+        try:
+            with self.write_transaction() as (conn, cur):
+                for pub, count in to_flush.items():
+                    cur.execute("""
+                        INSERT INTO cbm_ad_publishers (publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, created_at, updated_at)
+                        VALUES (?, 'External App', ?, 0, 0, 0.0, ?, ?)
+                        ON CONFLICT(publisher_account) DO UPDATE SET
+                            total_impressions = total_impressions + ?,
+                            updated_at = excluded.updated_at
+                    """, (pub, count, now_ts, now_ts, count))
+                    flushed += count
+        except Exception as e:
+            with _PENDING_IMPRESSIONS_LOCK:
+                for pub, count in to_flush.items():
+                    _PENDING_IMPRESSIONS[pub] = _PENDING_IMPRESSIONS.get(pub, 0) + count
+        return flushed
 
     def _start_supabase_worker(self):
         """Spawns an asynchronous background worker to decouple Supabase writes from the request latency path."""
@@ -1701,8 +1770,8 @@ class CBMDatabase:
             status, res = self._sb_request("cbm_processed_txs", method="GET", params=f"?tx_id=eq.{tx_id}&select=tx_id")
             if status == 200 and isinstance(res, list) and len(res) > 0:
                 try:
-                    cur.execute("INSERT OR IGNORE INTO cbm_processed_txs (tx_id, processed_at) VALUES (?, ?)", (tx_id, time.time()))
-                    conn.commit()
+                    with self.write_transaction() as (w_conn, w_cur):
+                        w_cur.execute("INSERT OR IGNORE INTO cbm_processed_txs (tx_id, processed_at) VALUES (?, ?)", (tx_id, time.time()))
                 except Exception:
                     pass
                 return True
@@ -1711,15 +1780,12 @@ class CBMDatabase:
 
     def record_processed_tx(self, tx_id: str, timestamp_ms: int, sender: str, receiver: str, amount_gold: float, fee_gold: float, credited_account: Optional[str] = None):
         now = time.time()
-        # 1. Local ACID SQLite persistence
-        conn = self.get_write_connection()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT OR IGNORE INTO cbm_processed_txs (tx_id, timestamp_ms, sender, receiver, amount_gold, fee_gold, credited_account, processed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (tx_id, timestamp_ms, sender, receiver, amount_gold, fee_gold, credited_account, now))
-        conn.commit()
-        conn.close()
+        # 1. Local ACID SQLite persistence with serialized write transaction
+        with self.write_transaction() as (conn, cur):
+            cur.execute("""
+                INSERT OR IGNORE INTO cbm_processed_txs (tx_id, timestamp_ms, sender, receiver, amount_gold, fee_gold, credited_account, processed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (tx_id, timestamp_ms, sender, receiver, amount_gold, fee_gold, credited_account, now))
 
         # 2. Cloud multi-instance sync
         if self.use_supabase:
@@ -1739,8 +1805,6 @@ class CBMDatabase:
         if not acc or not acc.get("account_name"):
             return
         try:
-            conn = self._get_sqlite_conn()
-            cur = conn.cursor()
             def _parse_ts(val):
                 if isinstance(val, (int, float)):
                     return float(val)
@@ -1756,47 +1820,47 @@ class CBMDatabase:
                             return time.time()
                 return time.time()
 
-            cur.execute("""
-                INSERT INTO cbm_accounts (
-                    account_name, display_name, avatar_url, clan_tag, role,
-                    deposited_cents, total_deposited_cents, total_withdrawn_cents,
-                    created_at, updated_at, pin_hash, salt, is_verified,
-                    primary_territorial_account, password_hash, is_delinquent
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(account_name) DO UPDATE SET
-                    display_name = COALESCE(excluded.display_name, cbm_accounts.display_name),
-                    avatar_url = COALESCE(excluded.avatar_url, cbm_accounts.avatar_url),
-                    clan_tag = COALESCE(excluded.clan_tag, cbm_accounts.clan_tag),
-                    role = COALESCE(excluded.role, cbm_accounts.role),
-                    deposited_cents = excluded.deposited_cents,
-                    total_deposited_cents = excluded.total_deposited_cents,
-                    total_withdrawn_cents = excluded.total_withdrawn_cents,
-                    updated_at = excluded.updated_at,
-                    pin_hash = COALESCE(excluded.pin_hash, cbm_accounts.pin_hash),
-                    salt = COALESCE(excluded.salt, cbm_accounts.salt),
-                    is_verified = excluded.is_verified,
-                    primary_territorial_account = COALESCE(excluded.primary_territorial_account, cbm_accounts.primary_territorial_account),
-                    password_hash = COALESCE(excluded.password_hash, cbm_accounts.password_hash),
-                    is_delinquent = excluded.is_delinquent
-            """, (
-                acc.get("account_name"),
-                acc.get("display_name"),
-                acc.get("avatar_url", ""),
-                acc.get("clan_tag", "ANTI-OG"),
-                acc.get("role", "member"),
-                int(acc.get("deposited_cents") or 0),
-                int(acc.get("total_deposited_cents") or 0),
-                int(acc.get("total_withdrawn_cents") or 0),
-                _parse_ts(acc.get("created_at")),
-                _parse_ts(acc.get("updated_at")),
-                acc.get("pin_hash"),
-                acc.get("salt"),
-                1 if acc.get("is_verified") else 0,
-                acc.get("primary_territorial_account"),
-                acc.get("password_hash"),
-                1 if acc.get("is_delinquent") else 0
-            ))
-            conn.commit()
+            with self.write_transaction() as (conn, cur):
+                cur.execute("""
+                    INSERT INTO cbm_accounts (
+                        account_name, display_name, avatar_url, clan_tag, role,
+                        deposited_cents, total_deposited_cents, total_withdrawn_cents,
+                        created_at, updated_at, pin_hash, salt, is_verified,
+                        primary_territorial_account, password_hash, is_delinquent
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(account_name) DO UPDATE SET
+                        display_name = COALESCE(excluded.display_name, cbm_accounts.display_name),
+                        avatar_url = COALESCE(excluded.avatar_url, cbm_accounts.avatar_url),
+                        clan_tag = COALESCE(excluded.clan_tag, cbm_accounts.clan_tag),
+                        role = COALESCE(excluded.role, cbm_accounts.role),
+                        deposited_cents = excluded.deposited_cents,
+                        total_deposited_cents = excluded.total_deposited_cents,
+                        total_withdrawn_cents = excluded.total_withdrawn_cents,
+                        updated_at = excluded.updated_at,
+                        pin_hash = COALESCE(excluded.pin_hash, cbm_accounts.pin_hash),
+                        salt = COALESCE(excluded.salt, cbm_accounts.salt),
+                        is_verified = excluded.is_verified,
+                        primary_territorial_account = COALESCE(excluded.primary_territorial_account, cbm_accounts.primary_territorial_account),
+                        password_hash = COALESCE(excluded.password_hash, cbm_accounts.password_hash),
+                        is_delinquent = excluded.is_delinquent
+                """, (
+                    acc.get("account_name"),
+                    acc.get("display_name"),
+                    acc.get("avatar_url", ""),
+                    acc.get("clan_tag", "ANTI-OG"),
+                    acc.get("role", "member"),
+                    int(acc.get("deposited_cents") or 0),
+                    int(acc.get("total_deposited_cents") or 0),
+                    int(acc.get("total_withdrawn_cents") or 0),
+                    _parse_ts(acc.get("created_at")),
+                    _parse_ts(acc.get("updated_at")),
+                    acc.get("pin_hash"),
+                    acc.get("salt"),
+                    1 if acc.get("is_verified") else 0,
+                    acc.get("primary_territorial_account"),
+                    acc.get("password_hash"),
+                    1 if acc.get("is_delinquent") else 0
+                ))
             self._do_index_account_aliases(acc.get("account_name"), acc.get("display_name"), acc.get("primary_territorial_account"))
             self._clear_missing_account_cache(acc.get("account_name"), acc.get("primary_territorial_account"), acc.get("display_name"))
         except Exception as e:
@@ -7406,11 +7470,8 @@ class CBMDatabase:
         ad_id = row[0]
         # Atomic impression increment
         try:
-            w_conn = self.get_write_connection()
-            w_cur = w_conn.cursor()
-            w_cur.execute("UPDATE cbm_sponsored_ads SET impressions = impressions + 1 WHERE ad_id = ?", (ad_id,))
-            w_conn.commit()
-            w_conn.close()
+            with self.write_transaction() as (w_conn, w_cur):
+                w_cur.execute("UPDATE cbm_sponsored_ads SET impressions = impressions + 1 WHERE ad_id = ?", (ad_id,))
         except Exception:
             pass
 
@@ -7455,11 +7516,8 @@ class CBMDatabase:
 
         ad_id = row[0]
         try:
-            w_conn = self.get_write_connection()
-            w_cur = w_conn.cursor()
-            w_cur.execute("UPDATE cbm_sponsored_ads SET impressions = impressions + 1 WHERE ad_id = ?", (ad_id,))
-            w_conn.commit()
-            w_conn.close()
+            with self.write_transaction() as (w_conn, w_cur):
+                w_cur.execute("UPDATE cbm_sponsored_ads SET impressions = impressions + 1 WHERE ad_id = ?", (ad_id,))
         except Exception:
             pass
 
@@ -7582,39 +7640,25 @@ class CBMDatabase:
         }
 
     def record_publisher_impression(self, publisher_account: str) -> bool:
-        """Increments impression counter for an external ad publisher."""
-        try:
-            conn = self.get_write_connection()
-            cur = conn.cursor()
-            now_ts = time.time()
-            cur.execute("""
-                INSERT INTO cbm_ad_publishers (publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, created_at, updated_at)
-                VALUES (?, 'External App', 1, 0, 0, 0.0, ?, ?)
-                ON CONFLICT(publisher_account) DO UPDATE SET
-                    total_impressions = total_impressions + 1,
-                    updated_at = excluded.updated_at
-            """, (publisher_account, now_ts, now_ts))
-            conn.commit()
-            conn.close()
-            return True
-        except Exception:
+        """Buffers an impression in-memory to prevent SQLite lock contention on high-frequency serve endpoints."""
+        if not publisher_account:
             return False
+        with _PENDING_IMPRESSIONS_LOCK:
+            _PENDING_IMPRESSIONS[publisher_account] = _PENDING_IMPRESSIONS.get(publisher_account, 0) + 1
+        return True
 
     def record_publisher_click(self, publisher_account: str) -> bool:
         """Increments click counter for an external ad publisher."""
         try:
-            conn = self.get_write_connection()
-            cur = conn.cursor()
             now_ts = time.time()
-            cur.execute("""
-                INSERT INTO cbm_ad_publishers (publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, created_at, updated_at)
-                VALUES (?, 'External App', 0, 1, 0, 0.0, ?, ?)
-                ON CONFLICT(publisher_account) DO UPDATE SET
-                    total_clicks = total_clicks + 1,
-                    updated_at = excluded.updated_at
-            """, (publisher_account, now_ts, now_ts))
-            conn.commit()
-            conn.close()
+            with self.write_transaction() as (conn, cur):
+                cur.execute("""
+                    INSERT INTO cbm_ad_publishers (publisher_account, app_name, total_impressions, total_clicks, total_onboarded_members, total_gold_earned, created_at, updated_at)
+                    VALUES (?, 'External App', 0, 1, 0, 0.0, ?, ?)
+                    ON CONFLICT(publisher_account) DO UPDATE SET
+                        total_clicks = total_clicks + 1,
+                        updated_at = excluded.updated_at
+                """, (publisher_account, now_ts, now_ts))
             return True
         except Exception:
             return False
@@ -7623,11 +7667,10 @@ class CBMDatabase:
         """Returns True if the given account is active in the chat whitelist."""
         if not account_name:
             return False
-        conn = self.get_write_connection()
+        conn = self._get_sqlite_conn()
         cur = conn.cursor()
         cur.execute("SELECT is_active FROM cbm_chat_whitelist WHERE account_name = ? COLLATE NOCASE", (account_name.strip(),))
         row = cur.fetchone()
-        conn.close()
         return bool(row and row[0] == 1)
 
     def add_to_chat_whitelist(self, account_name: str, added_by: str, notes: str = "") -> Tuple[bool, str]:

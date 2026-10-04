@@ -2673,6 +2673,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 has_hk = ("prod_hellokitty" in all_owned)
                 has_poland = ("prod_poland" in all_owned)
                 has_kilr = ("prod_kilr" in all_owned)
+                receipts_map = {}
+                for pid in all_owned:
+                    rcpt = db.get_product_receipt_for_account(account, pid)
+                    if rcpt:
+                        receipts_map[pid] = rcpt
+
                 return self._send_json(200, {
                     "status": "ok",
                     "account": account,
@@ -2684,7 +2690,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "has_kilr": has_kilr,
                     "receipt": receipt_hk,
                     "receipt_poland": receipt_poland,
-                    "receipt_kilr": receipt_kilr
+                    "receipt_kilr": receipt_kilr,
+                    "receipts": receipts_map
                 })
 
             else:
@@ -2925,6 +2932,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     has_hk = ("prod_hellokitty" in all_owned)
                     has_poland = ("prod_poland" in all_owned)
                     has_kilr = ("prod_kilr" in all_owned)
+                    receipts_map = {}
+                    for pid in all_owned:
+                        rcpt = db.get_product_receipt_for_account(account, pid)
+                        if rcpt:
+                            receipts_map[pid] = rcpt
+
                     return self._send_api_v1_json(200, {
                         "status": "ok",
                         "account": account,
@@ -2936,7 +2949,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         "has_kilr": has_kilr,
                         "receipt": receipt_hk,
                         "receipt_poland": receipt_poland,
-                        "receipt_kilr": receipt_kilr
+                        "receipt_kilr": receipt_kilr,
+                        "receipts": receipts_map
                     }, key_record=key_rec)
 
                 else:
@@ -4368,8 +4382,15 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not acc_name or not name:
                 return self._send_json(400, {"status": "error", "message": "account_name and name are required."})
 
+            requires_verify = bool(body.get("requires_client_verification", False))
+            req_meta = body.get("requirement_meta")
+
             if price_gold < 100.0:
-                return self._send_json(400, {"status": "error", "message": "Products must cost at least 100.00 Gold."})
+                if not (price_gold == 0.0 and requires_verify):
+                    return self._send_json(400, {
+                        "status": "error",
+                        "message": "Products must cost at least 100.00 Gold unless requires_client_verification is enabled."
+                    })
 
             ok, key_rec, auth_user, err = self._authenticate_dev_request(target_account=acc_name, pin=pin, required_scope="write:products", api_key=api_k)
             if not ok:
@@ -4383,7 +4404,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 price_gold=price_gold,
                 image_url=image_url,
                 callback_url=callback_url,
-                webhook_url=webhook_url
+                webhook_url=webhook_url,
+                requires_client_verification=requires_verify,
+                requirement_meta=req_meta
             )
             if ok:
                 return self._send_json(200, {
@@ -4878,11 +4901,10 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         break
 
                 if not is_verified:
-                    conn = sqlite3.connect(db.sqlite_path)
+                    conn = db._get_sqlite_conn()
                     cur = conn.cursor()
                     cur.execute("SELECT SUM(amount_gold), COUNT(*) FROM cbm_processed_txs WHERE sender = ? AND receiver = ?", (player_name, VAULT_ACCOUNT))
                     row = cur.fetchone()
-                    conn.close()
                     if row and row[1] > 0:
                         is_verified = True
                         total_transacted = float(row[0] or 0.0)
@@ -4918,8 +4940,15 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 if not name:
                     return self._send_api_v1_json(400, {"error": "bad_request", "message": "Product name is required."}, key_record=key_rec)
 
+                requires_verify = bool(body.get("requires_client_verification", False))
+                req_meta = body.get("requirement_meta")
+
                 if price_gold < 100.0:
-                    return self._send_api_v1_json(400, {"error": "bad_request", "message": "Products must cost at least 100.00 Gold."}, key_record=key_rec)
+                    if not (price_gold == 0.0 and requires_verify):
+                        return self._send_api_v1_json(400, {
+                            "error": "bad_request",
+                            "message": "Products must cost at least 100.00 Gold unless requires_client_verification is enabled."
+                        }, key_record=key_rec)
 
                 ok, prod_or_err = db.create_product(
                     owner_account=owner_acc,
@@ -4928,7 +4957,9 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     price_gold=price_gold,
                     image_url=image_url,
                     callback_url=callback_url,
-                    webhook_url=webhook_url
+                    webhook_url=webhook_url,
+                    requires_client_verification=requires_verify,
+                    requirement_meta=req_meta
                 )
                 if ok:
                     return self._send_api_v1_json(200, {
@@ -5163,13 +5194,37 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 if not prod.get("requires_client_verification"):
                     return self._send_api_v1_json(400, {"status": "error", "message": f"Product '{product_id}' does not use client requirement verification."}, key_record=key_rec)
 
+                req_meta = prod.get("requirement_meta") or {}
+                if isinstance(req_meta, str):
+                    try:
+                        req_meta = json.loads(req_meta)
+                    except Exception:
+                        req_meta = {}
+
+                required_clan = req_meta.get("clan") if isinstance(req_meta, dict) else None
+                if not required_clan and product_id == "prod_kilr":
+                    required_clan = "KILR"
+
+                if required_clan:
+                    aliases = db._get_all_account_aliases(account)
+                    if isinstance(attestation_data, dict):
+                        p_name = attestation_data.get("player_name") or attestation_data.get("name")
+                        if p_name and p_name not in aliases:
+                            aliases.append(str(p_name))
+                    has_tag = any(f"[{required_clan.upper()}]" in a.upper() for a in aliases)
+                    if not has_tag:
+                        client_verified = False
+                    elif client_verified and isinstance(attestation_data, dict):
+                        attestation_data.setdefault("clan", required_clan)
+
                 if not client_verified:
+                    req_msg = f"Requires clan tag [{required_clan}] in player handle." if required_clan else "Client attestation requirement not satisfied."
                     return self._send_api_v1_json(403, {
                         "status": "error",
                         "verified": False,
                         "product_id": product_id,
                         "account": account,
-                        "message": "Client attestation requirement not satisfied."
+                        "message": f"Requirement not satisfied: {req_msg}"
                     }, key_record=key_rec)
 
                 ok_attest, msg, att_rec = db.create_or_renew_attestation(

@@ -58,8 +58,7 @@ class CBMAccountManager:
             return False, "Territorial account name is required.", {}
 
         # 1. Check local processed transactions cache
-        import sqlite3
-        conn = sqlite3.connect(self.db.sqlite_path)
+        conn = self.db._get_sqlite_conn()
         cur = conn.cursor()
         cur.execute("""
             SELECT SUM(amount_gold), COUNT(*) 
@@ -67,7 +66,6 @@ class CBMAccountManager:
             WHERE sender = ? AND receiver = ?
         """, (terri_acc, self.vault_account))
         row = cur.fetchone()
-        conn.close()
 
         has_deposited = row and row[1] > 0
         total_deposited = (row[0] or 0.0) if row else 0.0

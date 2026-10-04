@@ -340,6 +340,37 @@ class TestLiveCORSServer(unittest.TestCase):
         allow_origin = hdrs.get("Access-Control-Allow-Origin") or hdrs.get("access-control-allow-origin")
         self.assertEqual(allow_origin, first_party)
 
+    def test_quick_quarantine_tunnel_allowed_on_internal_endpoints(self):
+        """
+        Requests to internal endpoints from Cloudflare Quick Quarantine Tunnels (*.trycloudflare.com)
+        must succeed and not be blocked by Domain Origin Policy.
+        """
+        tunnel_origin = "https://seekers-underground-editorial-carlos.trycloudflare.com"
+
+        # Preflight OPTIONS
+        status, hdrs, body = self._make_request(
+            "OPTIONS",
+            "/api/cbm/account",
+            headers={
+                "Origin": tunnel_origin,
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        self.assertEqual(status, 200, f"Expected 200 for tunnel preflight, got {status}: {body}")
+        allow_origin = hdrs.get("Access-Control-Allow-Origin") or hdrs.get("access-control-allow-origin")
+        self.assertEqual(allow_origin, tunnel_origin)
+
+        # GET request with tunnel Origin
+        status, hdrs, body = self._make_request(
+            "GET",
+            "/api/cbm/account?name=Alice",
+            headers={"Origin": tunnel_origin},
+        )
+        self.assertNotEqual(status, 403, f"Quick quarantine tunnel was blocked by 403: {body}")
+        allow_origin = hdrs.get("Access-Control-Allow-Origin") or hdrs.get("access-control-allow-origin")
+        self.assertEqual(allow_origin, tunnel_origin)
+
 
 if __name__ == "__main__":
     unittest.main()
+

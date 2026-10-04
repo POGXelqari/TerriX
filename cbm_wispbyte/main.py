@@ -566,6 +566,32 @@ def is_authorized_first_party_origin(origin: str) -> bool:
             return True
         if host == "cbm.wispbyte.org" or host.endswith(".wispbyte.org"):
             return True
+        # Allow Cloudflare Quick Quarantine Tunnels (*.trycloudflare.com)
+        if host == "trycloudflare.com" or host.endswith(".trycloudflare.com"):
+            return True
+        # Check active ingress URL recorded by tunnel manager if present
+        active_ingress_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "active_ingress_url.txt")
+        if os.path.exists(active_ingress_file):
+            try:
+                with open(active_ingress_file, "r", encoding="utf-8") as f:
+                    saved_url = f.read().strip().lower()
+                    if saved_url:
+                        s_parsed = urllib.parse.urlparse(saved_url)
+                        if s_parsed.hostname and host == s_parsed.hostname:
+                            return True
+            except Exception:
+                pass
+        # Check environment overrides (e.g. WISPBYTE_SUBDOMAIN, ACTIVE_INGRESS_URL)
+        extra_domains = [
+            os.environ.get("WISPBYTE_SUBDOMAIN", "").strip().lower(),
+            os.environ.get("ACTIVE_INGRESS_URL", "").strip().lower(),
+            os.environ.get("CLOUDFLARE_TUNNEL_URL", "").strip().lower(),
+        ]
+        for extra in extra_domains:
+            if extra:
+                extra_clean = extra.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
+                if extra_clean and (host == extra_clean or host.endswith("." + extra_clean)):
+                    return True
     except Exception:
         pass
     return False
@@ -829,6 +855,16 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         # Check Sec-Fetch-Site on state-changing requests
         sec_fetch_site = self.headers.get("Sec-Fetch-Site", "").lower()
         if sec_fetch_site == "cross-site":
+            # If Referer is an authorized first-party origin (such as a Quick Quarantine Tunnel), allow it
+            referer = self.headers.get("Referer", "").strip()
+            if referer:
+                try:
+                    ref_parsed = urllib.parse.urlparse(referer)
+                    ref_origin = f"{ref_parsed.scheme}://{ref_parsed.netloc}"
+                    if is_authorized_first_party_origin(ref_origin):
+                        return True, None
+                except Exception:
+                    pass
             return False, "Cross-site request blocked by Domain Origin Policy."
 
         # Check Referer on state-changing requests if present

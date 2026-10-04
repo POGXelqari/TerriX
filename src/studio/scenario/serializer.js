@@ -3,6 +3,57 @@
  * Handles bidirectional tt_scenario.json export/import, Base64 URL compression, and in-game launch packaging.
  */
 
+export const ScenarioStorage = {
+  DB_NAME: "terrix_studio_db",
+  STORE_NAME: "scenarios",
+  KEY: "launch_scenario",
+
+  openDb() {
+    return new Promise((resolve, reject) => {
+      if (typeof indexedDB === "undefined") {
+        return reject(new Error("IndexedDB unavailable"));
+      }
+      const req = indexedDB.open(this.DB_NAME, 1);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+          db.createObjectStore(this.STORE_NAME);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  async setLaunchScenario(scenarioJson) {
+    try {
+      const db = await this.openDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, "readwrite");
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.put(scenarioJson, this.KEY);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+      return true;
+    } catch (e) {
+      console.warn("[ScenarioStorage] IndexedDB storage failed, attempting local/session fallback", e);
+      try {
+        localStorage.setItem("terrix_launch_scenario", scenarioJson);
+        return true;
+      } catch (err) {
+        try {
+          sessionStorage.setItem("terrix_launch_scenario", scenarioJson);
+          return true;
+        } catch (sErr) {
+          console.error("[ScenarioStorage] All browser storage exceeded quota:", sErr);
+          throw new Error("Scenario payload exceeds browser storage quota. Please export JSON instead.");
+        }
+      }
+    }
+  }
+};
+
 export class ScenarioSerializer {
   /**
    * Serializes active state tree to the official tt_scenario.json format.
@@ -88,11 +139,11 @@ export class ScenarioSerializer {
   }
 
   /**
-   * Stores current scenario into local storage and launches the TerriX client.
+   * Stores current scenario into IndexedDB/storage and launches the TerriX client.
    */
-  static launchInGame(state, openNewTab = false) {
+  static async launchInGame(state, openNewTab = false) {
     const jsonStr = this.exportToJson(state);
-    localStorage.setItem("terrix_launch_scenario", jsonStr);
+    await ScenarioStorage.setLaunchScenario(jsonStr);
     const targetUrl = `index.html?play_scenario=1&t=${Date.now()}`;
     if (openNewTab) {
       window.open(targetUrl, "_blank");

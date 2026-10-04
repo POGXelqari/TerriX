@@ -175,8 +175,16 @@ export class StudioLayout {
     // Launch in Game
     const btnLaunch = document.getElementById("btnLaunchGame");
     if (btnLaunch) {
-      btnLaunch.addEventListener("click", () => {
-        ScenarioSerializer.launchInGame(store.state, false);
+      btnLaunch.addEventListener("click", async () => {
+        btnLaunch.disabled = true;
+        btnLaunch.textContent = "Launching...";
+        try {
+          await ScenarioSerializer.launchInGame(store.state, false);
+        } catch (err) {
+          showToast(`Launch failed: ${err.message}`, "error");
+          btnLaunch.disabled = false;
+          btnLaunch.textContent = "▶ Launch in Game";
+        }
       });
     }
   }

@@ -75,65 +75,114 @@ const checkEngineForOptimizer = setInterval(function() {
 window.addEventListener("hashchange", () => spawnOptimizer.reset());
 
 // Auto-Launch Scenarios from TerriX Scenario Studio
-function checkPendingScenarioLaunch() {
-  const pending = localStorage.getItem('terrix_launch_scenario');
-  if (!pending) return;
+async function fetchPendingScenario() {
+  if (typeof indexedDB !== "undefined") {
+    try {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open("terrix_studio_db", 1);
+        req.onupgradeneeded = (e) => {
+          const d = e.target.result;
+          if (!d.objectStoreNames.contains("scenarios")) d.createObjectStore("scenarios");
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
 
-  let attempts = 0;
-  const launchInterval = setInterval(() => {
-    attempts++;
-    if (window.aE && window.u && typeof window.u.v === 'function') {
-      clearInterval(launchInterval);
+      const data = await new Promise((resolve) => {
+        const tx = db.transaction("scenarios", "readwrite");
+        const store = tx.objectStore("scenarios");
+        const getReq = store.get("launch_scenario");
+        getReq.onsuccess = () => {
+          store.delete("launch_scenario");
+          resolve(getReq.result);
+        };
+        getReq.onerror = () => resolve(null);
+      });
+
+      if (data) return data;
+    } catch (err) {
+      console.warn('[TerriX] IndexedDB read failed, falling back to storage:', err);
+    }
+  }
+
+  try {
+    const val = localStorage.getItem('terrix_launch_scenario');
+    if (val) {
       localStorage.removeItem('terrix_launch_scenario');
-      try {
-        console.log('[TerriX] Ingesting custom scenario from TerriX Scenario Studio...');
-        const parsed = JSON.parse(pending);
-        
-        if (!window.aE.a2G && typeof window.a6h === 'function') {
-          const data = window.aE.data = new window.a6h();
-          Object.assign(data, parsed);
+      return val;
+    }
+  } catch (e) {}
 
-          // Force custom spawning mode if custom spawns were passed
-          if (parsed.spawningData && parsed.spawningType === 2) {
-            data.spawningType = 2;
-          }
+  try {
+    const val = sessionStorage.getItem('terrix_launch_scenario');
+    if (val) {
+      sessionStorage.removeItem('terrix_launch_scenario');
+      return val;
+    }
+  } catch (e) {}
 
-          if (parsed.teamPlayerCount) data.teamPlayerCount = new Uint16Array(parsed.teamPlayerCount);
-          if (parsed.colorsData) data.colorsData = new Uint32Array(parsed.colorsData);
-          if (parsed.botDifficultyTeam) data.botDifficultyTeam = new Uint8Array(parsed.botDifficultyTeam);
-          if (parsed.botDifficultyData) data.botDifficultyData = new Uint8Array(parsed.botDifficultyData);
-          if (parsed.spawningData) data.spawningData = new Uint16Array(parsed.spawningData);
-          if (parsed.aIncomeData) data.aIncomeData = new Uint8Array(parsed.aIncomeData);
-          if (parsed.tIncomeData) data.tIncomeData = new Uint8Array(parsed.tIncomeData);
-          if (parsed.iIncomeData) data.iIncomeData = new Uint8Array(parsed.iIncomeData);
-          if (parsed.sResourcesData) data.sResourcesData = new Uint16Array(parsed.sResourcesData);
-          if (parsed.a75) data.a75 = new Uint32Array(parsed.a75);
+  return null;
+}
 
-          if (parsed.mapType === 2 && parsed.canvas && typeof parsed.canvas === 'string') {
-            data.mapType = 2;
-            const img = new Image();
-            img.onload = function() {
-              if (window.bC && window.bC.aLJ && typeof window.bC.aLJ.aLK === 'function') {
-                window.bC.aLJ.aLK(img, 1);
-              }
+function checkPendingScenarioLaunch() {
+  fetchPendingScenario().then(pending => {
+    if (!pending) return;
+
+    let attempts = 0;
+    const launchInterval = setInterval(() => {
+      attempts++;
+      if (window.aE && window.u && typeof window.u.v === 'function') {
+        clearInterval(launchInterval);
+        try {
+          console.log('[TerriX] Ingesting custom scenario from TerriX Scenario Studio...');
+          const parsed = typeof pending === 'string' ? JSON.parse(pending) : pending;
+          
+          if (!window.aE.a2G && typeof window.a6h === 'function') {
+            const data = window.aE.data = new window.a6h();
+            Object.assign(data, parsed);
+
+            // Force custom spawning mode if custom spawns were passed
+            if (parsed.spawningData && parsed.spawningType === 2) {
+              data.spawningType = 2;
+            }
+
+            if (parsed.teamPlayerCount) data.teamPlayerCount = new Uint16Array(parsed.teamPlayerCount);
+            if (parsed.colorsData) data.colorsData = new Uint32Array(parsed.colorsData);
+            if (parsed.botDifficultyTeam) data.botDifficultyTeam = new Uint8Array(parsed.botDifficultyTeam);
+            if (parsed.botDifficultyData) data.botDifficultyData = new Uint8Array(parsed.botDifficultyData);
+            if (parsed.spawningData) data.spawningData = new Uint16Array(parsed.spawningData);
+            if (parsed.aIncomeData) data.aIncomeData = new Uint8Array(parsed.aIncomeData);
+            if (parsed.tIncomeData) data.tIncomeData = new Uint8Array(parsed.tIncomeData);
+            if (parsed.iIncomeData) data.iIncomeData = new Uint8Array(parsed.iIncomeData);
+            if (parsed.sResourcesData) data.sResourcesData = new Uint16Array(parsed.sResourcesData);
+            if (parsed.a75) data.a75 = new Uint32Array(parsed.a75);
+
+            if (parsed.mapType === 2 && parsed.canvas && typeof parsed.canvas === 'string') {
+              data.mapType = 2;
+              const img = new Image();
+              img.onload = function() {
+                if (window.bC && window.bC.aLJ && typeof window.bC.aLJ.aLK === 'function') {
+                  window.bC.aLJ.aLK(img, 1);
+                }
+                window.u.y();
+                if (window.u.z && window.u.z.uS) window.u.z.uS[0] = 0;
+                window.u.v(19);
+              };
+              img.src = parsed.canvas;
+            } else {
               window.u.y();
               if (window.u.z && window.u.z.uS) window.u.z.uS[0] = 0;
               window.u.v(19);
-            };
-            img.src = parsed.canvas;
-          } else {
-            window.u.y();
-            if (window.u.z && window.u.z.uS) window.u.z.uS[0] = 0;
-            window.u.v(19);
+            }
           }
+        } catch (err) {
+          console.error('[TerriX] Error launching custom scenario:', err);
         }
-      } catch (err) {
-        console.error('[TerriX] Error launching custom scenario:', err);
+      } else if (attempts > 50) {
+        clearInterval(launchInterval);
       }
-    } else if (attempts > 50) {
-      clearInterval(launchInterval);
-    }
-  }, 200);
+    }, 200);
+  });
 }
 
 if (window.location.search.includes('play_scenario=1')) {

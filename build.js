@@ -6,6 +6,7 @@ import fs from 'fs';
 import webpack from 'webpack';
 import path from 'path';
 import ModUtils, { minifyCode } from './modUtils.js';
+import { patchGameAst } from './scripts/astPatcher.js';
 
 { // color debug output in gray
   const old_debug = console.debug
@@ -142,7 +143,18 @@ async function patchGameCode() {
 	modUtils.executePostMinifyHandlers();
 	script = modUtils.script;
 
-	// the dictionary should maybe get embedded into one of the files in the bundle
+	// Validate dictionary integrity
+	const dictKeys = Object.keys(dictionary);
+	if (dictKeys.length === 0) {
+		throw new Error("[CRITICAL] Dictionary extraction produced 0 symbols.");
+	}
+	for (const [k, v] of Object.entries(dictionary)) {
+		if (!v || typeof v !== 'string') {
+			throw new Error(`[CRITICAL] Dictionary validation failed for key "${k}": ${v}`);
+		}
+	}
+	console.log(`[+] Validated dictionary with ${dictKeys.length} active symbols.`);
+
 	fs.writeFileSync(
 		"./game/build_artefacts.js",
 		`const buildTimestamp = "${buildTimestamp}"; const dictionary = ${JSON.stringify(dictionary)};\n`
@@ -171,13 +183,12 @@ async function patchGameCode() {
 		"indent_empty_lines": false
 	});
 
-	const renderTarget = "ws.drawImage(a0O, aT.a0L(), aT.a0M())";
-	const renderHook = "ws.drawImage(a0O, aT.a0L(), aT.a0M()),(window.__TERRIX_HOOK_RENDER__&&window.__TERRIX_HOOK_RENDER__(ws,a0O,im,aT.a0L(),aT.a0M()))";
-	if (script.includes(renderTarget)) {
-		script = script.replace(renderTarget, renderHook);
-		console.log("[+] Successfully injected TerriX render hook into game script!");
-	} else {
-		console.warn("Could not find renderTarget ws.drawImage(a0O, aT.a0L(), aT.a0M()) in game script.");
+	try {
+		script = patchGameAst(script);
+		console.log("[+] Successfully injected TerriX render hook via AST patcher!");
+	} catch (astErr) {
+		console.error("[-] AST Patcher critical error:", astErr.message);
+		throw astErr;
 	}
 
 	fs.writeFileSync("./build/game.js", script);

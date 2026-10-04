@@ -2,12 +2,12 @@ name: Upstream Sync & Client Auto-Update
 
 on:
   schedule:
-    # Run every 6 hours (00:00, 06:00, 12:00, 18:00 UTC)
     - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: "client-sync"
@@ -23,36 +23,60 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: 'npm'
 
-      - name: Install Node dependencies
+      - name: Install Dependencies
         run: |
           npm ci || npm install
+          npx playwright install --with-deps chromium
 
-      - name: Run TerriX Client Upstream Check & Build
+      - name: Check Upstream Hash & Trigger Build
+        id: build_step
         run: |
-          python -X utf8 scripts/build_client.py --check-upstream
+          node scripts/upstream_checker.js
+          npm run build
 
-      - name: Commit & Push Changes if Updated
+      - name: Execute Headless Verification Gate
         run: |
-          if [ -n "$(git status --porcelain client/ territorial_latest_raw.js territorial_deobfuscated_latest.js)" ]; then
-            echo "Upstream update or mod change detected. Committing..."
+          node tests/smoke-test.js
+
+      - name: Promote Build to Client Directory
+        run: |
+          rm -rf client/
+          cp -r build/ client/
+
+      - name: Atomic Commit and Push
+        run: |
+          if [ -n "$(git status --porcelain client/ game/ version.json)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add client/ territorial_latest_raw.* territorial_deobfuscated_latest.* territorial_latest_strings.json
-            git commit -m "chore(client): auto-update TerriX client from upstream territorial.io"
-            # Pull with rebase, favouring our changes on any timestamp conflicts
-            git pull --rebase -X ours origin main || git rebase --abort
+            git add client/ game/ version.json
+            git commit -m "chore(sync): automated build against territorial.io $(cat version.json | jq -r .upstream_version)"
+            
+            # Atomic push with strict rejection handling
+            git fetch origin main
+            git rebase origin/main
             git push origin main
           else
-            echo "Client is already up-to-date with upstream. No changes to commit."
+            echo "Zero changes detected. Upstream and client match."
           fi
+
+      - name: File Incident Report on Pipeline Break
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let version = 'unknown';
+            try { version = JSON.parse(fs.readFileSync('./version.json')).upstream_version; } catch(e){}
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Upstream Sync Failure: Territorial.io Engine Update ${version}`,
+              body: `### Pipeline Failure Report\nThe automated upstream sync pipeline failed during patch application or smoke testing.\n\n**Workflow Run:** [View Logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n**Step:** \`${context.job}\`\n**Safety Action Taken:** Deployment to \`client/\` was aborted. Existing client build was preserved.\n\nPlease review minifier token changes and update \`patches/\` accordingly.`
+            });

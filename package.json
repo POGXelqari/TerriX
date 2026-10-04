@@ -8,7 +8,9 @@
     "build": "node index.js",
     "build-only": "node build.js",
     "build-client": "node build.js --skip-patching",
-    "patch": "node build.js --patch-only"
+    "patch": "node build.js --patch-only",
+    "test:smoke": "node tests/smoke-test.js",
+    "sync:upstream": "node scripts/upstream_checker.js && npm run build && npm run test:smoke"
   },
   "repository": {
     "type": "git",
@@ -22,6 +24,11 @@
     "uglify-js": "^3.19.2"
   },
   "devDependencies": {
+    "@babel/generator": "^8.0.6",
+    "@babel/parser": "^8.0.6",
+    "@babel/traverse": "^8.0.6",
+    "@babel/types": "^8.0.6",
+    "playwright": "^1.63.0",
     "webpack": "^5.95.0"
   }
 }

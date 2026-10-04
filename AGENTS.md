@@ -18,3 +18,8 @@
 5. **Zero Prompt Leakage & Clean Code Generation**:
    - Meta-instructions and prompt constraints (e.g. "Zero Roleplay Jargon", "Realistic") must never be cited or echoed into code, UI copy, or comments.
    - Output must contain exclusively valid code without conversational filler or prompt metadata.
+6. **Upstream Sync & Client Architecture**:
+   - Follow [`.agents/rules/upstream-sync.md`](file:///g:/TerriX/.agents/rules/upstream-sync.md) and [`.cursorrules`](file:///g:/TerriX/.cursorrules).
+   - Zero direct edits to compiled assets in `client/`.
+   - Never reference obfuscated engine identifiers directly in `src/`; access via `getVar(name)` from `src/gameInterface.js`.
+   - Mandatory verification gate: `npm run build && node tests/smoke-test.js` before merge.

@@ -109,8 +109,17 @@ CANONICAL_REMOTE_ASSETS = {
             "https://raw.githubusercontent.com/POGXelqari/TerriX/main/client/assets/patterns/poland-pattern.avif",
             "https://raw.githubusercontent.com/POGXelqari/TerriX/master/client/assets/patterns/poland-pattern.avif"
         ]
+    },
+    "kilr-clanlogo-pattern.png": {
+        "sub": "patterns",
+        "mime": "image/png",
+        "urls": [
+            "https://raw.githubusercontent.com/POGXelqari/TerriX/main/client/assets/patterns/kilr-clanlogo-pattern.png",
+            "https://raw.githubusercontent.com/POGXelqari/TerriX/master/client/assets/patterns/kilr-clanlogo-pattern.png"
+        ]
     }
 }
+
 
 def _fetch_canonical_asset_background(fname: str, meta: dict):
     def _worker():
@@ -2654,12 +2663,14 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 owned = db.get_account_owned_products(account)
                 receipt_hk = db.get_product_receipt_for_account(account, "prod_hellokitty")
                 receipt_poland = db.get_product_receipt_for_account(account, "prod_poland")
+                receipt_kilr = db.get_product_receipt_for_account(account, "prod_kilr")
                 created_prods = db.list_products_by_owner(account, include_archived=False)
                 created_ids = [p["product_id"] for p in created_prods] if created_prods else []
                 all_owned = list(dict.fromkeys(owned + created_ids))
                 is_creator = len(created_ids) > 0
                 has_hk = ("prod_hellokitty" in all_owned)
                 has_poland = ("prod_poland" in all_owned)
+                has_kilr = ("prod_kilr" in all_owned)
                 return self._send_json(200, {
                     "status": "ok",
                     "account": account,
@@ -2668,9 +2679,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "is_creator": is_creator,
                     "has_hello_kitty": has_hk,
                     "has_poland": has_poland,
+                    "has_kilr": has_kilr,
                     "receipt": receipt_hk,
-                    "receipt_poland": receipt_poland
+                    "receipt_poland": receipt_poland,
+                    "receipt_kilr": receipt_kilr
                 })
+
             else:
                 product_id = sub
                 prod = db.get_product(product_id)
@@ -2901,12 +2915,14 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     owned = db.get_account_owned_products(account)
                     receipt_hk = db.get_product_receipt_for_account(account, "prod_hellokitty")
                     receipt_poland = db.get_product_receipt_for_account(account, "prod_poland")
+                    receipt_kilr = db.get_product_receipt_for_account(account, "prod_kilr")
                     created_prods = db.list_products_by_owner(account, include_archived=False)
                     created_ids = [p["product_id"] for p in created_prods] if created_prods else []
                     all_owned = list(dict.fromkeys(owned + created_ids))
                     is_creator = len(created_ids) > 0
                     has_hk = ("prod_hellokitty" in all_owned)
                     has_poland = ("prod_poland" in all_owned)
+                    has_kilr = ("prod_kilr" in all_owned)
                     return self._send_api_v1_json(200, {
                         "status": "ok",
                         "account": account,
@@ -2915,9 +2931,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         "is_creator": is_creator,
                         "has_hello_kitty": has_hk,
                         "has_poland": has_poland,
+                        "has_kilr": has_kilr,
                         "receipt": receipt_hk,
-                        "receipt_poland": receipt_poland
+                        "receipt_poland": receipt_poland,
+                        "receipt_kilr": receipt_kilr
                     }, key_record=key_rec)
+
                 else:
                     product_id = sub
                     prod = db.get_product(product_id)
@@ -4998,6 +5017,86 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         "valid": False,
                         "message": order_or_err
                     }, key_record=key_rec)
+
+            # 7b. Requirement-Agnostic Client Attestation / Verification Endpoint
+            elif (path.startswith("/api/v1/products/") and path.endswith("/verify-requirement")) or \
+                 (path.startswith("/api/cbm/products/") and path.endswith("/verify-requirement")) or \
+                 path in ("/api/v1/products/verify-requirement", "/api/cbm/products/verify-requirement"):
+
+                ok, key_rec, err = self._authenticate_api_v1("read:products")
+                if not ok:
+                    auth_hdr = self.headers.get("Authorization", "") or self.headers.get("X-CBM-API-Key", "")
+                    if not auth_hdr:
+                        return self._send_json(err["status"], err["body"], headers=err.get("headers"), is_dev_api=True)
+
+                # Extract product_id from path or body
+                product_id = ""
+                if "/products/" in path and path.endswith("/verify-requirement"):
+                    parts = path.split("/")
+                    try:
+                        idx = parts.index("products")
+                        if len(parts) > idx + 2 and parts[idx + 2] == "verify-requirement":
+                            product_id = parts[idx + 1]
+                    except ValueError:
+                        pass
+
+                if not product_id:
+                    product_id = (body.get("product_id") or "").strip()
+
+                account = (body.get("account") or body.get("player") or "").strip()
+                client_verified = bool(body.get("client_verified", False))
+                client_id = (body.get("client_id") or "terrix_client").strip()
+                try:
+                    ttl_seconds = float(body.get("ttl_seconds") or body.get("ttl") or 3600.0)
+                except (ValueError, TypeError):
+                    ttl_seconds = 3600.0
+
+                attestation_data = body.get("payload") or body.get("attestation_data") or {}
+
+                if not product_id:
+                    return self._send_api_v1_json(400, {"status": "error", "message": "product_id is required."}, key_record=key_rec)
+                if not account:
+                    return self._send_api_v1_json(400, {"status": "error", "message": "account is required."}, key_record=key_rec)
+
+                prod = db.get_product(product_id)
+                if not prod or prod.get("status") != "ACTIVE":
+                    return self._send_api_v1_json(404, {"status": "error", "message": f"Product '{product_id}' not found or inactive."}, key_record=key_rec)
+
+                if not prod.get("requires_client_verification"):
+                    return self._send_api_v1_json(400, {"status": "error", "message": f"Product '{product_id}' does not use client requirement verification."}, key_record=key_rec)
+
+                if not client_verified:
+                    return self._send_api_v1_json(403, {
+                        "status": "error",
+                        "verified": False,
+                        "product_id": product_id,
+                        "account": account,
+                        "message": "Client attestation requirement not satisfied."
+                    }, key_record=key_rec)
+
+                ok_attest, msg, att_rec = db.create_or_renew_attestation(
+                    product_id=product_id,
+                    account=account,
+                    client_id=client_id,
+                    payload=attestation_data,
+                    ttl_seconds=ttl_seconds
+                )
+                if not ok_attest:
+                    return self._send_api_v1_json(500, {"status": "error", "message": msg}, key_record=key_rec)
+
+                invalidate_caches()
+                return self._send_api_v1_json(200, {
+                    "status": "ok",
+                    "api_version": "v1.0",
+                    "verified": True,
+                    "product_id": product_id,
+                    "account": account,
+                    "attestation_token": att_rec["attestation_token"],
+                    "expires_at": att_rec["expires_at"],
+                    "ttl": att_rec["ttl"],
+                    "message": msg
+                }, key_record=key_rec)
+
 
             # 8. Sponsorship Purchase & Ad Click Telemetry
             elif path in ("/api/v1/ads/click", "/api/cbm/ads/click"):

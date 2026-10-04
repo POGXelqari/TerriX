@@ -1,114 +1,59 @@
-# Implementation Plan: CBM | AutoMod Discord Content Safety Bot
+# Implementation Plan: [KILR] Clan Territory Pattern & Requirement-Agnostic Free Product API
 
 ## Overview
-Deploys the official "CBM | AutoMod" ("CBM | Content Safety") Discord bot, integrated with the existing NVIDIA Nemotron-3.5-Content-Safety NIM tiered moderation pipeline (`chat_engine.py` & `ai_service.py`). The bot operates in **stealth mode**: flagged messages are quietly deleted without in-channel bot feedback, and detailed audit reports with flagged categories and latency telemetry are dispatched exclusively to the server's configured moderator log channel.
+Adds the **[KILR] Clan Territory Pattern** as an official cosmetic product for TerriX, featuring the official KILR clan logo (`client/kilr-clanlogo-pattern.png`). Clan Logo patterns function identically to Flag Territory Patterns (single unified flag/crest rendered across the entire territory bounding box with high-resolution mipmapping rather than tiling). The product is **FREE**, but gated: players are required to have `"[KILR]"` in their Territorial.io username to equip it.
+
+In parallel, this establishes a **requirement-agnostic CBM Product API** for free products (`price_gold = 0.0`) that require client verification. The third-party client communicates securely with the Product API to attest that the requirement is satisfied, and **this communication is required every time the product is equipped or verified**, renewing time-bounded cryptographic attestation leases.
 
 ---
 
 ## Architectural Decisions
 
-1. **Location in Authoritative Master Runtime**:
-   - In adherence to repository guidelines, all bot components reside in `cbm_wispbyte/`:
-     - `cbm_wispbyte/automod_db.py`: Guild configuration persistence (SQLite backed with in-memory caching).
-     - `cbm_wispbyte/bot.py` (or `automod_bot.py`): Core Discord Gateway & Application Command daemon.
-     - `cbm_wispbyte/sync_discord_profile.py`: Automated profile synchronization (sets application name, display name, and icon).
-2. **Integration with Existing Tiered Moderation Pipeline**:
-   - Reuses `check_message_safety(text, attachments, image_b64, use_cache=True)` from `cbm_wispbyte/chat_engine.py`.
-   - **Layer 1**: Zero-latency homoglyph & regex normalizer (<1ms).
-   - **Layer 2**: SHA-256 in-memory LRU verdict cache (<1ms).
-   - **Layer 3**: NVIDIA Nemotron-3.5-Content-Safety NIM (200-500ms) with circuit-breaker fallback.
-3. **Multimodal Safety Inspection**:
-   - Inspects image attachments (PNG, JPEG, WebP up to 4MB) by reading the attachment stream asynchronously and passing base64 bytes to Layer 3 multimodal safety.
-4. **Stealth Operation Paradigm**:
-   - Zero in-channel feedback (no public pings, no warning messages in the infraction channel).
-   - Offending messages are removed via `await message.delete()`.
-   - A structured dark-themed embed is dispatched to the designated `log_channel`.
-5. **Permissions & Security Scopes**:
-   - Minimal permissions integer: `124928` (`VIEW_CHANNEL` + `SEND_MESSAGES` + `MANAGE_MESSAGES` + `EMBED_LINKS` + `ATTACH_FILES` + `READ_MESSAGE_HISTORY`).
-   - Slash command `/setup` restricted via `@app_commands.default_permissions(manage_guild=True)`.
-   - Admins and moderators (`manage_guild` or `administrator`) bypass automated filtration.
+1. **Requirement-Agnostic CBM Backend**:
+   - `cbm_products` is extended with `requires_client_verification: int` and `requirement_meta: text`.
+   - The backend contains zero hardcoded checks for `"KILR"` or username strings.
+   - Any product with `price_gold == 0.0` must have `requires_client_verification == 1`.
+   - Commercial products without client verification continue to enforce `MIN_PRODUCT_PRICE_GOLD = 100.0`.
+
+2. **Every-Time Verification & Attestation Leases**:
+   - New endpoint: `POST /api/v1/products/{product_id}/verify-requirement` (and `/api/cbm/...`).
+   - Authenticated via client API key (`X-CBM-API-Key`).
+   - On valid client attestation, CBM issues an HMAC-SHA256 **Attestation Lease Token** with a time-to-live (`expires_at = now + 3600s`), tracked in `cbm_product_attestations`.
+   - `/api/v1/products/ownership` only reports requirement-gated products as eligible if an active, unexpired lease exists.
+
+3. **Client-Side Domain Logic & Live Guard (TerriX Client)**:
+   - TerriX client checks if `getActiveAccount()` contains `"[KILR]"`.
+   - When equipped or before a match, client securely communicates with CBM to obtain or renew the attestation lease.
+   - If the player removes `"[KILR]"` from their name, local check fails, the API cannot be verified, the lease lapses, and the pattern is suppressed and unequipped.
+
+4. **Clan Logo Flag-Style Territory Masking**:
+   - In `src/terrixCosmetics.js`, `isFlagPattern(patternId)` evaluates to `true` for `'kilr'`, rendering the single 515x515 KILR crest scaled across the player's territory bounding box with high-resolution mipmaps.
 
 ---
 
 ## Task List
 
-### Phase 1: Environment & Profile Provisioning
-- [ ] **Task 1: Discord Credentials & Environment Setup**
-  - Add `DISCORD_BOT_TOKEN`, `DISCORD_APPLICATION_ID`, and `DISCORD_PUBLIC_KEY` to `cbm_wispbyte/.env` and `g:\TerriX\.env`.
-  - Validate environment loading in `cbm_wispbyte`.
-- [ ] **Task 2: Automated Bot Profile & Icon Synchronization**
-  - Create `cbm_wispbyte/sync_discord_profile.py` using Discord REST API (`PATCH /users/@me` and `PATCH /applications/@me`).
-  - Read `G:\TerriX\cbm_wispbyte\developer-platform-icon.png` as base64 and set bot avatar and application icon.
-  - Set username / display name to `CBM | AutoMod`.
+### Phase 1: Database Layer & Requirement-Agnostic Engine
+- [ ] Task 1: Schema Migrations (`requires_client_verification` & `cbm_product_attestations`)
+- [ ] Task 2: Free Product Creation with Requirement in `db_layer.py`
+- [ ] Task 3: Attestation Lease Persistence Methods in `db_layer.py`
+- [ ] Task 4: Seed `prod_kilr` with `requires_client_verification=1`
 
-### Checkpoint: Profile & Credentials
-- [ ] Environment contains valid credentials.
-- [ ] Bot icon and application profile synced on Discord Developer Portal.
+### Phase 2: REST API Endpoints & In-Memory Asset Cache
+- [ ] Task 5: Implement `POST /api/v1/products/<product_id>/verify-requirement`
+- [ ] Task 6: Update Dynamic Ownership Endpoint (`has_kilr` based on active attestation)
+- [ ] Task 7: In-Memory Static Asset Pre-Compression in `main.py` (`kilr-clanlogo-pattern.png`)
 
----
+### Phase 3: Asset Provisioning & Distribution
+- [ ] Task 8: Sync `kilr-clanlogo-pattern.png` to asset directories (`assets/patterns/`, `client/assets/patterns/`, `cbm_wispbyte/assets/patterns/`)
 
-### Phase 2: Database Storage Engine
-- [ ] **Task 3: Guild Configuration Store (`cbm_wispbyte/automod_db.py`)**
-  - Create `AutoModDB` class managing `cbm_automod_guilds` table in `cbm_data.db`.
-  - Implement `get_guild_config(guild_id: int)` with in-memory caching.
-  - Implement `set_guild_config(guild_id: int, log_channel_id: int, ignored_channels: List[int])`.
-  - Implement `remove_ignored_channel(guild_id: int, channel_id: int)`.
-  - Create table `cbm_automod_audit_logs` for historical persistence of purged content.
+### Phase 4: Client Cosmetics Integration (`src/terrixCosmetics.js`)
+- [ ] Task 9: Texture & Mipmap Initialization in `terrixCosmetics.js`
+- [ ] Task 10: Flag-Style Territory Masking & Render Hook
+- [ ] Task 11: Secure API Attestation Communication & Lease Management
+- [ ] Task 12: In-Game Match Guard & Cosmetics Shop UI Card
 
-### Checkpoint: Database Storage
-- [ ] Run unit test for `automod_db.py` verifying CRUD operations and cache invalidation.
-
----
-
-### Phase 3: Core Bot & Stealth Moderation Engine
-- [ ] **Task 4: Core Bot Implementation (`cbm_wispbyte/bot.py`)**
-  - Implement `commands.Bot` with `intents.message_content = True`, `intents.guilds = True`, `intents.messages = True`.
-  - Implement global slash commands:
-    - `/setup log_channel [ignore_channel]`: Configures log channel and initial ignore channel. Ephemeral response.
-    - `/ignore_remove channel`: Removes a channel from the ignore list. Ephemeral response.
-  - Implement `on_ready` with `await bot.tree.sync()` to register global slash commands.
-- [ ] **Task 5: Stealth Message Listener (`on_message`)**
-  - Guard clauses: ignore bots, webhooks, DMs, unconfigured guilds, ignored channels, log channel, and administrators.
-  - Multimodal extraction: extract text content and image attachments (convert to base64 for images <= 4MB).
-  - Call `check_message_safety(text, image_b64=..., use_cache=True)` asynchronously using `asyncio.to_thread`.
-  - If unsafe:
-    - Silently delete offending message (`await message.delete()`).
-    - Format and dispatch rich embed to the configured `log_channel`.
-    - Persist event in `cbm_automod_audit_logs`.
-
-### Checkpoint: Core Engine
-- [ ] Run headless test suite validating event processing, stealth message deletion, and log channel dispatch without in-channel leakage.
-
----
-
-### Phase 4: Verification & Daemon Superposition
-- [ ] **Task 6: Unit & Integration Test Suite (`cbm_wispbyte/test_discord_automod.py`)**
-  - Mock Discord Gateway events and verify L1, L2, L3 moderation routing.
-  - Verify ignore channels bypass filtration.
-  - Verify admin users bypass filtration.
-  - Verify deleted messages do not trigger in-channel text responses.
-  - Verify modlog embed formatting and field truncations.
-- [ ] **Task 7: Daemon Runner & Process Supervision**
-  - Add start script / launcher entrypoint in `cbm_wispbyte/run_automod.py`.
-  - Add documentation and invite link to `cbm_wispbyte/README.md`.
-
----
-
-## Risks and Mitigations
-
-| Risk | Impact | Mitigation |
-|---|---|---|
-| Discord API Rate Limits on rapid message deletion | Medium | Wrap `message.delete()` with exception handling (`discord.NotFound`, `discord.Forbidden`, `discord.HTTPException`). |
-| Missing Gateway Message Content Intent | High | Explicitly document and verify `Message Content Intent` enabled in Developer Portal. |
-| NVIDIA NIM Latency Spikes | Medium | Pipeline uses Layer 1 heuristic (<1ms) and Layer 2 LRU cache (<1ms). Layer 3 has bounded timeout (1.5s) with circuit-breaker failover. |
-| Bot Permission Revocation | Medium | `/setup` pre-checks bot permissions in the target log channel and alerts admin ephemerally. |
-
----
-
-## Invite & Application Summary
-- **Application ID**: `1556061160288034898`
-- **Permissions Integer**: `124928`
-- **Guild Install Invite URL**:
-  `https://discord.com/oauth2/authorize?client_id=1556061160288034898&permissions=124928&integration_type=0&scope=bot+applications.commands`
-- **User Install Invite URL**:
-  `https://discord.com/oauth2/authorize?client_id=1556061160288034898&integration_type=1&scope=applications.commands`
+### Phase 5: Verification & End-to-End Testing
+- [ ] Task 13: Backend Test Suite (`test_product_requirements.py`)
+- [ ] Task 14: Client Bundle Build (`node build.js`)
+- [ ] Task 15: Full Regression Test Suite Execution

@@ -549,6 +549,8 @@ class CBMDatabase:
                 status TEXT NOT NULL DEFAULT 'ACTIVE',
                 sales_count INTEGER DEFAULT 0,
                 total_revenue_gold REAL DEFAULT 0.0,
+                requires_client_verification INTEGER DEFAULT 0,
+                requirement_meta TEXT,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             )
@@ -570,6 +572,19 @@ class CBMDatabase:
                 status TEXT NOT NULL DEFAULT 'PENDING',
                 expires_at REAL NOT NULL,
                 fulfilled_at REAL,
+                created_at REAL NOT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_product_attestations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_id TEXT NOT NULL,
+                account_name TEXT NOT NULL,
+                client_id TEXT NOT NULL,
+                attestation_token TEXT UNIQUE NOT NULL,
+                attestation_payload TEXT,
+                verified_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
                 created_at REAL NOT NULL
             )
         """)
@@ -602,7 +617,9 @@ class CBMDatabase:
             "ALTER TABLE cbm_referrals ADD COLUMN tier1_rewarded_at REAL;",
             "ALTER TABLE cbm_referrals ADD COLUMN tier2_rewarded_at REAL;",
             "ALTER TABLE cbm_referrals ADD COLUMN tier3_rewarded_at REAL;",
-            "ALTER TABLE cbm_referrals ADD COLUMN perpetual_commission_gold REAL DEFAULT 0.0;"
+            "ALTER TABLE cbm_referrals ADD COLUMN perpetual_commission_gold REAL DEFAULT 0.0;",
+            "ALTER TABLE cbm_products ADD COLUMN requires_client_verification INTEGER DEFAULT 0;",
+            "ALTER TABLE cbm_products ADD COLUMN requirement_meta TEXT;"
         ]:
             try:
                 cur.execute(col_def)
@@ -613,6 +630,9 @@ class CBMDatabase:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_prod ON cbm_product_orders(product_id);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_status ON cbm_product_orders(status);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_product_orders_token ON cbm_product_orders(verification_token);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_attestations_lookup ON cbm_product_attestations(product_id, account_name, expires_at);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_attestations_token ON cbm_product_attestations(attestation_token);")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_assets (
                 filename TEXT PRIMARY KEY,
@@ -904,6 +924,25 @@ class CBMDatabase:
                         'https://pogxelqari.github.io/TerriX/client/', 'ACTIVE', 0, 0.0, ?, ?
                     )
                 """, (now_seed2, now_seed2))
+
+            cur.execute("SELECT 1 FROM cbm_products WHERE product_id = 'prod_kilr'")
+            if not cur.fetchone():
+                now_seed3 = time.time()
+                cur.execute("""
+                    INSERT INTO cbm_products (
+                        product_id, owner_account, name, description, image_url,
+                        price_gold, price_cents, callback_url, status, sales_count,
+                        total_revenue_gold, requires_client_verification, requirement_meta,
+                        created_at, updated_at
+                    ) VALUES (
+                        'prod_kilr', 'B8bbq', '[KILR] Clan Territory Pattern',
+                        'Official KILR Clan Logo territory pattern for TerriX Client. Free to equip with verified client requirement.',
+                        '/assets/patterns/kilr-clanlogo-pattern.png', 0.0, 0,
+                        'https://pogxelqari.github.io/TerriX/client/', 'ACTIVE', 0, 0.0,
+                        1, '{"description": "Client verified clan requirement", "attestation_ttl": 3600}', ?, ?
+                    )
+                """, (now_seed3, now_seed3))
+
 
             cur.execute("""
                 UPDATE cbm_products
@@ -5708,12 +5747,14 @@ class CBMDatabase:
         price_gold: float = 100.0,
         image_url: str = "",
         callback_url: str = "",
-        webhook_url: str = ""
+        webhook_url: str = "",
+        requires_client_verification: bool = False,
+        requirement_meta: Optional[Union[Dict[str, Any], str]] = None
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Creates a new marketplace product.
         Enforces:
-        1. Minimum price of 100.00 Gold.
+        1. Minimum price of 100.00 Gold unless requires_client_verification is True.
         2. Valid owner account registered in CBM.
         """
         clean_owner = (owner_account or "").strip()
@@ -5731,7 +5772,8 @@ class CBMDatabase:
             return False, "Invalid product price format."
 
         if p_gold < self.MIN_PRODUCT_PRICE_GOLD:
-            return False, f"Product price must be at least {self.MIN_PRODUCT_PRICE_GOLD:.2f} Gold (received {p_gold:.2f} Gold)."
+            if not (p_gold == 0.0 and requires_client_verification):
+                return False, f"Product price must be at least {self.MIN_PRODUCT_PRICE_GOLD:.2f} Gold (received {p_gold:.2f} Gold) unless client verification is required."
 
         clean_callback = (callback_url or "").strip()
         if not clean_callback or "territorial.io" in clean_callback:
@@ -5740,6 +5782,8 @@ class CBMDatabase:
         product_id = f"prod_{secrets.token_hex(6)}"
         price_cents = int(round(p_gold * 100))
         now = time.time()
+        req_verify_int = 1 if requires_client_verification else 0
+        req_meta_str = json.dumps(requirement_meta) if isinstance(requirement_meta, dict) else (requirement_meta or None)
 
         conn = self.get_write_connection()
         cur = conn.cursor()
@@ -5748,12 +5792,14 @@ class CBMDatabase:
                 INSERT INTO cbm_products (
                     product_id, owner_account, name, description, image_url,
                     price_gold, price_cents, callback_url, webhook_url,
-                    status, sales_count, total_revenue_gold, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 0.0, ?, ?)
+                    status, sales_count, total_revenue_gold,
+                    requires_client_verification, requirement_meta,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 0.0, ?, ?, ?, ?)
             """, (
                 product_id, clean_owner, clean_name, (description or "").strip(),
                 (image_url or "").strip(), p_gold, price_cents, clean_callback,
-                (webhook_url or "").strip(), now, now
+                (webhook_url or "").strip(), req_verify_int, req_meta_str, now, now
             ))
             creator_order_id = f"ord_creator_{product_id}"
             creator_token = f"tok_creator_{product_id}_{hashlib.sha256(clean_owner.encode('utf-8')).hexdigest()[:16]}"
@@ -5788,6 +5834,9 @@ class CBMDatabase:
             "status": "ACTIVE",
             "sales_count": 0,
             "total_revenue_gold": 0.0,
+            "requires_client_verification": bool(requires_client_verification),
+            "requirement_meta": requirement_meta,
+            "is_free": p_gold == 0.0,
             "created_at": now
         }
 
@@ -5795,6 +5844,8 @@ class CBMDatabase:
             self._enqueue_sb_task("cbm_products", method="POST", body=prod_record)
 
         return True, prod_record
+
+
 
     def get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves public product details by product_id."""
@@ -5807,7 +5858,8 @@ class CBMDatabase:
         cur.execute("""
             SELECT product_id, owner_account, name, description, image_url,
                    price_gold, price_cents, callback_url, webhook_url,
-                   status, sales_count, total_revenue_gold, created_at
+                   status, sales_count, total_revenue_gold, created_at,
+                   requires_client_verification, requirement_meta
             FROM cbm_products
             WHERE product_id = ?
         """, (clean_id,))
@@ -5820,6 +5872,14 @@ class CBMDatabase:
         cb = row[7] or ""
         if not cb or "territorial.io" in cb:
             cb = "https://pogxelqari.github.io/TerriX/client/"
+
+        req_verify = bool(row[13]) if len(row) > 13 and row[13] else False
+        req_meta = None
+        if len(row) > 14 and row[14]:
+            try:
+                req_meta = json.loads(row[14])
+            except Exception:
+                req_meta = {"description": row[14]}
 
         return {
             "product_id": row[0],
@@ -5835,8 +5895,12 @@ class CBMDatabase:
             "status": row[9],
             "sales_count": int(row[10] or 0),
             "total_revenue_gold": float(row[11] or 0.0),
-            "created_at": float(row[12])
+            "created_at": float(row[12]),
+            "requires_client_verification": req_verify,
+            "requirement_meta": req_meta,
+            "is_free": float(row[5]) == 0.0
         }
+
 
     def list_products_by_owner(self, owner_account: str, include_archived: bool = True) -> List[Dict[str, Any]]:
         """Lists all products created by a developer/merchant."""
@@ -5969,6 +6033,123 @@ class CBMDatabase:
             self._enqueue_sb_task("cbm_products", method="PATCH", params=f"?product_id=eq.{product_id}", body={"status": "ARCHIVED"})
 
         return True, "Product archived."
+
+    def create_or_renew_attestation(
+        self,
+        product_id: str,
+        account: str,
+        client_id: str = "terrix_client",
+        payload: Optional[Dict[str, Any]] = None,
+        ttl_seconds: float = 3600.0
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Creates or renews a time-bounded requirement attestation lease for a client.
+        Enforces:
+        1. Product exists, is active, and requires client verification.
+        2. Generates cryptographic attestation token valid for ttl_seconds.
+        """
+        clean_prod = (product_id or "").strip()
+        clean_acc = (account or "").strip()
+        if not clean_prod or not clean_acc:
+            return False, "product_id and account are required.", {}
+
+        prod = self.get_product(clean_prod)
+        if not prod or prod.get("status") != "ACTIVE":
+            return False, f"Product '{clean_prod}' not found or inactive.", {}
+
+        if not prod.get("requires_client_verification"):
+            return False, f"Product '{clean_prod}' does not require client verification.", {}
+
+        now = time.time()
+        ttl = max(60.0, min(float(ttl_seconds), 86400.0))  # Between 1 minute and 24 hours
+        expires_at = now + ttl
+
+        # Cryptographic attestation token
+        attest_token = f"tok_attest_{clean_prod}_{secrets.token_hex(16)}"
+        payload_str = json.dumps(payload or {})
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        try:
+            # Delete any existing attestations for this product & account
+            cur.execute("""
+                DELETE FROM cbm_product_attestations
+                WHERE product_id = ? AND account_name = ? COLLATE NOCASE
+            """, (clean_prod, clean_acc))
+
+            cur.execute("""
+                INSERT INTO cbm_product_attestations (
+                    product_id, account_name, client_id, attestation_token,
+                    attestation_payload, verified_at, expires_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                clean_prod, clean_acc, client_id or "terrix_client",
+                attest_token, payload_str, now, expires_at, now
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            return False, f"Database error saving attestation: {e}", {}
+        finally:
+            conn.close()
+
+        record = {
+            "product_id": clean_prod,
+            "account": clean_acc,
+            "client_id": client_id,
+            "attestation_token": attest_token,
+            "verified_at": now,
+            "expires_at": expires_at,
+            "ttl": int(ttl)
+        }
+        return True, "Attestation lease verified and active.", record
+
+    def get_active_attestation(self, product_id: str, account: str) -> Optional[Dict[str, Any]]:
+        """Retrieves an active, unexpired requirement attestation lease for an account."""
+        clean_prod = (product_id or "").strip()
+        clean_acc = (account or "").strip()
+        if not clean_prod or not clean_acc:
+            return None
+
+        aliases = self._get_all_account_aliases(clean_acc)
+        if not aliases:
+            aliases = [clean_acc]
+
+        placeholders = ",".join("?" for _ in aliases)
+        now = time.time()
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT product_id, account_name, client_id, attestation_token,
+                   attestation_payload, verified_at, expires_at
+            FROM cbm_product_attestations
+            WHERE product_id = ?
+              AND account_name IN ({placeholders}) COLLATE NOCASE
+              AND expires_at > ?
+            ORDER BY verified_at DESC LIMIT 1
+        """, [clean_prod] + aliases + [now])
+        row = cur.fetchone()
+        if not row:
+            return None
+
+        payload_obj = {}
+        if row[4]:
+            try:
+                payload_obj = json.loads(row[4])
+            except Exception:
+                payload_obj = {"raw": row[4]}
+
+        return {
+            "product_id": row[0],
+            "account": row[1],
+            "client_id": row[2],
+            "attestation_token": row[3],
+            "attestation_payload": payload_obj,
+            "verified_at": float(row[5]),
+            "expires_at": float(row[6]),
+            "ttl_remaining": max(0.0, float(row[6]) - now)
+        }
+
 
     def save_asset(self, filename: str, subfolder: str, mime_type: str, data: bytes) -> bool:
         """Stores a static asset binary programmatically in database storage."""
@@ -6497,16 +6678,25 @@ class CBMDatabase:
         """, aliases)
         created = [r[0] for r in cur.fetchall() if r[0]]
 
+        # 3. Active requirement attestations where account matches any alias
+        now = time.time()
+        cur.execute(f"""
+            SELECT DISTINCT product_id FROM cbm_product_attestations
+            WHERE account_name IN ({placeholders}) COLLATE NOCASE
+              AND expires_at > ?
+        """, aliases + [now])
+        attested = [r[0] for r in cur.fetchall() if r[0]]
+
         seen = set()
         result = []
-        for pid in (purchased + created):
+        for pid in (purchased + created + attested):
             if pid not in seen:
                 seen.add(pid)
                 result.append(pid)
         return result
 
     def get_product_receipt_for_account(self, account: str, product_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieves the latest fulfilled order receipt or creator entitlement receipt for an account and product."""
+        """Retrieves the latest fulfilled order receipt, creator entitlement receipt, or active attestation for an account and product."""
         clean_acc = (account or "").strip()
         clean_prod = (product_id or "").strip()
         if not clean_acc or not clean_prod:
@@ -6562,7 +6752,30 @@ class CBMDatabase:
                 "is_creator": True
             }
 
+        # 3. Check active requirement attestation
+        now = time.time()
+        cur.execute(f"""
+            SELECT attestation_token, verified_at, expires_at, client_id
+            FROM cbm_product_attestations
+            WHERE product_id = ?
+              AND account_name IN ({placeholders}) COLLATE NOCASE
+              AND expires_at > ?
+            ORDER BY verified_at DESC LIMIT 1
+        """, [clean_prod] + aliases + [now])
+        arow = cur.fetchone()
+        if arow:
+            return {
+                "order_id": f"attest_{clean_prod}_{clean_acc}",
+                "verification_token": arow[0],
+                "fulfilled_at": float(arow[1]),
+                "created_at": float(arow[1]),
+                "expires_at": float(arow[2]),
+                "client_id": arow[3],
+                "is_attestation": True
+            }
+
         return None
+
 
     # -------------------------------------------------------------------------
     # Referral Reward Program Engine

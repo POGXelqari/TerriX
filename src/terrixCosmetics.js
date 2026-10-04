@@ -26,9 +26,11 @@
   var CBM_CLIENT_API_KEY = "cbm_live_2063e984d4e66cbd90cc1fcc33e54a1199d5a978";
   var PRODUCT_ID = "prod_hellokitty";
   var PRODUCT_ID_POLAND = "prod_poland";
+  var PRODUCT_ID_KILR = "prod_kilr";
   var VAULT_ACCOUNT = "DdcBC";
   var HELLO_KITTY_PRICE = 500;
   var POLAND_PRICE = 1000;
+  var KILR_PRICE = 0;
   var MAX_TRIAL_MATCHES = Infinity;
 
   // Authorization Helper for TerriX Official Client API Key
@@ -60,8 +62,9 @@
     countdownTimer: null,
     receipt: null,              // { order_id, verification_token, account_name, verified_at }
     receiptPoland: null,        // Poland pattern receipt { order_id, verification_token, account_name, verified_at }
+    receiptKilr: null,          // KILR clan pattern receipt or attestation
     ownedPatterns: {},
-    isCreator: {},              // Tracks creator pattern products e.g. { 'hello_kitty': true, 'poland': true }
+    isCreator: {},              // Tracks creator pattern products e.g. { 'hello_kitty': true, 'poland': true, 'kilr': true }
     equippedPattern: null,
     trial: {
       eligible: false,
@@ -82,9 +85,13 @@
     patternImagePoland: null,
     patternTexturePoland: null,
     mipmapsPoland: null,
+    patternImageKilr: null,
+    patternTextureKilr: null,
+    mipmapsKilr: null,
     currentMatchDeducted: false,
     lastTileCount: 0
   };
+
 
   function getCbmAccount() {
     try {
@@ -129,6 +136,16 @@
           state.receiptPoland = JSON.parse(rawReceiptPoland);
           if (state.receiptPoland && state.receiptPoland.order_id) {
             state.ownedPatterns['poland'] = true;
+          }
+        } catch(e) {}
+      }
+
+      var rawReceiptKilr = localStorage.getItem('terrix_cbm_receipt_kilr');
+      if (rawReceiptKilr) {
+        try {
+          state.receiptKilr = JSON.parse(rawReceiptKilr);
+          if (state.receiptKilr && (state.receiptKilr.order_id || state.receiptKilr.attestation_token || state.receiptKilr.verification_token)) {
+            state.ownedPatterns['kilr'] = true;
           }
         } catch(e) {}
       }
@@ -186,6 +203,8 @@
           state.equippedPattern = 'hello_kitty';
         } else if (state.ownedPatterns['poland'] || (state.donorPerks && state.donorPerks.polandUnlocked)) {
           state.equippedPattern = 'poland';
+        } else if (state.ownedPatterns['kilr']) {
+          state.equippedPattern = 'kilr';
         }
       }
     } catch(e) {
@@ -214,7 +233,14 @@
         localStorage.removeItem('terrix_cbm_receipt_poland');
       }
 
+      if (state.receiptKilr) {
+        localStorage.setItem('terrix_cbm_receipt_kilr', JSON.stringify(state.receiptKilr));
+      } else {
+        localStorage.removeItem('terrix_cbm_receipt_kilr');
+      }
+
       localStorage.setItem('terrix_cbm_creator_patterns', JSON.stringify(state.isCreator || {}));
+
 
       var currentAcc = getActiveAccount();
       if (currentAcc) {
@@ -310,7 +336,26 @@
     imgPoland.onerror = function() {
       console.warn('[TerriX Cosmetics] Poland pattern image failed to load from assets/patterns/poland-pattern.avif');
     };
+
+    var imgKilr = new Image();
+    imgKilr.src = 'assets/patterns/kilr-clanlogo-pattern.png';
+    imgKilr.onload = function() {
+      state.patternImageKilr = imgKilr;
+      state.mipmapsKilr = buildMipmaps(imgKilr);
+      var dummyCanvas = document.createElement('canvas');
+      var dummyCtx = dummyCanvas.getContext('2d');
+      var crispTile = state.mipmapsKilr[2] || state.mipmapsKilr[1] || imgKilr;
+      state.patternTextureKilr = dummyCtx.createPattern(crispTile, 'repeat');
+      console.log('[TerriX Cosmetics] [KILR] clan pattern texture initialized with high-res mipmapping.');
+      if (document.getElementById('tx-preview-canvas-kilr')) {
+        updateKilrUI();
+      }
+    };
+    imgKilr.onerror = function() {
+      console.warn('[TerriX Cosmetics] KILR pattern image failed to load from assets/patterns/kilr-clanlogo-pattern.png');
+    };
   }
+
 
   // Intercept & suppress false positive console errors / Turnstile 405 noise on non-Cloudflare zones
   (function() {
@@ -484,7 +529,24 @@
         }
       }
 
-      // 3. Cross-device sync check if account is active
+      // 3. Verify KILR pattern receipt or attestation
+      var rawReceiptKilr = localStorage.getItem('terrix_cbm_receipt_kilr');
+      if (rawReceiptKilr) {
+        try {
+          var receiptKilr = JSON.parse(rawReceiptKilr);
+          if (receiptKilr && (receiptKilr.order_id || receiptKilr.attestation_token || receiptKilr.verification_token)) {
+            state.ownedPatterns['kilr'] = true;
+            state.receiptKilr = receiptKilr;
+            if (receiptKilr.is_creator || (receiptKilr.order_id && String(receiptKilr.order_id).indexOf('ord_creator_') === 0)) {
+              state.isCreator['kilr'] = true;
+            }
+            savePersistedState();
+            updateShopUI();
+          }
+        } catch(e) {}
+      }
+
+      // 4. Cross-device sync check if account is active
       var accountsToCheck = [];
       if (account) accountsToCheck.push(account);
       var cbmAcc = getCbmAccount();
@@ -522,6 +584,16 @@
                 }
               }
 
+              if (data.has_kilr || ownedList.indexOf('prod_kilr') >= 0 || createdList.indexOf('prod_kilr') >= 0) {
+                state.ownedPatterns['kilr'] = true;
+                if (createdList.indexOf('prod_kilr') >= 0 || (data.receipt_kilr && data.receipt_kilr.is_creator)) {
+                  state.isCreator['kilr'] = true;
+                }
+                if (data.receipt_kilr) {
+                  state.receiptKilr = data.receipt_kilr;
+                }
+              }
+
               for (var i = 0; i < createdList.length; i++) {
                 var cPid = createdList[i];
                 if (cPid === 'prod_hellokitty') {
@@ -530,6 +602,9 @@
                 } else if (cPid === 'prod_poland') {
                   state.ownedPatterns['poland'] = true;
                   state.isCreator['poland'] = true;
+                } else if (cPid === 'prod_kilr') {
+                  state.ownedPatterns['kilr'] = true;
+                  state.isCreator['kilr'] = true;
                 } else {
                   state.ownedPatterns[cPid] = true;
                   state.isCreator[cPid] = true;
@@ -542,6 +617,7 @@
           })
           .catch(function() {});
       });
+
     } catch(e) {
       console.warn("[TerriX Cosmetics] Receipt parse error:", e);
     }
@@ -1286,7 +1362,18 @@
         '          <div id="tx-slip-container-poland"></div>',
         '        </div>',
         '      </div>',
+        '      <div class="terrix-item-card" id="tx-kilr-card" style="margin-top: 16px;">',
+        '        <canvas class="terrix-preview-canvas" id="tx-preview-canvas-kilr" width="120" height="120"></canvas>',
+        '        <div class="terrix-item-details">',
+        '          <div class="terrix-item-title">[KILR] Clan Territory Pattern</div>',
+        '          <div class="terrix-item-desc">Official KILR Clan Logo seamless territory coating during live matches. Free to equip when sporting the [KILR] clan tag.</div>',
+        '          <div class="terrix-price-tag" id="tx-kilr-price-tag" style="color: #68d391; font-weight: 600;">Price: FREE (Requires [KILR] Clan Tag)</div>',
+        '          <div class="terrix-btn-group" id="tx-action-buttons-kilr"></div>',
+        '          <div id="tx-slip-container-kilr"></div>',
+        '        </div>',
+        '      </div>',
         '    </div>',
+
         '    <!-- Settings Panel -->',
         '    <div id="tx-panel-settings" style="display: none; flex-direction: column;">',
         '      <div class="terrix-panel-header">',
@@ -1635,6 +1722,8 @@
 
     // Update Poland card UI
     updatePolandUI();
+    // Update KILR clan card UI
+    updateKilrUI();
   }
 
   function updatePolandUI() {
@@ -1754,6 +1843,180 @@
     }
   }
 
+  // Clan Tag Gatekeeper & Helpers
+  function getCurrentPlayerName() {
+    try {
+      if (window.getVar) {
+        var rawPlayerNames = window.getVar("rawPlayerNames");
+        var playerId = window.getVar("playerId");
+        if (rawPlayerNames && typeof playerId === 'number' && rawPlayerNames[playerId]) {
+          return String(rawPlayerNames[playerId]).trim();
+        }
+      }
+    } catch(e) {}
+    try {
+      var d105 = (localStorage.getItem('d105') || '').trim();
+      if (d105) return d105;
+    } catch(e) {}
+    return getActiveAccount();
+  }
+
+  function hasKilrClanTag(nameStr) {
+    if (!nameStr) return false;
+    var upper = String(nameStr).toUpperCase();
+    return upper.indexOf('[KILR]') >= 0;
+  }
+
+  function updateKilrUI() {
+    var btnContainer = document.getElementById('tx-action-buttons-kilr');
+    var slipContainer = document.getElementById('tx-slip-container-kilr');
+    var priceTag = document.getElementById('tx-kilr-price-tag');
+    if (!btnContainer) return;
+
+    var playerName = getCurrentPlayerName();
+    var isClanMember = hasKilrClanTag(playerName);
+    var isCreator = !!(state.isCreator && state.isCreator['kilr']);
+    var isOwned = !!state.ownedPatterns['kilr'];
+    var isEquipped = state.equippedPattern === 'kilr';
+    var buttonsHtml = '';
+
+    // Enforce real-time gatekeeper: if equipped but clan tag missing (and not creator), auto-unequip
+    if (isEquipped && !isClanMember && !isCreator) {
+      state.equippedPattern = null;
+      delete state.ownedPatterns['kilr'];
+      isEquipped = false;
+      isOwned = false;
+      savePersistedState();
+    }
+
+    if (isCreator) {
+      if (priceTag) priceTag.innerHTML = 'Price: FREE &bull; <span style="color:#68d391;">Product Creator Access</span>';
+      if (isEquipped) {
+        buttonsHtml = '<button class="terrix-action-btn green" id="tx-kilr-equip-btn">Equipped &check; (Creator Access)</button>' +
+                      '<button class="terrix-action-btn secondary" id="tx-kilr-unequip-btn">Unequip</button>';
+      } else {
+        buttonsHtml = '<button class="terrix-action-btn gold" id="tx-kilr-equip-btn">Equip [KILR] Pattern (Free - Product Creator)</button>';
+      }
+      if (slipContainer) {
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
+          '<span>&#10004;</span> Verified Product Creator &bull; Free Lifetime Access</div>';
+      }
+    } else if (isClanMember) {
+      if (priceTag) priceTag.innerHTML = 'Price: FREE &bull; <span style="color:#68d391;">Clan Requirement Verified (' + (playerName || '[KILR]') + ')</span>';
+      if (isEquipped) {
+        buttonsHtml = '<button class="terrix-action-btn green" id="tx-kilr-equip-btn">Equipped &check;</button>' +
+                      '<button class="terrix-action-btn secondary" id="tx-kilr-unequip-btn">Unequip</button>';
+      } else {
+        buttonsHtml = '<button class="terrix-action-btn gold" id="tx-kilr-equip-btn">Equip [KILR] Clan Pattern (Free)</button>';
+      }
+      if (slipContainer) {
+        var tokenShort = (state.receiptKilr && (state.receiptKilr.attestation_token || state.receiptKilr.verification_token))
+          ? ' &bull; Attestation Token Active' : '';
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #10b981; display: flex; align-items: center; gap: 6px;">' +
+          '<span>&#10004;</span> [KILR] Clan Tag Detected &bull; Free Access Verified' + tokenShort + '</div>';
+      }
+    } else {
+      if (priceTag) priceTag.innerHTML = 'Price: FREE &bull; <span style="color:#f6ad55;">Requires [KILR] Clan Tag in Name</span>';
+      buttonsHtml = '<button class="terrix-action-btn secondary" id="tx-kilr-gate-btn" style="opacity: 0.9; cursor: pointer;">Requires [KILR] Clan Tag</button>';
+      if (slipContainer) {
+        slipContainer.innerHTML = '<div style="margin-top: 10px; font-size: 11px; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">' +
+          '<span>ℹ</span> Add <b>[KILR]</b> to your in-game name (e.g. <i>[KILR] ' + (playerName || 'Player') + '</i>) to unlock and equip for free.</div>';
+      }
+    }
+
+    btnContainer.innerHTML = buttonsHtml;
+
+    var kilrEquipBtn = document.getElementById('tx-kilr-equip-btn');
+    if (kilrEquipBtn) {
+      kilrEquipBtn.onclick = function() {
+        if (!isClanMember && !isCreator) {
+          showNotification("Please add [KILR] tag to your name first!");
+          return;
+        }
+
+        var acc = getActiveAccount() || playerName;
+        fetch(CBM_API_BASE + "/products/prod_kilr/verify-requirement", {
+          method: 'POST',
+          headers: getCbmAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            product_id: PRODUCT_ID_KILR,
+            account: acc,
+            client_verified: true,
+            client_id: 'terrix_client',
+            ttl_seconds: 3600,
+            payload: {
+              clan: 'KILR',
+              player_name: playerName
+            }
+          })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(resData) {
+          if (resData && (resData.status === 'ok' || resData.verified)) {
+            state.receiptKilr = resData;
+            state.ownedPatterns['kilr'] = true;
+            state.equippedPattern = 'kilr';
+            savePersistedState();
+            showNotification("[KILR] Clan Pattern verified & equipped!");
+            updateShopUI();
+          } else {
+            state.ownedPatterns['kilr'] = true;
+            state.equippedPattern = 'kilr';
+            savePersistedState();
+            showNotification("[KILR] Clan Pattern equipped!");
+            updateShopUI();
+          }
+        })
+        .catch(function() {
+          state.ownedPatterns['kilr'] = true;
+          state.equippedPattern = 'kilr';
+          savePersistedState();
+          showNotification("[KILR] Clan Pattern equipped!");
+          updateShopUI();
+        });
+      };
+    }
+
+    var kilrUnequipBtn = document.getElementById('tx-kilr-unequip-btn');
+    if (kilrUnequipBtn) {
+      kilrUnequipBtn.onclick = function() {
+        state.equippedPattern = null;
+        savePersistedState();
+        showNotification("[KILR] Pattern unequipped.");
+        updateShopUI();
+      };
+    }
+
+    var kilrGateBtn = document.getElementById('tx-kilr-gate-btn');
+    if (kilrGateBtn) {
+      kilrGateBtn.onclick = function() {
+        showNotification("Add [KILR] to your name in game settings or lobby to equip for free!");
+      };
+    }
+
+    // Render [KILR] preview canvas (repeating pattern or logo preview)
+    var kc = document.getElementById('tx-preview-canvas-kilr');
+    if (kc) {
+      var kCtx = kc.getContext('2d');
+      kCtx.clearRect(0, 0, 120, 120);
+      if (state.patternImageKilr && state.patternImageKilr.complete) {
+        kCtx.imageSmoothingEnabled = true;
+        kCtx.imageSmoothingQuality = 'high';
+        kCtx.drawImage(state.patternImageKilr, 8, 8, 104, 104);
+        kCtx.strokeStyle = '#ffd700';
+        kCtx.lineWidth = 2;
+        kCtx.strokeRect(8, 8, 104, 104);
+      } else {
+        kCtx.fillStyle = '#080d16';
+        kCtx.fillRect(8, 8, 104, 104);
+        kCtx.fillStyle = '#8a99ad';
+        kCtx.font = '11px sans-serif';
+        kCtx.fillText('Loading...', 35, 65);
+      }
+    }
+  }
+
+
   // Draw animated swatch preview in modal
   function renderPreview() {
     var canvas = document.getElementById('tx-preview-canvas');
@@ -1824,13 +2087,16 @@
         state.equippedPattern = 'hello_kitty';
       } else if (state.ownedPatterns['poland'] || (state.donorPerks && state.donorPerks.polandUnlocked)) {
         state.equippedPattern = 'poland';
+      } else if (state.ownedPatterns['kilr'] && (state.isCreator['kilr'] || hasKilrClanTag(getCurrentPlayerName()))) {
+        state.equippedPattern = 'kilr';
       }
     }
 
     if (!state.equippedPattern) return;
-    if (state.equippedPattern !== 'hello_kitty' && state.equippedPattern !== 'poland') return;
+    if (state.equippedPattern !== 'hello_kitty' && state.equippedPattern !== 'poland' && state.equippedPattern !== 'kilr') return;
 
-    var activeImage = (state.equippedPattern === 'poland') ? state.patternImagePoland : state.patternImage;
+    var activeImage = (state.equippedPattern === 'poland') ? state.patternImagePoland :
+                      ((state.equippedPattern === 'kilr') ? state.patternImageKilr : state.patternImage);
     if (!activeImage || !activeImage.complete) return;
 
     var p = g ? ((typeof g.playerId === 'number') ? g.playerId : ((typeof g.fJ === 'number') ? g.fJ : 0)) : 0;
@@ -1840,12 +2106,19 @@
 
     var canUse = !!state.ownedPatterns[state.equippedPattern] ||
                  (state.equippedPattern === 'hello_kitty' && state.trial && state.trial.active) ||
-                 (state.equippedPattern === 'poland' && state.donorPerks && state.donorPerks.polandUnlocked);
+                 (state.equippedPattern === 'poland' && state.donorPerks && state.donorPerks.polandUnlocked) ||
+                 (state.equippedPattern === 'kilr' && (state.isCreator['kilr'] || hasKilrClanTag(getCurrentPlayerName())));
     if (!canUse) return;
 
     if (!state.currentMatchDeducted) {
       state.currentMatchDeducted = true;
-      if (state.equippedPattern === 'poland') {
+      if (state.equippedPattern === 'kilr') {
+        if (state.isCreator && state.isCreator['kilr']) {
+          showNotification("[KILR] Clan Territory Pattern Active (Product Creator)!");
+        } else {
+          showNotification("[KILR] Clan Territory Pattern Active!");
+        }
+      } else if (state.equippedPattern === 'poland') {
         if (state.isCreator && state.isCreator['poland']) {
           showNotification("Poland Flag Territory Pattern Active (Product Creator)!");
         } else if (state.donorPerks && state.donorPerks.polandUnlocked && !state.ownedPatterns['poland']) {
@@ -1892,8 +2165,10 @@
       offscreenPatternCanvas.height = bh;
 
       var isFlag = isFlagPattern(state.equippedPattern);
-      var activeMipmaps = (state.equippedPattern === 'poland') ? state.mipmapsPoland : state.mipmaps;
-      var activeTexture = isFlag ? null : state.patternTexture;
+      var activeMipmaps = (state.equippedPattern === 'poland') ? state.mipmapsPoland :
+                          ((state.equippedPattern === 'kilr') ? state.mipmapsKilr : state.mipmaps);
+      var activeTexture = isFlag ? null :
+                          ((state.equippedPattern === 'kilr') ? state.patternTextureKilr : state.patternTexture);
 
       // Re-create pattern texture if needed (only for repeating tiled patterns)
       if (!isFlag && !activeTexture && activeImage && activeImage.complete) {
@@ -1903,8 +2178,13 @@
         } else {
           activeTexture = offscreenPatternCtx.createPattern(activeImage, 'repeat');
         }
-        state.patternTexture = activeTexture;
+        if (state.equippedPattern === 'kilr') {
+          state.patternTextureKilr = activeTexture;
+        } else {
+          state.patternTexture = activeTexture;
+        }
       }
+
 
       offscreenMaskCtx.clearRect(0, 0, bw, bh);
 

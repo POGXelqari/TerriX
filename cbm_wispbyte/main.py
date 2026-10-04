@@ -64,6 +64,7 @@ from ad_engine import CBMSponsorshipEngine
 from enterprise_economy import CBMEconomicEngine
 from oidc_client import OIDCClient, OIDCValidationError
 from ai_service import ai_service, NvidiaKimiService, NvidiaAIError, load_cbm_env
+from status_engine import CBMStatusEngine
 
 load_cbm_env()
 
@@ -77,6 +78,7 @@ WISPBYTE_SUBDOMAIN = os.environ.get("WISPBYTE_SUBDOMAIN", "cbm.wispbyte.org")
 CREDIT_PER_AI_REQUEST = float(os.environ.get("CREDIT_PER_AI_REQUEST", "1.00"))
 
 db = CBMDatabase()
+status_engine = CBMStatusEngine(db_instance=db)
 loan_engine = CBMLoanEngine()
 
 sponsorship_engine = CBMSponsorshipEngine()
@@ -249,6 +251,7 @@ def load_static_cache():
     ensure_programmatic_assets()
 
     assets = [
+        ("status.html", "text/html; charset=utf-8"),
         ("cbm.html", "text/html; charset=utf-8"),
         ("login.html", "text/html; charset=utf-8"),
         ("register.html", "text/html; charset=utf-8"),
@@ -2117,6 +2120,15 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 })
             else:
                 return self._send_cached_asset("cbm.html")
+
+        # Status Page HTML Route
+        elif path in ("/status.html", "/system-status", "/uptime"):
+            return self._send_cached_asset("status.html")
+
+        # System Status & 90-Day Telemetry Endpoint (Bypasses CORS for external widgets)
+        elif path in ("/api/v1/system/status", "/api/cbm/system/status"):
+            telemetry = status_engine.get_system_telemetry()
+            return self._send_json(200, telemetry, is_dev_api=True)
 
         # 2. Static Assets (CBM Shield Logo & Favicon)
         elif path in ("/cbm-logo.png", "/cbm-logo", "/logo.png", "/favicon.ico"):

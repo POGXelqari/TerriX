@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clan Bank Manager (CBM) • System Status &amp; Uptime</title>
+  <link rel="icon" type="image/png" href="/cbm-logo-new.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      --blue: #0070e0;
+      --green: #10b981;
+      --yellow: #f59e0b;
+      --red: #ea3943;
+      --radius-sm: 6px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --maxw: 1100px;
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+    header.site-header {
+      background: rgba(14, 22, 38, 0.95);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    .header-inner {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+      font-weight: 700;
+      font-size: 17px;
+    }
+    .nav-links a {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 13.5px;
+      margin-left: 16px;
+      transition: color 0.15s;
+    }
+    .nav-links a:hover { color: #fff; }
+    main {
+      max-width: var(--maxw);
+      margin: 32px auto 60px;
+      padding: 0 20px;
+      width: 100%;
+      flex: 1;
+    }
+    /* Global Alert Banner */
+    .global-incident-banner {
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      display: none;
+      align-items: flex-start;
+      gap: 14px;
+    }
+    .global-incident-banner.active { display: flex; }
+    .global-incident-banner.critical {
+      background: rgba(234, 57, 67, 0.15);
+      border-color: rgba(234, 57, 67, 0.45);
+    }
+    .banner-icon { font-size: 22px; flex-shrink: 0; line-height: 1; }
+    .banner-content h4 { font-size: 14.5px; font-weight: 700; color: #fff; margin-bottom: 3px; }
+    .banner-content p { font-size: 13px; color: var(--text-dim); }
+
+    /* Hero Overall State Card */
+    .overall-card {
+      background: linear-gradient(135deg, var(--panel) 0%, #0d1527 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 26px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-bottom: 32px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    }
+    .overall-left { display: flex; align-items: center; gap: 16px; }
+    .status-dot-pulse {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 16px rgba(16, 185, 129, 0.8);
+    }
+    .status-dot-pulse.degraded {
+      background: var(--yellow);
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.8);
+    }
+    .overall-title { font-size: 22px; font-weight: 800; color: #fff; }
+    .overall-sub { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+    .btn-refresh {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 8px 18px;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-refresh:hover { background: rgba(255, 255, 255, 0.14); }
+
+    /* Service Section */
+    .services-container {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    }
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .service-row {
+      padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .service-row:last-child { border-bottom: none; }
+    .service-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .service-info { display: flex; align-items: center; gap: 10px; }
+    .service-name { font-size: 15px; font-weight: 700; color: #fff; }
+    .service-badge {
+      font-size: 11.5px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+    }
+    .badge-op {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .badge-deg {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--yellow);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    /* 90-Day Bar Graph */
+    .bars-wrapper {
+      display: flex;
+      gap: 2.5px;
+      height: 32px;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .bar {
+      flex: 1;
+      height: 24px;
+      background: #10b981;
+      border-radius: 2px;
+      cursor: pointer;
+      position: relative;
+      transition: height 0.15s, opacity 0.15s;
+    }
+    .bar:hover {
+      height: 32px;
+      opacity: 0.85;
+    }
+    .bar.degraded { background: #f59e0b; }
+    .bar.outage { background: #ea3943; }
+    .bar-footer {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11.5px;
+      color: var(--text-muted);
+    }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed;
+      background: #060a12;
+      border: 1px solid var(--border-bright);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #fff;
+      pointer-events: none;
+      display: none;
+      z-index: 1000;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      transform: translate(-50%, -100%);
+      margin-top: -8px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/cbm.html" class="brand">
+        <img src="/cbm-logo-new.png" width="32" height="32" alt="CBM Crest">
+        <span>Clan Bank Manager • Status</span>
+      </a>
+      <div class="nav-links">
+        <a href="/cbm.html">Clan Banking</a>
+        <a href="/vault.html">Vault Analytics</a>
+        <a href="/developer.html">Developer API</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Live Global Alert Banner -->
+    <div class="global-incident-banner" id="globalBanner">
+      <div class="banner-icon" id="bannerIcon">⚠️</div>
+      <div class="banner-content">
+        <h4 id="bannerTitle">Service Notification</h4>
+        <p id="bannerMessage">Loading status telemetry...</p>
+      </div>
+    </div>
+
+    <!-- Overall State Card -->
+    <div class="overall-card">
+      <div class="overall-left">
+        <div class="status-dot-pulse" id="overallDot"></div>
+        <div>
+          <div class="overall-title" id="overallTitle">Monitoring Services...</div>
+          <div class="overall-sub" id="overallSub">Continuous automated health checks</div>
+        </div>
+      </div>
+      <button class="btn-refresh" onclick="loadStatusData()">↻ Refresh Telemetry</button>
+    </div>
+
+    <!-- 90-Day Monitored Subsystems -->
+    <div class="services-container">
+      <div class="section-title">
+        <span>System Subsystems &amp; SLA Compliance</span>
+        <span style="font-size: 12px; color: var(--text-muted); font-weight: 500;">90-Day Historical View</span>
+      </div>
+      <div id="servicesList">
+        <div style="text-align: center; color: var(--text-dim); padding: 40px;">Querying CBM runtime telemetry...</div>
+      </div>
+    </div>
+  </main>
+
+  <div id="tooltip"></div>
+
+  <script>
+    const tooltip = document.getElementById('tooltip');
+
+    async function loadStatusData() {
+      try {
+        const res = await fetch('/api/v1/system/status');
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        renderStatus(data);
+      } catch (err) {
+        document.getElementById('overallTitle').innerText = "Telemetry Connecting...";
+        document.getElementById('overallSub').innerText = "Re-attempting connection to health daemon...";
+      }
+    }
+
+    function renderStatus(data) {
+      // 1. Overall State
+      const dot = document.getElementById('overallDot');
+      const title = document.getElementById('overallTitle');
+      const sub = document.getElementById('overallSub');
+      const banner = document.getElementById('globalBanner');
+
+      title.innerText = data.overall_status_label;
+      sub.innerText = `Last updated: ${new Date(data.updated_at * 1000).toLocaleTimeString()} UTC`;
+
+      if (data.overall_status === 'operational') {
+        dot.className = 'status-dot-pulse';
+        banner.className = 'global-incident-banner';
+      } else {
+        dot.className = 'status-dot-pulse degraded';
+      }
+
+      // 2. Incident Banner
+      if (data.global_banner) {
+        banner.className = `global-incident-banner active ${data.global_banner.type === 'critical' ? 'critical' : ''}`;
+        document.getElementById('bannerTitle').innerText = data.global_banner.title;
+        document.getElementById('bannerMessage').innerText = data.global_banner.message;
+      } else {
+        banner.className = 'global-incident-banner';
+      }
+
+      // 3. Render 90-Day Bars for each service
+      const list = document.getElementById('servicesList');
+      list.innerHTML = data.services.map(s => {
+        const isOp = s.current_status === 'operational';
+        const badgeClass = isOp ? 'badge-op' : 'badge-deg';
+
+        // Render 90 bars
+        const barsHtml = s.history_90d.map(b => {
+          let bClass = 'bar';
+          if (b.status === 'degraded') bClass += ' degraded';
+          else if (b.status === 'outage') bClass += ' outage';
+          return `<div class="${bClass}" data-date="${b.date}" data-uptime="${b.uptime_percent}%" data-status="${b.status}"></div>`;
+        }).join('');
+
+        return `
+          <div class="service-row">
+            <div class="service-header">
+              <div class="service-info">
+                <span style="font-size: 18px;">${s.icon}</span>
+                <div>
+                  <div class="service-name">${s.name}</div>
+                  <div style="font-size: 12px; color: var(--text-dim);">${s.description}</div>
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span style="font-size: 13px; font-weight: 700; color: #fff;">${s.uptime_90d_percent}% uptime</span>
+                <span class="service-badge ${badgeClass}">${s.status_label}</span>
+              </div>
+            </div>
+            <div class="bars-wrapper" onmouseleave="hideTooltip()">${barsHtml}</div>
+            <div class="bar-footer">
+              <span>90 days ago</span>
+              <span>100% SLA Target</span>
+              <span>Today</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Add tooltip mouse handlers to bars
+      document.querySelectorAll('.bar').forEach(b => {
+        b.addEventListener('mouseenter', showTooltip);
+      });
+    }
+
+    function showTooltip(e) {
+      const b = e.target;
+      const date = b.dataset.date;
+      const uptime = b.dataset.uptime;
+      const status = b.dataset.status.toUpperCase();
+      tooltip.innerHTML = `<strong>${date}</strong> &bull; ${uptime} (${status})`;
+      tooltip.style.display = 'block';
+
+      const rect = b.getBoundingClientRect();
+      tooltip.style.left = `${rect.left + rect.width / 2}px`;
+      tooltip.style.top = `${rect.top}px`;
+    }
+
+    function hideTooltip() {
+      tooltip.style.display = 'none';
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadStatusData();
+      setInterval(loadStatusData, 30000);
+    });
+  </script>
+</body>
+</html>

@@ -3,12 +3,16 @@
 CBM | AutoMod (CBM | Content Safety)
 ====================================
 Stealth Discord Auto-Moderation Bot powered by NVIDIA Nemotron-3.5-Content-Safety NIM.
-Zero in-channel noise; strictly dispatches audit reports to designated log channels.
+Features:
+- Cloudflare Error 1015 / Discord 429 auto-detection with 25-hour quarantine state.
+- SOCKS5 / HTTP egress proxy support to route around shared host IP rate limits.
+- Zero in-channel noise; strictly dispatches audit reports to designated log channels.
 """
 
 import os
 import sys
 import time
+import json
 import base64
 import asyncio
 import datetime
@@ -19,7 +23,6 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-# Ensure local CBM modules are importable
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
@@ -30,6 +33,9 @@ from automod_db import AutoModDB
 from chat_engine import check_message_safety
 
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+DISCORD_PROXY_URL = os.environ.get("DISCORD_PROXY_URL", "").strip() or None
+COOLDOWN_FILE = os.path.join(current_dir, "automod_cooldown.json")
+COOLDOWN_DURATION_SECONDS = int(os.environ.get("DISCORD_COOLDOWN_SECONDS", 90000))  # 25 Hours
 
 # Minimal required intents
 intents = discord.Intents.default()
@@ -37,17 +43,57 @@ intents.guilds = True
 intents.messages = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, proxy=DISCORD_PROXY_URL)
 db = AutoModDB()
 
-# Aesthetic dark palette constants
-EMBED_COLOR_VIOLATION = 0xDC2626  # Crimson / Dark Red
-EMBED_COLOR_SETUP = 0x0070E0      # CBM Blue
-EMBED_COLOR_STATUS = 0x10B981     # Emerald Green
+EMBED_COLOR_VIOLATION = 0xDC2626
+EMBED_COLOR_SETUP = 0x0070E0
+EMBED_COLOR_STATUS = 0x10B981
+
+
+def record_discord_quarantine(reason: str, http_code: int = 429, error_text: str = ""):
+    """Writes a 25-hour cooldown lockfile to halt restart loops."""
+    now = time.time()
+    until = now + COOLDOWN_DURATION_SECONDS
+    ray_id = "unknown"
+    if "Ray ID:" in error_text:
+        try:
+            ray_id = error_text.split("Ray ID:")[1].split("&bull;")[0].replace("<strong>", "").replace("</strong>", "").strip()
+        except Exception:
+            pass
+
+    state = {
+        "status": "QUARANTINED",
+        "reason": reason,
+        "http_code": http_code,
+        "ray_id": ray_id,
+        "quarantined_at": now,
+        "quarantined_at_iso": datetime.datetime.fromtimestamp(now, datetime.timezone.utc).isoformat(),
+        "cooldown_until": until,
+        "cooldown_until_iso": datetime.datetime.fromtimestamp(until, datetime.timezone.utc).isoformat(),
+        "cooldown_hours": round(COOLDOWN_DURATION_SECONDS / 3600.0, 1)
+    }
+    try:
+        with open(COOLDOWN_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        print(f"[!] Critical: Discord access blocked ({reason}). 25-hour quarantine engaged until {state['cooldown_until_iso']}.")
+    except Exception as ex:
+        print(f"[!] Warning writing cooldown file: {ex}")
+
+
+def clear_discord_quarantine():
+    """Removes the cooldown lockfile upon successful login."""
+    if os.path.exists(COOLDOWN_FILE):
+        try:
+            os.remove(COOLDOWN_FILE)
+            print("[+] Discord connection verified. Quarantine cleared.")
+        except Exception:
+            pass
 
 
 @bot.event
 async def on_ready():
+    clear_discord_quarantine()
     print(f"[+] Authenticated as {bot.user.name} ({bot.user.id})")
     print(f"[+] Display Name: {bot.user.display_name}")
     try:
@@ -57,13 +103,7 @@ async def on_ready():
         print(f"[!] Warning syncing commands: {e}")
 
 
-# ==============================================================================
-# Slash Command: /setup
-# ==============================================================================
-@bot.tree.command(
-    name="setup",
-    description="Configure CBM AutoMod stealth log channel and channel ignore list."
-)
+@bot.tree.command(name="setup", description="Configure CBM AutoMod stealth log channel and ignore list.")
 @app_commands.describe(
     log_channel="The private moderator channel where deleted message logs are delivered.",
     ignore_channel="Channel to exclude from automated moderation (optional)."
@@ -75,79 +115,37 @@ async def setup_command(
     ignore_channel: Optional[discord.TextChannel] = None
 ):
     if not interaction.guild_id or not interaction.guild:
-        return await interaction.response.send_message(
-            "This command must be executed within a Discord server.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("Must be executed within a server.", ephemeral=True)
 
-    # Validate bot permissions in the designated log channel
-    me = interaction.guild.me
-    if not me:
-        me = await interaction.guild.fetch_member(interaction.client.user.id)
-
+    me = interaction.guild.me or await interaction.guild.fetch_member(interaction.client.user.id)
     perms = log_channel.permissions_for(me)
     if not (perms.send_messages and perms.embed_links):
         return await interaction.response.send_message(
-            f"Bot lacks **Send Messages** or **Embed Links** permissions in {log_channel.mention}. "
-            f"Please update channel permissions first.",
+            f"Bot lacks **Send Messages** or **Embed Links** in {log_channel.mention}.",
             ephemeral=True
         )
 
     current_cfg = db.get_guild_config(interaction.guild_id)
     ignored = current_cfg.get("ignored_channels", []) if current_cfg else []
-
     if ignore_channel and ignore_channel.id not in ignored:
         ignored.append(ignore_channel.id)
 
     db.set_guild_config(interaction.guild_id, log_channel.id, ignored)
-
     ignored_text = ", ".join([f"<#{cid}>" for cid in ignored]) if ignored else "None"
 
     embed = discord.Embed(
         title="CBM AutoMod • Stealth Configuration Active",
-        description="Stealth content safety monitoring is now active on this server.",
+        description="Content safety monitoring is now active on this server.",
         color=EMBED_COLOR_SETUP,
         timestamp=datetime.datetime.now(datetime.timezone.utc)
     )
     embed.add_field(name="Log Channel", value=log_channel.mention, inline=True)
     embed.add_field(name="Ignored Channels", value=ignored_text, inline=True)
     embed.add_field(name="Model Engine", value="`nvidia/nemotron-3.5-content-safety`", inline=False)
-    embed.set_footer(text="Stealth Mode Active • Violating content is purged with zero in-channel output.")
-
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-# ==============================================================================
-# Slash Command: /ignore_remove
-# ==============================================================================
-@bot.tree.command(
-    name="ignore_remove",
-    description="Remove a channel from the AutoMod ignore list."
-)
-@app_commands.describe(channel="The channel to un-ignore.")
-@app_commands.default_permissions(manage_guild=True)
-async def ignore_remove(interaction: discord.Interaction, channel: discord.TextChannel):
-    if not interaction.guild_id:
-        return await interaction.response.send_message("Must be executed in a server.", ephemeral=True)
-
-    cfg = db.get_guild_config(interaction.guild_id)
-    if not cfg:
-        return await interaction.response.send_message("AutoMod is not configured yet. Run `/setup` first.", ephemeral=True)
-
-    removed = db.remove_ignored_channel(interaction.guild_id, channel.id)
-    if removed:
-        await interaction.response.send_message(f"Removed {channel.mention} from ignored channels.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"{channel.mention} is not currently in the ignore list.", ephemeral=True)
-
-
-# ==============================================================================
-# Slash Command: /automod_status
-# ==============================================================================
-@bot.tree.command(
-    name="automod_status",
-    description="View current CBM AutoMod status and audit summary."
-)
+@bot.tree.command(name="automod_status", description="View current CBM AutoMod server status.")
 @app_commands.default_permissions(manage_guild=True)
 async def automod_status(interaction: discord.Interaction):
     if not interaction.guild_id:
@@ -155,7 +153,7 @@ async def automod_status(interaction: discord.Interaction):
 
     cfg = db.get_guild_config(interaction.guild_id)
     if not cfg:
-        return await interaction.response.send_message("AutoMod is not configured on this server. Run `/setup` to initialize.", ephemeral=True)
+        return await interaction.response.send_message("AutoMod is not configured. Run `/setup` first.", ephemeral=True)
 
     logs = db.get_audit_logs(interaction.guild_id, limit=5)
     ignored = cfg.get("ignored_channels", [])
@@ -169,31 +167,22 @@ async def automod_status(interaction: discord.Interaction):
     embed.add_field(name="Monitoring Status", value="`ACTIVE (Stealth)`", inline=True)
     embed.add_field(name="Log Channel", value=f"<#{cfg.get('log_channel_id')}>", inline=True)
     embed.add_field(name="Ignored Channels", value=ignored_text, inline=False)
-    embed.add_field(name="Recent Interceptions", value=f"{len(logs)} incident(s) logged in database.", inline=False)
-    embed.set_footer(text="CBM | Content Safety • NVIDIA Nemotron NIM Engine")
-
+    embed.add_field(name="Recent Interceptions", value=f"{len(logs)} incident(s) logged.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
-# ==============================================================================
-# Stealth AutoMod Listener
-# ==============================================================================
 @bot.event
 async def on_message(message: discord.Message):
-    # Ignore bots, webhooks, and DMs
     if message.author.bot or message.webhook_id or not message.guild:
         return
 
-    # Check guild configuration
     cfg = db.get_guild_config(message.guild.id)
     if not cfg or not cfg.get("is_active"):
         return
 
-    # Skip ignored channels or the log channel itself
     if message.channel.id in cfg.get("ignored_channels", []) or message.channel.id == cfg.get("log_channel_id"):
         return
 
-    # Skip users with administrator/manage_guild permissions
     perms = getattr(message.author, "guild_permissions", None)
     if perms and (perms.administrator or perms.manage_guild):
         return
@@ -201,10 +190,9 @@ async def on_message(message: discord.Message):
     content_text = message.content or ""
     image_b64 = None
 
-    # Check for image attachments to inspect with Multimodal Nemotron 3.5
     for att in message.attachments:
         if att.content_type and any(att.content_type.startswith(x) for x in ("image/png", "image/jpeg", "image/webp")):
-            if att.size <= 4 * 1024 * 1024:  # Max 4MB
+            if att.size <= 4 * 1024 * 1024:
                 try:
                     img_bytes = await att.read()
                     image_b64 = base64.b64encode(img_bytes).decode("ascii")
@@ -212,11 +200,9 @@ async def on_message(message: discord.Message):
                 except Exception:
                     pass
 
-    # Nothing to moderate
     if not content_text and not image_b64:
         return
 
-    # Execute Tiered Moderation Pipeline asynchronously off the gateway thread
     start_time = time.time()
     try:
         safety_result = await asyncio.to_thread(
@@ -231,21 +217,12 @@ async def on_message(message: discord.Message):
 
     elapsed_ms = round((time.time() - start_time) * 1000, 1)
 
-    # Action: If content is flagged unsafe
     if not safety_result.get("is_safe", True):
-        # 1. STEALTH DELETION: Never send any public messages to the offending user/channel
         try:
             await message.delete()
-        except discord.NotFound:
-            pass  # Message was already deleted
-        except discord.Forbidden:
-            print(f"[!] Lacking Manage Messages permission in guild {message.guild.id}, channel {message.channel.id}")
-            return
-        except Exception as e:
-            print(f"[!] Unexpected error deleting message: {e}")
+        except Exception:
             return
 
-        # 2. LOG DISPATCH: Send detailed audit record to the designated log channel
         log_channel_id = cfg.get("log_channel_id")
         log_channel = message.guild.get_channel(log_channel_id)
         if not log_channel:
@@ -262,17 +239,9 @@ async def on_message(message: discord.Message):
             timestamp=datetime.datetime.now(datetime.timezone.utc)
         )
         embed.set_thumbnail(url=message.author.display_avatar.url)
-        embed.add_field(
-            name="Subject / Offender",
-            value=f"{message.author.mention} (`{message.author.id}`)",
-            inline=True
-        )
+        embed.add_field(name="Subject / Offender", value=f"{message.author.mention} (`{message.author.id}`)", inline=True)
         embed.add_field(name="Channel", value=message.channel.mention, inline=True)
-        embed.add_field(
-            name="Account Created",
-            value=f"<t:{int(message.author.created_at.timestamp())}:R>",
-            inline=True
-        )
+        embed.add_field(name="Account Created", value=f"<t:{int(message.author.created_at.timestamp())}:R>", inline=True)
 
         if content_text:
             displayed_content = content_text if len(content_text) <= 1000 else content_text[:997] + "..."
@@ -287,9 +256,8 @@ async def on_message(message: discord.Message):
         try:
             await log_channel.send(embed=embed)
         except Exception as e:
-            print(f"[!] Failed to deliver log embed to {log_channel_id}: {e}")
+            print(f"[!] Failed to deliver log embed: {e}")
 
-        # 3. RECORD AUDIT LOG IN SQLITE
         try:
             db.record_audit_log(
                 guild_id=message.guild.id,
@@ -307,13 +275,29 @@ async def on_message(message: discord.Message):
             print(f"[!] Warning recording audit log: {e}")
 
 
-# ==============================================================================
-# Entry Point
-# ==============================================================================
 def main():
     if not DISCORD_BOT_TOKEN:
-        raise RuntimeError("DISCORD_BOT_TOKEN is not configured in environment or .env")
-    bot.run(DISCORD_BOT_TOKEN)
+        print("[!] DISCORD_BOT_TOKEN is not configured.")
+        sys.exit(1)
+
+    try:
+        bot.run(DISCORD_BOT_TOKEN)
+    except discord.errors.HTTPException as http_err:
+        err_text = str(http_err)
+        if http_err.status == 429 or "1015" in err_text or "rate limit" in err_text.lower():
+            record_discord_quarantine(
+                reason="CLOUDFLARE_1015_IP_RATE_LIMITED",
+                http_code=http_err.status,
+                error_text=err_text
+            )
+            # Exit code 42 signals to the supervisor that a 25-hour quarantine was initiated
+            sys.exit(42)
+        else:
+            print(f"[!] Discord HTTP Exception ({http_err.status}): {http_err}")
+            sys.exit(1)
+    except Exception as e:
+        print(f"[!] Fatal AutoMod runtime error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

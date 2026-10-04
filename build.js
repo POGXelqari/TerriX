@@ -19,15 +19,23 @@ fs.cpSync("./assets/", "./build/assets/", { recursive: true });
 const buildTimestamp = Date.now().toString();
 fs.writeFileSync("./build/index.html", fs.readFileSync("./build/index.html").toString().replace(/buildTimestamp/g, buildTimestamp));
 fs.writeFileSync("./build/sw2.js", fs.readFileSync("./build/sw2.js").toString().replace("buildTimestamp", buildTimestamp));
+if (fs.existsSync("./build/studio.html")) {
+	fs.writeFileSync("./build/studio.html", fs.readFileSync("./build/studio.html").toString().replace(/buildTimestamp/g, buildTimestamp));
+}
 
 const buildClientCode = () => /** @type {Promise<void>} */(new Promise((resolve, reject) => {
-	console.log("Building client code...");
+	console.log("Building client and scenario studio code...");
 	webpack({
 		mode: 'production',
-		entry: { fxClient: "./src/main.js" },
+		entry: {
+			fxClient: "./src/main.js",
+			studio: "./src/studio/main.js"
+		},
 		output: {
 			path: path.resolve(import.meta.dirname, 'build'),
-			filename: 'fx.bundle.js',
+			filename: (pathData) => {
+				return pathData.chunk?.name === 'fxClient' ? 'fx.bundle.js' : '[name].bundle.js';
+			},
 		},
 	}, (err, stats) => {
 		if (err) {
@@ -40,10 +48,12 @@ const buildClientCode = () => /** @type {Promise<void>} */(new Promise((resolve,
 			console.error(info?.errors);
 			return reject("Webpack compilation error");
 		}
-		fs.writeFileSync(
-			"./build/fx.bundle.js",
-			Buffer.concat([fs.readFileSync("./game/build_artefacts.js"), fs.readFileSync("./build/fx.bundle.js")])
-		);
+		if (fs.existsSync("./build/fx.bundle.js") && fs.existsSync("./game/build_artefacts.js")) {
+			fs.writeFileSync(
+				"./build/fx.bundle.js",
+				Buffer.concat([fs.readFileSync("./game/build_artefacts.js"), fs.readFileSync("./build/fx.bundle.js")])
+			);
+		}
 		resolve();
 	});
 }));

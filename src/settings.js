@@ -565,7 +565,11 @@ const settingsManager = new (function () {
       const changelogButton = document.createElement("button");
       changelogButton.innerText = "Changelog";
       changelogButton.addEventListener("click", displayChangelog);
-      container.append(versionInfo, links, changelogButton);
+      const studioButton = document.createElement("button");
+      studioButton.innerText = "TerriX Scenario Studio";
+      studioButton.style.marginLeft = "6px";
+      studioButton.addEventListener("click", () => window.open("studio.html", "_blank"));
+      container.append(versionInfo, links, changelogButton, studioButton);
     }
   ];
   const settingsContainer = document.querySelector(".settings .scrollable");

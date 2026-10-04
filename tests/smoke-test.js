@@ -37,9 +37,15 @@ async function runSmokeTest() {
     const page = await browser.newPage();
     const runtimeErrors = [];
 
-    page.on('pageerror', err => runtimeErrors.push(err.message));
+    page.on('pageerror', err => {
+        console.error('[PageError]', err.message);
+        runtimeErrors.push(err.message);
+    });
     page.on('console', msg => {
-        if (msg.type() === 'error') runtimeErrors.push(msg.text());
+        if (msg.type() === 'error') {
+            console.error('[ConsoleError]', msg.text());
+            runtimeErrors.push(msg.text());
+        }
     });
 
     try {
@@ -81,7 +87,36 @@ async function runSmokeTest() {
             throw new Error(`[SmokeTest] Uncaught Runtime Errors:\n${criticalErrors.join('\n')}`);
         }
 
-        console.log(`[SmokeTest] Passed successfully with ${dictHealth.count} resolved symbols.`);
+        // 4. Verify TerriX Scenario Studio Standalone Suite
+        const studioPage = await browser.newPage();
+        const studioErrors = [];
+        studioPage.on('pageerror', err => studioErrors.push(err.message));
+        studioPage.on('console', msg => {
+            if (msg.type() === 'error') studioErrors.push(msg.text());
+        });
+
+        await studioPage.goto(`http://localhost:${PORT}/studio.html`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        await studioPage.waitForFunction(() => window.__studio && window.__studio.store, { timeout: 8000 });
+
+        const studioHealth = await studioPage.evaluate(() => {
+            return {
+                initialized: !!window.__studio,
+                playerCount: window.__studio.store.get('playerCount'),
+                canvasReady: !!window.__studio.canvasEditor
+            };
+        });
+
+        if (!studioHealth.initialized || studioHealth.playerCount !== 512 || !studioHealth.canvasReady) {
+            throw new Error(`[SmokeTest] Scenario Studio Initialization Failure`);
+        }
+
+        const criticalStudioErrors = studioErrors.filter(err => !err.includes('favicon.ico'));
+        if (criticalStudioErrors.length > 0) {
+            throw new Error(`[SmokeTest] Scenario Studio Runtime Errors:\n${criticalStudioErrors.join('\n')}`);
+        }
+        await studioPage.close();
+
+        console.log(`[SmokeTest] Passed successfully with ${dictHealth.count} resolved symbols and verified Scenario Studio suite.`);
     } finally {
         await browser.close();
         server.close();

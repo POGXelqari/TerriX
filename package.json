@@ -10,6 +10,7 @@
     "build-client": "node build.js --skip-patching",
     "patch": "node build.js --patch-only",
     "test:smoke": "node tests/smoke-test.js",
+    "test:studio": "node tests/test_scenario_studio.js",
     "sync:upstream": "node scripts/upstream_checker.js && npm run build && npm run test:smoke"
   },
   "repository": {

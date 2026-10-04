@@ -74,5 +74,62 @@ const checkEngineForOptimizer = setInterval(function() {
 // Reset optimizer state on match transition
 window.addEventListener("hashchange", () => spawnOptimizer.reset());
 
+// Auto-Launch Scenarios from TerriX Scenario Studio
+function checkPendingScenarioLaunch() {
+  const pending = localStorage.getItem('terrix_launch_scenario');
+  if (!pending) return;
+
+  let attempts = 0;
+  const launchInterval = setInterval(() => {
+    attempts++;
+    if (window.aE && window.u && typeof window.u.v === 'function') {
+      clearInterval(launchInterval);
+      localStorage.removeItem('terrix_launch_scenario');
+      try {
+        console.log('[TerriX] Ingesting custom scenario from TerriX Scenario Studio...');
+        const parsed = JSON.parse(pending);
+        
+        if (!window.aE.a2G && typeof window.a6h === 'function') {
+          const data = window.aE.data = new window.a6h();
+          Object.assign(data, parsed);
+
+          if (parsed.teamPlayerCount) data.teamPlayerCount = new Uint16Array(parsed.teamPlayerCount);
+          if (parsed.colorsData) data.colorsData = new Uint32Array(parsed.colorsData);
+          if (parsed.botDifficultyTeam) data.botDifficultyTeam = new Uint8Array(parsed.botDifficultyTeam);
+          if (parsed.botDifficultyData) data.botDifficultyData = new Uint8Array(parsed.botDifficultyData);
+          if (parsed.spawningData) data.spawningData = new Uint16Array(parsed.spawningData);
+          if (parsed.aIncomeData) data.aIncomeData = new Uint8Array(parsed.aIncomeData);
+          if (parsed.tIncomeData) data.tIncomeData = new Uint8Array(parsed.tIncomeData);
+          if (parsed.iIncomeData) data.iIncomeData = new Uint8Array(parsed.iIncomeData);
+          if (parsed.sResourcesData) data.sResourcesData = new Uint16Array(parsed.sResourcesData);
+          if (parsed.a75) data.a75 = new Uint32Array(parsed.a75);
+
+          if (parsed.mapType === 2 && parsed.canvas && typeof parsed.canvas === 'string') {
+            const img = new Image();
+            img.onload = function() {
+              if (window.bC && window.bC.aLJ && typeof window.bC.aLJ.aLK === 'function') {
+                window.bC.aLJ.aLK(img, 1);
+              }
+            };
+            img.src = parsed.canvas;
+          }
+
+          window.u.y();
+          if (window.u.z && window.u.z.uS) window.u.z.uS[0] = 0;
+          window.u.v(19);
+        }
+      } catch (err) {
+        console.error('[TerriX] Error launching custom scenario:', err);
+      }
+    } else if (attempts > 50) {
+      clearInterval(launchInterval);
+    }
+  }, 200);
+}
+
+if (window.location.search.includes('play_scenario=1')) {
+  checkPendingScenarioLaunch();
+}
+
 console.log('Successfully loaded FX Client');
 

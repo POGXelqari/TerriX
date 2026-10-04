@@ -109,13 +109,18 @@ class CloudflareTunnelManager:
                 return
 
             protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "http2").strip()
+            force_quick = os.getenv("ENABLE_QUICK_TUNNEL", "").strip().lower() in ("true", "1", "yes")
 
-            if self.token:
+            if self.token and not force_quick:
                 cmd = [bin_path, "--loglevel", "info", "tunnel", "run", "--protocol", protocol, "--token", self.token]
                 print(f"[+] Launching Cloudflare Named Tunnel (Token auth, protocol: {protocol})...")
+                print(f"[*] DNS Notice: If 'cbm.wispbyte.org' returns DNS_PROBE_FINISHED_NXDOMAIN:")
+                print(f"    1. Add CNAME in Cloudflare DNS: cbm -> <tunnel-id>.cfargotunnel.com (Proxied)")
+                print(f"    2. Direct Server URL: http://78.154.103.45:{self.port}/")
+                print(f"    3. Set ENABLE_QUICK_TUNNEL=true in .env for instant *.trycloudflare.com SSL")
             else:
                 cmd = [bin_path, "--loglevel", "info", "tunnel", "--protocol", protocol, "--url", f"http://127.0.0.1:{self.port}", "--no-autoupdate"]
-                print(f"[*] No CLOUDFLARE_TUNNEL_TOKEN specified. Launching Cloudflare Quick Tunnel on port {self.port} (protocol: {protocol})...")
+                print(f"[*] Launching Cloudflare Quick Tunnel on port {self.port} (protocol: {protocol})...")
 
             while self.running:
                 try:

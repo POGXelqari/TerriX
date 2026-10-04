@@ -205,15 +205,13 @@ class CBMStatusEngine:
             for r in cur.fetchall()
         ]
 
+        # ISOLATION: Discord auxiliary rate limit does NOT degrade core banking or trigger site banner
         if not discord_state["operational"] and "1015" in str(discord_state.get("label", "")):
-            active_banner = {
-                "type": "warning",
-                "title": "Discord AutoMod Temporary Rate Limit",
-                "message": f"Discord AutoMod bot IP is undergoing a Cloudflare Error 1015 cooldown. {discord_state['label']}. Bank portals, API, and treasury are unaffected.",
-                "affected_service": "AutoMod Discord Gateway",
-                "timestamp": now
-            }
-            overall_status = "degraded"
+            # Localized subsystem notice only; do not flip overall_status or broadcast banner to banking users
+            overall_status = "operational" if not active_incidents else "degraded"
+            active_banner = None
+        else:
+            overall_status = "operational" if not active_incidents else "degraded"
 
         for svc in SYSTEM_SERVICES:
             s_id = svc["id"]

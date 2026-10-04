@@ -36,17 +36,13 @@ if ! command -v cloudflared &> /dev/null && [ ! -f "bin/cloudflared" ]; then
     ) &
 fi
 
-# 3. Supervised AutoMod Launch
+# 3. Supervised AutoMod Launch (Isolated background execution)
 if [ -f "run_automod.py" ] && python3 -c "import os; from dotenv import load_dotenv; load_dotenv(); exit(0 if os.getenv('DISCORD_BOT_TOKEN') else 1)" 2>/dev/null; then
-    if [ -f "automod_cooldown.json" ] && python3 -c "import json, time; d=json.load(open('automod_cooldown.json')); exit(0 if time.time() < d.get('cooldown_until', 0) else 1)" 2>/dev/null; then
-        echo "[*] Discord AutoMod: 25h Cloudflare IP rate limit quarantine is active. Daemon paused to avoid extending ban."
-    else
-        echo "[*] Launching CBM AutoMod Discord Bot supervisor..."
-        python3 -O run_automod.py &
-        AUTOMOD_PID=$!
-        echo $AUTOMOD_PID > automod.pid
-        echo "[+] CBM AutoMod daemon active (PID: $AUTOMOD_PID)."
-    fi
+    (
+        python3 -O run_automod.py > automod.log 2>&1 &
+        echo $! > automod.pid
+    )
+    echo "[+] CBM AutoMod background worker dispatched."
 else
     echo "[*] DISCORD_BOT_TOKEN not configured. Skipping AutoMod startup."
 fi

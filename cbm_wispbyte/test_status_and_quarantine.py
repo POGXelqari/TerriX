@@ -94,7 +94,7 @@ class TestStatusAndQuarantine(unittest.TestCase):
         self.assertEqual(telemetry["status"], "ok")
         self.assertEqual(len(telemetry["services"]), 7)
 
-        # 2. Degraded state with Discord 1015 Quarantine
+        # 2. Discord 1015 Quarantine must be ISOLATED from core banking
         record_discord_quarantine(
             reason="CLOUDFLARE_1015_IP_RATE_LIMITED",
             http_code=429,
@@ -102,11 +102,27 @@ class TestStatusAndQuarantine(unittest.TestCase):
         )
         # Invalidate 5s cache for test
         self.status_engine._cached_telemetry_time = 0.0
-        degraded_telemetry = self.status_engine.get_system_telemetry()
+        isolated_telemetry = self.status_engine.get_system_telemetry()
 
-        self.assertEqual(degraded_telemetry["overall_status"], "degraded")
-        self.assertIsNotNone(degraded_telemetry["global_banner"])
-        self.assertIn("Cloudflare Error 1015", degraded_telemetry["global_banner"]["message"])
+        # Overall platform remains operational and free of alert banners
+        self.assertEqual(isolated_telemetry["overall_status"], "operational")
+        self.assertIsNone(isolated_telemetry["global_banner"])
+
+        # But the Discord subsystem itself is accurately reported as degraded on /status.html
+        discord_sub = next(s for s in isolated_telemetry["services"] if s["id"] == "discord_gateway")
+        self.assertEqual(discord_sub["current_status"], "degraded")
+        self.assertIn("Cloudflare 1015 Cooldown", discord_sub["status_label"])
+
+        # 3. An actual banking platform incident properly escalates to degraded
+        with self.db.write_transaction() as (conn, cur):
+            cur.execute("""
+                INSERT INTO cbm_service_incidents (incident_id, service_id, title, severity, status, message, created_at)
+                VALUES ('inc_test_1', 'vault_daemon', 'Database Sync Delay', 'minor', 'investigating', 'Investigating scrape delay', ?)
+            """, (time.time(),))
+        self.status_engine._cached_telemetry_time = 0.0
+        incident_telemetry = self.status_engine.get_system_telemetry()
+        self.assertEqual(incident_telemetry["overall_status"], "degraded")
+        self.assertEqual(len(incident_telemetry["active_incidents"]), 1)
 
 
 if __name__ == "__main__":

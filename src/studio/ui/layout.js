@@ -24,6 +24,7 @@ export class StudioLayout {
     this.bindInspectorTabs();
     this.bindHeaderActions();
     this.bindStatusBar();
+    this.bindKeyboardShortcuts();
   }
 
   bindWorkspaceTabs() {
@@ -44,17 +45,22 @@ export class StudioLayout {
   }
 
   bindToolDock() {
-    const toolBtns = document.querySelectorAll(".tool-btn");
+    const toolBtns = document.querySelectorAll(".tool-btn[data-tool]");
+    const terrainBtns = document.querySelectorAll(".tool-btn[data-terrain]");
+
     toolBtns.forEach(btn => {
       btn.addEventListener("click", () => {
-        const tool = btn.dataset.tool;
-        const terrain = btn.dataset.terrain;
-
         toolBtns.forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
+        this.editor.activeTool = btn.dataset.tool;
+      });
+    });
 
-        if (tool) this.editor.activeTool = tool;
-        if (terrain) this.editor.activeTerrainType = parseInt(terrain);
+    terrainBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        terrainBtns.forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        this.editor.activeTerrainType = parseInt(btn.dataset.terrain);
       });
     });
   }
@@ -94,6 +100,21 @@ export class StudioLayout {
   }
 
   bindHeaderActions() {
+    // Undo / Redo Actions
+    const btnUndo = document.getElementById("btnUndo");
+    if (btnUndo) {
+      btnUndo.addEventListener("click", () => {
+        if (store.undo()) showToast("Undo applied", "info");
+      });
+    }
+
+    const btnRedo = document.getElementById("btnRedo");
+    if (btnRedo) {
+      btnRedo.addEventListener("click", () => {
+        if (store.redo()) showToast("Redo applied", "info");
+      });
+    }
+
     // New Scenario
     const btnNew = document.getElementById("btnNewScenario");
     if (btnNew) {
@@ -158,6 +179,22 @@ export class StudioLayout {
         ScenarioSerializer.launchInGame(store.state, false);
       });
     }
+  }
+
+  bindKeyboardShortcuts() {
+    window.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (store.redo()) showToast("Redo applied", "info");
+        } else {
+          if (store.undo()) showToast("Undo applied", "info");
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
+        e.preventDefault();
+        if (store.redo()) showToast("Redo applied", "info");
+      }
+    });
   }
 
   bindStatusBar() {
@@ -238,7 +275,10 @@ export class StudioLayout {
     document.getElementById("btnAutoSpreadEven")?.addEventListener("click", () => {
       const pCount = store.get("playerCount") || 512;
       const spawns = this.spawnPlacer.distributeEvenly(pCount, 10);
-      store.set("spawningData", spawns);
+      store.batchUpdate({
+        spawningData: spawns,
+        spawningType: 2 // Custom spawning
+      }, true);
       this.editor.renderOverlays();
       this.refreshTopologyView();
       showToast("Even electrostatic distribution applied", "success");
@@ -247,7 +287,10 @@ export class StudioLayout {
     document.getElementById("btnAutoSpreadTeam")?.addEventListener("click", () => {
       const teamCounts = Array.from(store.get("teamPlayerCount") || [0, 256, 256]);
       const spawns = this.spawnPlacer.distributeTeamClustered(teamCounts, 80);
-      store.set("spawningData", spawns);
+      store.batchUpdate({
+        spawningData: spawns,
+        spawningType: 2 // Custom spawning
+      }, true);
       this.editor.renderOverlays();
       this.refreshTopologyView();
       showToast("Team geodesic clustering applied", "success");

@@ -131,14 +131,11 @@ export class ProceduralTerrainGenerator {
         enginePropertyBuffer[pIdx + 2] = 2; // Water: Blue = 2
         enginePropertyBuffer[pIdx + 3] = 0;
       } else if (isMountain) {
-        // Mountainous terrain
+        // Mountainous terrain: Territorial.io engine requires R === G === B for custom canvas mountains
         const c = evaluateBiomeColor(biome, elev);
-        // Slightly desaturate and enhance ridges
-        const r = Math.min(255, c.r + 20);
-        const g = Math.min(255, c.g + 20);
-        const b = Math.min(255, c.b + 30);
+        const grayVal = Math.min(255, Math.max(40, Math.round(0.299 * c.r + 0.587 * c.g + 0.114 * c.b)));
+        visualBuf32[i] = (255 << 24) | (grayVal << 16) | (grayVal << 8) | grayVal;
 
-        visualBuf32[i] = (255 << 24) | (b << 16) | (g << 8) | r;
         enginePropertyBuffer[pIdx + 0] = 0;
         enginePropertyBuffer[pIdx + 1] = 0;
         enginePropertyBuffer[pIdx + 2] = 5; // Mountain: Blue = 5

@@ -6,6 +6,12 @@
 import { store } from "../state.js";
 import { TopologyValidator } from "./validator.js";
 
+const TERRAIN_COLOR_MAP = {
+  1: (255 << 24) | (60 << 16) | (150 << 8) | 70,   // Neutral Land (Green: R=70, G=150, B=60)
+  2: (255 << 24) | (110 << 16) | (52 << 8) | 18,   // Water/Ocean (Blue dominant: R=18, G=52, B=110)
+  5: (255 << 24) | (90 << 16) | (90 << 8) | 90     // Mountain: Strict Grayscale (R=90, G=90, B=90)
+};
+
 export class CanvasEditor {
   constructor(canvasElement, overlayCanvasElement) {
     this.canvas = canvasElement;
@@ -43,6 +49,52 @@ export class CanvasEditor {
     this.selectedPlayerSpawn = 0;
 
     this.initEvents();
+
+    store.subscribe((state, changedKeys) => {
+      if (changedKeys.some(k => ["spawningData", "playerCount", "colorsData"].includes(k))) {
+        this.renderOverlays();
+      }
+      if (changedKeys.includes("canvas") && state.canvas && state.canvas !== this.canvas) {
+        this.loadCanvasFromSource(state.canvas);
+      }
+    });
+  }
+
+  loadCanvasFromSource(source) {
+    if (typeof source === "string" && source.startsWith("data:image")) {
+      const img = new Image();
+      img.onload = () => {
+        this.width = img.width;
+        this.height = img.height;
+        this.canvas.width = img.width;
+        this.canvas.height = img.height;
+        this.overlayCanvas.width = img.width;
+        this.overlayCanvas.height = img.height;
+        this.ctx.drawImage(img, 0, 0);
+        this.visualImageData = this.ctx.getImageData(0, 0, img.width, img.height);
+
+        const total = img.width * img.height;
+        this.enginePropBuffer = new Uint8Array(total * 4);
+        const data = this.visualImageData.data;
+        for (let i = 0; i < total; i++) {
+          const pIdx = i * 4;
+          const r = data[pIdx];
+          const g = data[pIdx + 1];
+          const b = data[pIdx + 2];
+          if (r === g && r === b) {
+            this.enginePropBuffer[pIdx + 2] = 5; // Mountain
+          } else if (b > g && b > r) {
+            this.enginePropBuffer[pIdx + 2] = 2; // Water
+          } else {
+            this.enginePropBuffer[pIdx + 2] = 1; // Land
+          }
+        }
+        this.validator = new TopologyValidator(img.width, img.height, this.enginePropBuffer);
+        this.fitViewportToContainer();
+        this.renderOverlays();
+      };
+      img.src = source;
+    }
   }
 
   initBuffers(width = 1024, height = 1024, visualImageData = null, propBuffer = null) {
@@ -74,6 +126,13 @@ export class CanvasEditor {
     }
 
     this.validator = new TopologyValidator(width, height, this.enginePropBuffer);
+
+    // Immediately register canvas and custom mapType with state store
+    store.batchUpdate({
+      canvas: this.canvas,
+      mapType: 2
+    }, false);
+
     this.fitViewportToContainer();
     this.renderOverlays();
   }
@@ -177,8 +236,11 @@ export class CanvasEditor {
         this.lastDrawX = null;
         this.lastDrawY = null;
         this.renderOverlays();
-        // Update store canvas binding
-        store.set("canvas", this.canvas);
+        // Update store canvas binding and ensure mapType is 2
+        store.batchUpdate({
+          canvas: this.canvas,
+          mapType: 2
+        }, false);
       }
     });
   }
@@ -222,13 +284,7 @@ export class CanvasEditor {
     const imgData = this.visualImageData;
     const data32 = new Uint32Array(imgData.data.buffer);
     const propBuf = this.enginePropBuffer;
-
-    const colorMap = {
-      1: (255 << 24) | (60 << 16) | (150 << 8) | 70,    // Land: Green
-      2: (255 << 24) | (110 << 16) | (52 << 8) | 18,    // Water: Blue
-      5: (255 << 24) | (90 << 16) | (80 << 8) | 80      // Mountain: Dark Slate
-    };
-    const cVal = colorMap[targetType] || colorMap[1];
+    const cVal = TERRAIN_COLOR_MAP[targetType] || TERRAIN_COLOR_MAP[1];
 
     for (let y = yMin; y <= yMax; y++) {
       const rowOffset = y * this.width;
@@ -263,7 +319,12 @@ export class CanvasEditor {
     const p = this.selectedPlayerSpawn;
     sData[p * 2] = x;
     sData[p * 2 + 1] = y;
-    store.set("spawningData", sData);
+
+    store.batchUpdate({
+      spawningData: sData,
+      spawningType: 2 // Enforce Custom Spawning Mode
+    }, true);
+
     this.renderOverlays();
   }
 
@@ -278,12 +339,7 @@ export class CanvasEditor {
     const visited = new Uint8Array(w * h);
     visited[startIdx] = 1;
 
-    const colorMap = {
-      1: (255 << 24) | (60 << 16) | (150 << 8) | 70,
-      2: (255 << 24) | (110 << 16) | (52 << 8) | 18,
-      5: (255 << 24) | (90 << 16) | (80 << 8) | 80
-    };
-    const cVal = colorMap[targetType] || colorMap[1];
+    const cVal = TERRAIN_COLOR_MAP[targetType] || TERRAIN_COLOR_MAP[1];
     const data32 = new Uint32Array(this.visualImageData.data.buffer);
     const propBuf = this.enginePropBuffer;
 

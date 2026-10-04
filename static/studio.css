@@ -206,20 +206,17 @@ body, html {
   position: relative;
   background: #060911;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  /* Removed flex centering to preserve (0,0) reference */
 }
 
-.viewport-canvas {
-  position: absolute;
-  image-rendering: pixelated;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-}
-
+.viewport-canvas,
 .viewport-overlay {
   position: absolute;
-  pointer-events: none;
+  top: 0;
+  left: 0;
+  image-rendering: pixelated;
+  transform-origin: 0 0;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
 }
 
 /* Right Inspector Panel */

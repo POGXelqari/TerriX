@@ -62,7 +62,15 @@ export class ScenarioSerializer {
    * Compresses scenario state to a Base64 URL hash parameter.
    */
   static exportToBase64Hash(state) {
-    const jsonStr = this.exportToJson(state);
+    const shallow = { ...state };
+    // If sharing via URL hash, omit full 1024x1024 image string if too large
+    if (shallow.mapType === 2 && shallow.canvas) {
+      if (typeof shallow.canvas === "string" && shallow.canvas.length > 30000) {
+        delete shallow.canvas;
+        shallow.mapType = 0; // Fall back to procedural seed in URL hash
+      }
+    }
+    const jsonStr = this.exportToJson(shallow);
     const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
     return `#scenario=${encoded}`;
   }

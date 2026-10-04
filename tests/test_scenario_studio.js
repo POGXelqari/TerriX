@@ -87,15 +87,35 @@ async function runTests() {
   const baked = generator.bakeTerrainBuffers(heightmap, 2, 3200, 8200);
   assert.strictEqual(baked.enginePropertyBuffer.length, 256 * 256 * 4, "Property buffer must be RGBA (4 bytes per tile)");
 
-  // Check terrain tile flags in engine property buffer
-  let hasWater = false, hasLand = false;
+  // Check terrain tile flags and grayscale mountain compliance
+  let hasWater = false, hasLand = false, hasMountain = false;
+  const vData = baked.visualImgData.data;
   for (let i = 0; i < 256 * 256; i++) {
     const tileType = baked.enginePropertyBuffer[i * 4 + 2];
     if (tileType === 2) hasWater = true;
     if (tileType === 1) hasLand = true;
+    if (tileType === 5) {
+      hasMountain = true;
+      const r = vData[i * 4];
+      const g = vData[i * 4 + 1];
+      const b = vData[i * 4 + 2];
+      assert.strictEqual(r, g, "Mountain Red and Green channels must be identical");
+      assert.strictEqual(r, b, "Mountain Red and Blue channels must be identical (grayscale)");
+      assert.ok(!(b > g && b > r), "Mountain cannot have dominant blue channel (would become water)");
+    }
   }
   assert.ok(hasWater && hasLand, "Terrain must contain both water (blue=2) and land (blue=1)");
-  console.log("  ✓ Procedural generator creates valid heightmaps and engine aEE property buffers");
+  console.log(`  ✓ Procedural generator creates valid heightmaps and engine property buffers (strict mountain grayscale verified: ${hasMountain ? "found" : "none in this seed"})`);
+
+  // Test 5b: Large canvas URL Hash overflow protection
+  console.log("[Test 5b] Base64 URL Hash overflow truncation protection...");
+  const hugeState = { mapType: 2, mapSeed: 4444, canvas: "data:image/png;base64," + "A".repeat(40000) };
+  const hugeHash = ScenarioSerializer.exportToBase64Hash(hugeState);
+  assert.ok(hugeHash.length < 5000, `Hash length (${hugeHash.length}) must stay well below URI limit`);
+  const decodedHuge = {};
+  ScenarioSerializer.importFromBase64Hash(hugeHash, decodedHuge);
+  assert.strictEqual(decodedHuge.mapType, 0, "Huge canvas in URL hash falls back to procedural mapType: 0");
+  console.log("  ✓ URL hash correctly strips oversized canvas payload to prevent browser URI crashes");
 
   // 6. Test Topology Validator
   console.log("[Test 6] Topology BFS analysis and choke-point detection...");

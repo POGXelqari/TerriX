@@ -77,7 +77,7 @@ export class RosterEditor {
           const clean = names[i].replace(/\[.*?\]\s*/g, "");
           names[i] = `${tag} ${clean}`.slice(0, 20);
         }
-        store.set("playerNamesData", names);
+        store.set("playerNamesData", names, false, true);
       });
     }
 
@@ -92,7 +92,7 @@ export class RosterEditor {
           teamCounts[t] = perTeam;
         }
         teamCounts[1] += count % numTeams;
-        store.set("teamPlayerCount", teamCounts);
+        store.set("teamPlayerCount", teamCounts, false, true);
         alert(`Distributed ${count} players across ${numTeams} teams.`);
       });
     }
@@ -107,7 +107,7 @@ export class RosterEditor {
           const rgb = store.hslToRgb(hue, 0.8, 0.5);
           colors[i] = ((rgb.r >> 2) << 12) | ((rgb.g >> 2) << 6) | (rgb.b >> 2);
         }
-        store.set("colorsData", colors);
+        store.set("colorsData", colors, false, true);
       });
     }
   }
@@ -172,7 +172,7 @@ export class RosterEditor {
         const idx = parseInt(e.target.dataset.index);
         const names = [...store.get("playerNamesData")];
         names[idx] = e.target.value.slice(0, 20);
-        store.set("playerNamesData", names, true);
+        store.set("playerNamesData", names, false, true);
       });
     });
 
@@ -184,27 +184,27 @@ export class RosterEditor {
         const g = parseInt(hex.slice(3, 5), 16);
         const b = parseInt(hex.slice(5, 7), 16);
         const packed = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2);
-        const colors = store.get("colorsData");
+        const colors = new Uint32Array(store.get("colorsData"));
         colors[idx] = packed;
-        store.set("colorsData", colors, true);
+        store.set("colorsData", colors, false, true);
       });
     });
 
     this.viewportEl.querySelectorAll(".roster-diff-select").forEach(select => {
       select.addEventListener("change", (e) => {
         const idx = parseInt(e.target.dataset.index);
-        const diffs = store.get("botDifficultyData");
+        const diffs = new Uint8Array(store.get("botDifficultyData"));
         diffs[idx] = parseInt(e.target.value);
-        store.set("botDifficultyData", diffs, true);
+        store.set("botDifficultyData", diffs, false, true);
       });
     });
 
     this.viewportEl.querySelectorAll(".roster-troop-input").forEach(input => {
       input.addEventListener("change", (e) => {
         const idx = parseInt(e.target.dataset.index);
-        const troops = store.get("sResourcesData");
+        const troops = new Uint16Array(store.get("sResourcesData"));
         troops[idx] = Math.max(0, Math.min(2047, parseInt(e.target.value) || 0));
-        store.set("sResourcesData", troops, true);
+        store.set("sResourcesData", troops, false, true);
       });
     });
   }

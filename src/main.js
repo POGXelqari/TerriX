@@ -93,6 +93,11 @@ function checkPendingScenarioLaunch() {
           const data = window.aE.data = new window.a6h();
           Object.assign(data, parsed);
 
+          // Force custom spawning mode if custom spawns were passed
+          if (parsed.spawningData && parsed.spawningType === 2) {
+            data.spawningType = 2;
+          }
+
           if (parsed.teamPlayerCount) data.teamPlayerCount = new Uint16Array(parsed.teamPlayerCount);
           if (parsed.colorsData) data.colorsData = new Uint32Array(parsed.colorsData);
           if (parsed.botDifficultyTeam) data.botDifficultyTeam = new Uint8Array(parsed.botDifficultyTeam);
@@ -105,18 +110,22 @@ function checkPendingScenarioLaunch() {
           if (parsed.a75) data.a75 = new Uint32Array(parsed.a75);
 
           if (parsed.mapType === 2 && parsed.canvas && typeof parsed.canvas === 'string') {
+            data.mapType = 2;
             const img = new Image();
             img.onload = function() {
               if (window.bC && window.bC.aLJ && typeof window.bC.aLJ.aLK === 'function') {
                 window.bC.aLJ.aLK(img, 1);
               }
+              window.u.y();
+              if (window.u.z && window.u.z.uS) window.u.z.uS[0] = 0;
+              window.u.v(19);
             };
             img.src = parsed.canvas;
+          } else {
+            window.u.y();
+            if (window.u.z && window.u.z.uS) window.u.z.uS[0] = 0;
+            window.u.v(19);
           }
-
-          window.u.y();
-          if (window.u.z && window.u.z.uS) window.u.z.uS[0] = 0;
-          window.u.v(19);
         }
       } catch (err) {
         console.error('[TerriX] Error launching custom scenario:', err);

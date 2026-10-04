@@ -6,7 +6,7 @@
   <meta name="description" content="Scenario Creator and Cartography Studio for TerriX Client">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
-  <link rel="stylesheet" href="studio.css?1791142196365">
+  <link rel="stylesheet" href="studio.css?1791144515427">
 </head>
 <body>
   <div class="app-container">
@@ -22,6 +22,8 @@
 
       <div class="header-actions">
         <input type="file" id="fileInputJson" accept=".json" style="display: none;">
+        <button id="btnUndo" class="studio-btn" title="Undo (Ctrl+Z)">↶</button>
+        <button id="btnRedo" class="studio-btn" title="Redo (Ctrl+Y)">↷</button>
         <button id="btnNewScenario" class="studio-btn" title="Create new blank scenario">New</button>
         <button id="btnImportJson" class="studio-btn" title="Load tt_scenario.json">Import</button>
         <button id="btnExportJson" class="studio-btn" title="Download tt_scenario.json">Export</button>
@@ -42,7 +44,7 @@
 
         <div class="tool-divider"></div>
 
-        <button class="tool-btn" data-terrain="1" title="Neutral Land" style="color: #10b981;">🟩</button>
+        <button class="tool-btn active" data-terrain="1" title="Neutral Land" style="color: #10b981;">🟩</button>
         <button class="tool-btn" data-terrain="2" title="Water" style="color: #3b82f6;">🟦</button>
         <button class="tool-btn" data-terrain="5" title="Mountain" style="color: #64748b;">⛰️</button>
       </aside>
@@ -86,6 +88,6 @@
     </footer>
   </div>
 
-  <script src="studio.bundle.js?1791142196365"></script>
+  <script src="studio.bundle.js?1791144515427"></script>
 </body>
 </html>

@@ -124,6 +124,44 @@ class TestStatusAndQuarantine(unittest.TestCase):
         self.assertEqual(incident_telemetry["overall_status"], "degraded")
         self.assertEqual(len(incident_telemetry["active_incidents"]), 1)
 
+        # 4. Expired cooldown lockfile auto-cleans without manual intervention
+        expired_data = {
+            "status": "QUARANTINED",
+            "reason": "EXPIRED_TEST",
+            "quarantined_at": time.time() - 100000,
+            "cooldown_until": time.time() - 1000,
+            "duration_seconds": 90000
+        }
+        with open(COOLDOWN_FILE, "w", encoding="utf-8") as f:
+            json.dump(expired_data, f)
+        self.assertTrue(os.path.exists(COOLDOWN_FILE))
+
+        # Accessing status engine must automatically purge expired file
+        expired_status = self.status_engine.get_discord_status()
+        self.assertEqual(expired_status["status"], "operational" if os.environ.get("DISCORD_BOT_TOKEN") else "unconfigured")
+        self.assertFalse(os.path.exists(COOLDOWN_FILE))
+
+    def test_ingress_telemetry_and_dns_probe(self):
+        from tunnel_manager import check_domain_dns, CloudflareTunnelManager
+
+        # 1. Primary unmapped domain returns False
+        self.assertFalse(check_domain_dns("cbm.wispbyte.org"))
+
+        # 2. Known domain returns True
+        self.assertTrue(check_domain_dns("cloudflare.com"))
+
+        # 3. Ingress telemetry reflects failover state accurately
+        mgr = CloudflareTunnelManager(port=10093, domain="cbm.wispbyte.org")
+        telemetry = mgr.get_ingress_telemetry()
+        self.assertFalse(telemetry["primary_resolving"])
+        self.assertFalse(telemetry["fallback_active"])
+
+        # When fallback URL is assigned during DNS propagation
+        mgr.fallback_url = "https://cbm-automated-failover.trycloudflare.com"
+        active_telemetry = mgr.get_ingress_telemetry()
+        self.assertTrue(active_telemetry["fallback_active"])
+        self.assertEqual(active_telemetry["active_url"], "https://cbm-automated-failover.trycloudflare.com")
+
 
 if __name__ == "__main__":
     unittest.main()

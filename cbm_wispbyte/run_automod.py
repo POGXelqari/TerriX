@@ -110,7 +110,26 @@ def run_bot(direct: bool = False):
     while True:
         # Check if we are currently in 25-hour quarantine
         rem_sec = get_quarantine_remaining_seconds()
+        quarantine_proxy = os.getenv("DISCORD_QUARANTINE_PROXY_URL") or os.getenv("DISCORD_PROXY_URL")
+
         if rem_sec > 0:
+            if quarantine_proxy:
+                print(f"[+] Automated Quarantine Failover: Shared server IP is under Cloudflare 1015 ban.")
+                print(f"    Activating egress proxy routing during quarantine to keep Discord AutoMod operational...")
+                proc_env = os.environ.copy()
+                proc_env["DISCORD_PROXY_URL"] = quarantine_proxy
+                cmd = [sys.executable, "-O", bot_script]
+                current_proc = subprocess.Popen(cmd, env=proc_env)
+                exit_code = current_proc.wait()
+                if exit_code == 0:
+                    print("[*] CBM AutoMod terminated cleanly.")
+                    break
+                elif exit_code == 42:
+                    print("[!] Egress proxy also rate-limited. Falling back to non-blocking quarantine sleep.")
+                else:
+                    time.sleep(30)
+                    continue
+
             hours = round(rem_sec / 3600.0, 2)
             print(f"[*] Discord Rate Limit Quarantine Active. Pausing connection attempts for {hours}h to clear Cloudflare ban.")
             # Sleep in 60-second chunks to allow graceful SIGTERM handling
@@ -119,9 +138,16 @@ def run_bot(direct: bool = False):
                 if get_quarantine_remaining_seconds() <= 0:
                     break
                 time.sleep(60)
+
+            # Auto-expire cooldown lockfile
+            if os.path.exists(COOLDOWN_FILE):
+                try:
+                    os.remove(COOLDOWN_FILE)
+                except Exception:
+                    pass
             print("[+] 25-Hour Quarantine period expired. Attempting clean reconnection...")
 
-        # Spawn bot process
+        # Spawn bot process directly on shared server IP
         cmd = [sys.executable, "-O", bot_script]
         current_proc = subprocess.Popen(cmd)
         exit_code = current_proc.wait()

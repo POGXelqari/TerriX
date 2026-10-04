@@ -265,6 +265,18 @@
       </div>
     </div>
 
+    <!-- Automated Ingress Fallback Pill (Active ONLY during DNS failover) -->
+    <div id="statusFallbackPill" style="display: none; background: rgba(0, 112, 224, 0.12); border: 1px solid rgba(0, 112, 224, 0.3); border-radius: 12px; padding: 12px 18px; margin-bottom: 20px; align-items: center; justify-content: space-between; gap: 14px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 20px;">🔒</span>
+        <div>
+          <div style="font-weight: 700; font-size: 13px; color: #fff;">Automated Ingress Failover Active</div>
+          <div style="font-size: 12px; color: var(--text-dim);" id="statusFallbackDesc">Primary domain DNS is propagating. An automated Cloudflare SSL edge tunnel is active.</div>
+        </div>
+      </div>
+      <a id="statusFallbackLink" href="#" style="background: rgba(0, 112, 224, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; padding: 6px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; text-decoration: none;">Direct HTTPS Link &rarr;</a>
+    </div>
+
     <!-- Overall State Card -->
     <div class="overall-card">
       <div class="overall-left">
@@ -330,6 +342,18 @@
         document.getElementById('bannerMessage').innerText = data.global_banner.message;
       } else {
         banner.className = 'global-incident-banner';
+      }
+
+      // 2b. Ingress Fallback Pill (Active ONLY during DNS failover)
+      const ingressPill = document.getElementById('statusFallbackPill');
+      const ingressLink = document.getElementById('statusFallbackLink');
+      if (data.ingress && data.ingress.fallback_active && data.ingress.fallback_url) {
+        if (ingressPill && ingressLink) {
+          ingressLink.href = data.ingress.fallback_url;
+          ingressPill.style.display = 'flex';
+        }
+      } else if (ingressPill) {
+        ingressPill.style.display = 'none';
       }
 
       // 3. Render 90-Day Bars for each service

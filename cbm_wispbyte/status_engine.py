@@ -113,6 +113,11 @@ class CBMStatusEngine:
                         "label": f"Rate Limited (25h Cloudflare 1015 Cooldown - {hours_left}h left)",
                         "details": data
                     }
+                else:
+                    try:
+                        os.remove(cooldown_file)
+                    except Exception:
+                        pass
             except Exception:
                 pass
 

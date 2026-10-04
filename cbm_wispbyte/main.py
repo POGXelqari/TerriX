@@ -94,7 +94,7 @@ deposit_daemon = CBMDepositDaemon(
     invalidate_caches_cb=lambda: invalidate_caches()
 )
 account_mgr = CBMAccountManager(db=db, vault_account=VAULT_ACCOUNT)
-tunnel_mgr = CloudflareTunnelManager(port=PORT) if ENABLE_TUNNEL else None
+tunnel_mgr = CloudflareTunnelManager(port=PORT, domain=WISPBYTE_SUBDOMAIN) if ENABLE_TUNNEL else None
 
 # In-Memory Static Asset Cache (Pre-compressed at startup for 0 disk I/O & sub-millisecond delivery)
 CANONICAL_REMOTE_ASSETS = {
@@ -2128,7 +2128,21 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         # System Status & 90-Day Telemetry Endpoint (Bypasses CORS for external widgets)
         elif path in ("/api/v1/system/status", "/api/cbm/system/status"):
             telemetry = status_engine.get_system_telemetry()
+            if tunnel_mgr:
+                telemetry["ingress"] = tunnel_mgr.get_ingress_telemetry()
             return self._send_json(200, telemetry, is_dev_api=True)
+
+        # Automated Ingress & Failover Telemetry
+        elif path in ("/api/cbm/ingress", "/api/v1/system/ingress"):
+            ingress_data = tunnel_mgr.get_ingress_telemetry() if tunnel_mgr else {
+                "primary_domain": WISPBYTE_SUBDOMAIN,
+                "primary_resolving": False,
+                "active_url": WISPBYTE_SERVER_URL,
+                "fallback_active": False,
+                "fallback_url": None,
+                "direct_url": WISPBYTE_SERVER_URL
+            }
+            return self._send_json(200, ingress_data, is_dev_api=True)
 
         # 2. Static Assets (CBM Shield Logo & Favicon)
         elif path in ("/cbm-logo.png", "/cbm-logo", "/logo.png", "/favicon.ico"):

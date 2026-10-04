@@ -78,7 +78,7 @@ WISPBYTE_SUBDOMAIN = os.environ.get("WISPBYTE_SUBDOMAIN", "cbm.wispbyte.org")
 CREDIT_PER_AI_REQUEST = float(os.environ.get("CREDIT_PER_AI_REQUEST", "1.00"))
 
 db = CBMDatabase()
-status_engine = CBMStatusEngine(db_instance=db)
+status_engine = CBMStatusEngine(db_instance=db, port=PORT)
 loan_engine = CBMLoanEngine()
 
 sponsorship_engine = CBMSponsorshipEngine()
@@ -95,6 +95,7 @@ deposit_daemon = CBMDepositDaemon(
 )
 account_mgr = CBMAccountManager(db=db, vault_account=VAULT_ACCOUNT)
 tunnel_mgr = CloudflareTunnelManager(port=PORT, domain=WISPBYTE_SUBDOMAIN) if ENABLE_TUNNEL else None
+status_engine.register_dependencies(deposit_daemon=deposit_daemon, tunnel_mgr=tunnel_mgr, loan_engine=loan_engine)
 
 # In-Memory Static Asset Cache (Pre-compressed at startup for 0 disk I/O & sub-millisecond delivery)
 CANONICAL_REMOTE_ASSETS = {
@@ -6109,9 +6110,13 @@ def main():
     if tunnel_mgr:
         tunnel_mgr.start()
 
-    # 4. Setup graceful signal handling
+    # 4. Start Active Synthetic Telemetry Prober
+    status_engine.start_active_prober(interval_seconds=30.0)
+
+    # 5. Setup graceful signal handling
     def handle_signal(sig, frame):
         print("\n[!] Received shutdown signal. Stopping CBM server, daemon, and tunnel...")
+        status_engine.stop_active_prober()
         if _SERVER_INSTANCE:
             try:
                 _SERVER_INSTANCE.shutdown()

@@ -189,6 +189,16 @@
       color: var(--yellow);
       border: 1px solid rgba(245, 158, 11, 0.3);
     }
+    .badge-outage {
+      background: rgba(234, 57, 67, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(234, 57, 67, 0.3);
+    }
+    .badge-muted {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-dim);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
 
     /* 90-Day Bar Graph */
     .bars-wrapper {
@@ -213,6 +223,14 @@
     }
     .bar.degraded { background: #f59e0b; }
     .bar.outage { background: #ea3943; }
+    .bar.no-data {
+      background: #2b354f; /* Explicitly grey for unrecorded telemetry */
+      opacity: 0.55;
+    }
+    .bar.no-data:hover {
+      background: #3e4c6d;
+      opacity: 0.9;
+    }
     .bar-footer {
       display: flex;
       justify-content: space-between;
@@ -360,15 +378,21 @@
       const list = document.getElementById('servicesList');
       list.innerHTML = data.services.map(s => {
         const isOp = s.current_status === 'operational';
-        const badgeClass = isOp ? 'badge-op' : 'badge-deg';
+        const isOutage = s.current_status === 'outage';
+        const isUnconf = s.current_status === 'unconfigured';
+        const badgeClass = isOp ? 'badge-op' : (isOutage ? 'badge-outage' : (isUnconf ? 'badge-muted' : 'badge-deg'));
 
         // Render 90 bars
         const barsHtml = s.history_90d.map(b => {
           let bClass = 'bar';
           if (b.status === 'degraded') bClass += ' degraded';
           else if (b.status === 'outage') bClass += ' outage';
-          return `<div class="${bClass}" data-date="${b.date}" data-uptime="${b.uptime_percent}%" data-status="${b.status}"></div>`;
+          else if (b.status === 'no_data') bClass += ' no-data';
+          const upVal = b.uptime_percent !== null && b.uptime_percent !== undefined ? `${b.uptime_percent}%` : '';
+          return `<div class="${bClass}" data-date="${b.date}" data-uptime="${upVal}" data-status="${b.status}"></div>`;
         }).join('');
+
+        const latencyText = s.latency_ms && s.latency_ms > 0 ? `<span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">(${s.latency_ms}ms)</span>` : '';
 
         return `
           <div class="service-row">
@@ -376,7 +400,7 @@
               <div class="service-info">
                 <span style="font-size: 18px;">${s.icon}</span>
                 <div>
-                  <div class="service-name">${s.name}</div>
+                  <div class="service-name">${s.name} ${latencyText}</div>
                   <div style="font-size: 12px; color: var(--text-dim);">${s.description}</div>
                 </div>
               </div>
@@ -404,9 +428,13 @@
     function showTooltip(e) {
       const b = e.target;
       const date = b.dataset.date;
-      const uptime = b.dataset.uptime;
-      const status = b.dataset.status.toUpperCase();
-      tooltip.innerHTML = `<strong>${date}</strong> &bull; ${uptime} (${status})`;
+      const status = b.dataset.status;
+      if (status === 'no_data') {
+        tooltip.innerHTML = `<strong>${date}</strong> &bull; No Telemetry Recorded`;
+      } else {
+        const uptime = b.dataset.uptime;
+        tooltip.innerHTML = `<strong>${date}</strong> &bull; ${uptime} (${status.toUpperCase()})`;
+      }
       tooltip.style.display = 'block';
 
       const rect = b.getBoundingClientRect();

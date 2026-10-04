@@ -31,6 +31,8 @@ import urllib.parse
 import base64
 import gc
 import re
+import secrets
+import uuid
 try:
     import jwt
 except ImportError:
@@ -4611,6 +4613,102 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "expires_at": order["expires_at"]
                 }
             })
+
+        elif path in ("/api/cbm/products/order/claim-free", "/api/v1/products/order/claim-free"):
+            product_id = body.get("product_id", "").strip()
+            account = (body.get("account") or body.get("buyer_account_name") or body.get("player") or "").strip()
+            client_verified = bool(body.get("client_verified", False))
+            client_id = (body.get("client_id") or "cbm_web_checkout").strip()
+            payload = body.get("payload") or {}
+
+            if not product_id or not account:
+                return self._send_json(400, {"status": "error", "message": "product_id and account are required."})
+
+            prod = db.get_product(product_id)
+            if not prod or prod.get("status") != "ACTIVE":
+                return self._send_json(404, {"status": "error", "message": f"Product '{product_id}' not found or inactive."})
+
+            if not prod.get("is_free") and float(prod.get("price_gold", 0.0)) > 0.0:
+                return self._send_json(400, {"status": "error", "message": "Product is not free."})
+
+            # Check requirement if client verification is required
+            if prod.get("requires_client_verification"):
+                req_meta = prod.get("requirement_meta") or {}
+                required_clan = req_meta.get("clan") if isinstance(req_meta, dict) else None
+                if not required_clan and prod.get("product_id") == "prod_kilr":
+                    required_clan = "KILR"
+
+                if required_clan:
+                    has_clan = f"[{required_clan.upper()}]" in account.upper()
+                    if has_clan:
+                        client_verified = True
+                        if isinstance(payload, dict):
+                            payload.setdefault("clan", required_clan)
+
+                if not client_verified:
+                    req_msg = f"Requires clan tag [{required_clan}]" if required_clan else "Client verification requirement not met."
+                    return self._send_json(403, {
+                        "status": "error",
+                        "verified": False,
+                        "message": f"Requirement not satisfied: {req_msg}"
+                    })
+
+            # Create or renew attestation lease (30-day lease for web checkout)
+            ok_att, msg, att = db.create_or_renew_attestation(
+                product_id=product_id,
+                account=account,
+                client_id=client_id,
+                payload=payload,
+                ttl_seconds=86400.0 * 30
+            )
+            if not ok_att:
+                return self._send_json(500, {"status": "error", "message": msg})
+
+            now = time.time()
+            order_id = f"ord_free_{secrets.token_hex(8)}"
+            cb_url = prod.get("callback_url") or "https://pogxelqari.github.io/TerriX/client/"
+            if not cb_url or "territorial.io" in cb_url:
+                cb_url = "https://pogxelqari.github.io/TerriX/client/"
+
+            conn = db.get_write_connection()
+            cur = conn.cursor()
+            try:
+                cur.execute("""
+                    INSERT INTO cbm_product_orders (
+                        order_id, product_id, buyer_cbm_username, buyer_territorial_account,
+                        price_gold, price_cents, owner_share_cents, cushion_share_cents,
+                        payment_method, tx_hash, verification_token, status,
+                        expires_at, fulfilled_at, created_at
+                    ) VALUES (?, ?, ?, ?, 0.0, 0, 0, 0, 'FREE_CLAIM', NULL, ?, 'FULFILLED', 0.0, ?, ?)
+                """, (order_id, product_id, account, account, att["attestation_token"], now, now))
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+            finally:
+                conn.close()
+
+            invalidate_caches()
+            return self._send_json(200, {
+                "status": "ok",
+                "message": "Free product claimed and requirement verified.",
+                "order": {
+                    "order_id": order_id,
+                    "product_id": product_id,
+                    "product_name": prod["name"],
+                    "price_gold": 0.0,
+                    "price_cents": 0,
+                    "buyer_account_name": account,
+                    "buyer_cbm_username": account,
+                    "payment_method": "FREE_CLAIM",
+                    "status": "FULFILLED",
+                    "verification_token": att["attestation_token"],
+                    "token_secret": att["attestation_token"],
+                    "return_url": cb_url,
+                    "callback_url": cb_url,
+                    "fulfilled_at": now
+                }
+            })
+
 
         elif path == "/api/cbm/products/order/pay-direct":
             return self._send_json(410, {

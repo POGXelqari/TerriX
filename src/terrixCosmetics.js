@@ -282,12 +282,17 @@
   }
 
   // Pattern type helper:
-  // - Flag patterns (e.g. 'poland'): rendered as a single unified flag covering the entire nation
+  // - Flag & Clan Logo patterns (e.g. 'poland', 'kilr'): rendered as a single unified image covering the entire nation
   // - Tiled patterns (e.g. 'hello_kitty'): repeat seamlessly across territories
   function isFlagPattern(patternId) {
     if (!patternId) return false;
-    return patternId === 'poland' || patternId.indexOf('flag') >= 0;
+    return patternId === 'poland' ||
+           patternId === 'kilr' ||
+           patternId.indexOf('flag') >= 0 ||
+           patternId.indexOf('clan') >= 0 ||
+           patternId.indexOf('logo') >= 0;
   }
+
 
   function getBestMipmap(img, mipmaps, targetW, targetH) {
     if (!mipmaps || mipmaps.length === 0) return img;
@@ -342,11 +347,7 @@
     imgKilr.onload = function() {
       state.patternImageKilr = imgKilr;
       state.mipmapsKilr = buildMipmaps(imgKilr);
-      var dummyCanvas = document.createElement('canvas');
-      var dummyCtx = dummyCanvas.getContext('2d');
-      var crispTile = state.mipmapsKilr[2] || state.mipmapsKilr[1] || imgKilr;
-      state.patternTextureKilr = dummyCtx.createPattern(crispTile, 'repeat');
-      console.log('[TerriX Cosmetics] [KILR] clan pattern texture initialized with high-res mipmapping.');
+      console.log('[TerriX Cosmetics] [KILR] clan single-image flag pattern initialized with high-res mipmapping.');
       if (document.getElementById('tx-preview-canvas-kilr')) {
         updateKilrUI();
       }
@@ -355,6 +356,7 @@
       console.warn('[TerriX Cosmetics] KILR pattern image failed to load from assets/patterns/kilr-clanlogo-pattern.png');
     };
   }
+
 
 
   // Intercept & suppress false positive console errors / Turnstile 405 noise on non-Cloudflare zones
@@ -1366,8 +1368,9 @@
         '        <canvas class="terrix-preview-canvas" id="tx-preview-canvas-kilr" width="120" height="120"></canvas>',
         '        <div class="terrix-item-details">',
         '          <div class="terrix-item-title">[KILR] Clan Territory Pattern</div>',
-        '          <div class="terrix-item-desc">Official KILR Clan Logo seamless territory coating during live matches. Free to equip when sporting the [KILR] clan tag.</div>',
+        '          <div class="terrix-item-desc">Official KILR Clan Logo unified across your territory during live matches. Single-image clan pattern. Free to equip when sporting the [KILR] clan tag.</div>',
         '          <div class="terrix-price-tag" id="tx-kilr-price-tag" style="color: #68d391; font-weight: 600;">Price: FREE (Requires [KILR] Clan Tag)</div>',
+
         '          <div class="terrix-btn-group" id="tx-action-buttons-kilr"></div>',
         '          <div id="tx-slip-container-kilr"></div>',
         '        </div>',

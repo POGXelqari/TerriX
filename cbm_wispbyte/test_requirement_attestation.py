@@ -250,6 +250,55 @@ class TestRequirementAttestation(unittest.TestCase):
         self.assertIsNotNone(res_own.get("receipt_kilr"))
         self.assertTrue(res_own["receipt_kilr"].get("is_attestation"))
 
+    def test_07_http_cbm_checkout_claim_free(self):
+        """Tests CBM Web Checkout POST /api/cbm/products/order/claim-free."""
+        # 1. Claim attempt without requirement -> 403 Forbidden
+        status_fail, res_fail = self._request(
+            "POST",
+            "/api/cbm/products/order/claim-free",
+            body={
+                "product_id": "prod_kilr",
+                "account": "RegularPlayerWithoutClan",
+                "client_verified": False
+            }
+        )
+        self.assertEqual(status_fail, 403, f"Expected 403 for missing clan requirement: {res_fail}")
+
+        # 2. Claim attempt with clan tag in handle -> 200 OK & FULFILLED order
+        status_ok, res_ok = self._request(
+            "POST",
+            "/api/cbm/products/order/claim-free",
+            body={
+                "product_id": "prod_kilr",
+                "account": "General [KILR]",
+                "client_verified": True
+            }
+        )
+        self.assertEqual(status_ok, 200, f"Expected 200 for valid free claim: {res_ok}")
+        self.assertIn("order", res_ok)
+        order = res_ok["order"]
+        self.assertEqual(order["status"], "FULFILLED")
+        self.assertEqual(order["price_gold"], 0.0)
+        self.assertTrue(order["verification_token"].startswith("tok_attest_prod_kilr_"))
+
+        # Verify order in DB
+        db_order = self.db.get_product_order(order["order_id"])
+        self.assertIsNotNone(db_order)
+        self.assertEqual(db_order["status"], "FULFILLED")
+        self.assertEqual(db_order["payment_method"], "FREE_CLAIM")
+
+    def test_08_single_image_flag_pattern_classification(self):
+        """Validates that KILR and clan logo patterns are treated as single-image flag patterns."""
+        src_path = os.path.join(os.path.dirname(__file__), "..", "src", "terrixCosmetics.js")
+        with open(src_path, "r", encoding="utf-8") as f:
+            src_code = f.read()
+
+        # Verify isFlagPattern includes kilr and clan
+        self.assertIn("patternId === 'kilr'", src_code)
+        self.assertIn("patternId.indexOf('clan') >= 0", src_code)
+        self.assertIn("Single-image clan pattern", src_code)
+
 
 if __name__ == "__main__":
     unittest.main()
+

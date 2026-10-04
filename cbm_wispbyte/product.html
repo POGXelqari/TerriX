@@ -599,7 +599,41 @@
         </form>
       </div>
     </div>
+
+    <!-- FREE REQUIREMENT CLAIM VIEW -->
+    <div id="free-claim-view" style="display: none; padding: 24px;">
+      <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+          <span style="font-size: 20px; color: #10b981;">&#10004;</span>
+          <h3 style="font-size: 16px; color: #ffffff; margin: 0; font-weight: 600;">Free Product with Requirement</h3>
+        </div>
+        <p style="font-size: 13px; color: var(--text-sub); margin: 0 0 12px 0; line-height: 1.5;" id="free-req-desc">
+          This item is completely free of charge for eligible members who satisfy the requirement.
+        </p>
+        <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; color: #10b981;" id="free-req-badge">
+          <span>Requirement:</span> <span id="free-req-text">[KILR] Clan Tag in Name</span>
+        </div>
+      </div>
+
+      <form id="free-claim-form" onsubmit="return false;">
+        <div class="form-group" style="margin-bottom: 18px;">
+          <label class="form-label" for="free-claim-handle" style="font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 6px; display: block;">
+            Your Territorial.io In-Game Name / Handle
+          </label>
+          <input type="text" class="form-input" id="free-claim-handle" placeholder="e.g. [KILR] PlayerName" required style="width: 100%; box-sizing: border-box; font-size: 14px;">
+          <span style="display: block; font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+            The system verifies that your in-game name meets the required condition before granting instant access.
+          </span>
+        </div>
+
+        <button type="button" class="submit-btn" id="free-claim-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);">
+          <span>Verify Requirement &amp; Claim for Free</span>
+          <span>&check;</span>
+        </button>
+      </form>
+    </div>
   </main>
+
 
   <footer class="trust-footer">
     <a href="/rulebook.html" target="_blank">&#128220; Rulebook &amp; Spec</a>
@@ -716,15 +750,10 @@
 
       function initCheckout() {
         var p = currentProduct;
+        var isFreeProduct = (Number(p.price_gold) === 0.0 || !!p.is_free || !!p.requires_client_verification);
+
         document.getElementById('prod-name').textContent = p.name;
         document.getElementById('prod-desc').textContent = p.description || 'Verified product item.';
-        document.getElementById('prod-price').textContent = formatGold(p.price_gold);
-
-        var half = round2(p.price_gold / 2.0);
-        document.getElementById('split-merchant').textContent = formatGold(half) + ' Gold';
-        document.getElementById('split-cushion').textContent = formatGold(half) + ' Gold';
-        document.getElementById('slip-amount-text').textContent = formatGold(p.price_gold) + ' Gold';
-        document.getElementById('balance-btn-amount').textContent = formatGold(p.price_gold);
 
         if (p.image_url) {
           var img = document.createElement('img');
@@ -745,6 +774,103 @@
         }
         document.getElementById('cancel-link').href = cancelTarget;
 
+        if (isFreeProduct) {
+          // Free Product Display & Flow
+          var priceEl = document.getElementById('prod-price');
+          priceEl.textContent = 'FREE';
+          priceEl.style.color = '#10b981';
+          document.getElementById('split-merchant').textContent = '0.00 Gold (Community Item)';
+          document.getElementById('split-cushion').textContent = '0.00 Gold (Zero Fees)';
+
+          document.getElementById('payment-view').style.display = 'none';
+          document.getElementById('free-claim-view').style.display = 'block';
+
+          // Extract requirement info
+          var reqClan = 'KILR';
+          if (p.requirement_meta && p.requirement_meta.clan) {
+            reqClan = p.requirement_meta.clan;
+          } else if (p.product_id === 'prod_kilr') {
+            reqClan = 'KILR';
+          }
+          document.getElementById('free-req-text').textContent = '[' + reqClan + '] Clan Tag in Name';
+          document.getElementById('free-req-desc').textContent = 'This item is 100% free of charge for players sporting the [' + reqClan + '] clan tag in their in-game name.';
+
+          // Pre-fill user's handle from localStorage if available
+          var handleInput = document.getElementById('free-claim-handle');
+          var existingHandle = '';
+          try {
+            existingHandle = (localStorage.getItem('d105') || localStorage.getItem('cbm_active_account') || localStorage.getItem('cbm_user') || '').trim();
+          } catch(e) {}
+          if (existingHandle) {
+            handleInput.value = existingHandle;
+          }
+
+          var claimBtn = document.getElementById('free-claim-btn');
+          claimBtn.onclick = function() {
+            var handle = (handleInput.value || '').trim();
+            if (!handle) {
+              showError('Please enter your in-game name or handle.');
+              return;
+            }
+            hideError();
+
+            var hasClan = handle.toUpperCase().indexOf('[' + reqClan.toUpperCase() + ']') !== -1;
+            if (!hasClan) {
+              showError('Requirement not satisfied: Your in-game name must include [' + reqClan + '] to claim this item for free.');
+              return;
+            }
+
+            claimBtn.disabled = true;
+            claimBtn.innerHTML = '<span>Verifying &amp; Claiming...</span>';
+
+            fetch('/api/cbm/products/order/claim-free', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                product_id: p.product_id,
+                account: handle,
+                client_verified: true,
+                client_id: 'cbm_web_checkout',
+                payload: { clan: reqClan, player_name: handle }
+              })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              claimBtn.disabled = false;
+              claimBtn.innerHTML = '<span>Verify Requirement &amp; Claim for Free</span> <span>&check;</span>';
+              if (data.status === 'ok' && data.order) {
+                try {
+                  if (p.product_id === 'prod_kilr') {
+                    localStorage.setItem('terrix_cbm_receipt_kilr', JSON.stringify(data.order));
+                  }
+                } catch(e) {}
+                handleOrderFulfilled(data.order);
+              } else {
+                showError(data.message || 'Failed to claim product.');
+              }
+            })
+            .catch(function(err) {
+              claimBtn.disabled = false;
+              claimBtn.innerHTML = '<span>Verify Requirement &amp; Claim for Free</span> <span>&check;</span>';
+              showError('Network error verifying requirement: ' + (err.message || 'please try again'));
+            });
+          };
+
+          return;
+        }
+
+        // Paid product standard flow
+        document.getElementById('free-claim-view').style.display = 'none';
+        document.getElementById('payment-view').style.display = 'block';
+        document.getElementById('prod-price').textContent = formatGold(p.price_gold);
+        document.getElementById('prod-price').style.color = '';
+
+        var half = round2(p.price_gold / 2.0);
+        document.getElementById('split-merchant').textContent = formatGold(half) + ' Gold';
+        document.getElementById('split-cushion').textContent = formatGold(half) + ' Gold';
+        document.getElementById('slip-amount-text').textContent = formatGold(p.price_gold) + ' Gold';
+        document.getElementById('balance-btn-amount').textContent = formatGold(p.price_gold);
+
         // Auto-create or fetch active order for 15-minute slip
         if (currentOrder && currentOrder.status !== 'EXPIRED') {
           bindOrder(currentOrder);
@@ -752,6 +878,7 @@
           createOrderSlip();
         }
       }
+
 
       function round2(num) {
         return Math.round(Number(num) * 100) / 100;

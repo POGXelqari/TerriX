@@ -51,10 +51,10 @@ jobs:
 
       - name: Atomic Commit and Push
         run: |
-          if [ -n "$(git status --porcelain client/ game/ version.json)" ]; then
+          if [ -n "$(git status --porcelain client/ version.json)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add client/ game/ version.json
+            git add client/ version.json
             git commit -m "chore(sync): automated build against territorial.io $(cat version.json | jq -r .upstream_version)"
             
             # Atomic push with strict rejection handling

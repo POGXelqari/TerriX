@@ -63,7 +63,24 @@ export const DefaultScenarioSchema = {
   sResourcesType: 0,        // Starting Troops Balance
   sResourcesValue: 512,
   sResourcesData: new Uint16Array(512),
-  a75: new Uint32Array(512)
+  a75: new Uint32Array(512),
+
+  // Multi-Resolution Dimensions
+  width: 1024,
+  height: 1024,
+
+  // AI Behavioral Archetypes (0: Expansionist, 1: Aggressive Raider, 2: Turtle/Banker, 3: Support Drone)
+  botArchetypes: new Uint8Array(512),
+
+  // Pre-Claimed Territory Mask (null or array of tile owners)
+  preClaimedTerritory: null,
+
+  // Diplomacy Relations Matrix
+  diplomacy: {
+    naps: [],         // Array of [p1, p2]
+    alliances: [],    // Array of [p1, p2]
+    truces: []        // Array of { p1, p2, untilTick }
+  }
 };
 
 class ScenarioStore {
@@ -117,6 +134,15 @@ class ScenarioStore {
     s.sResourcesData.fill(512);
 
     s.a75 = new Uint32Array(512);
+    s.width = 1024;
+    s.height = 1024;
+    s.botArchetypes = new Uint8Array(512);
+    s.preClaimedTerritory = null;
+    s.diplomacy = {
+      naps: [],
+      alliances: [],
+      truces: []
+    };
     return s;
   }
 
@@ -223,6 +249,19 @@ class ScenarioStore {
     if (source.iIncomeData) target.iIncomeData = new Uint8Array(source.iIncomeData);
     if (source.sResourcesData) target.sResourcesData = new Uint16Array(source.sResourcesData);
     if (source.a75) target.a75 = new Uint32Array(source.a75);
+    if (source.botArchetypes) target.botArchetypes = new Uint8Array(source.botArchetypes);
+    if (source.preClaimedTerritory) {
+      target.preClaimedTerritory = Array.isArray(source.preClaimedTerritory)
+        ? [...source.preClaimedTerritory]
+        : source.preClaimedTerritory;
+    }
+    if (source.diplomacy) {
+      target.diplomacy = {
+        naps: Array.isArray(source.diplomacy.naps) ? source.diplomacy.naps.map(p => [...p]) : [],
+        alliances: Array.isArray(source.diplomacy.alliances) ? source.diplomacy.alliances.map(p => [...p]) : [],
+        truces: Array.isArray(source.diplomacy.truces) ? source.diplomacy.truces.map(t => ({ ...t })) : []
+      };
+    }
     return target;
   }
 

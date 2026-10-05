@@ -23,9 +23,11 @@ import { getVar } from "./gameInterface.js";
 import './terrixCosmetics.js';
 import './terrixChat.js';
 import { spawnOptimizer } from './spawnOptimizer.js';
+import { studioBridge } from './studio_bridge.js';
 
 window.__fx = window.__fx || {};
 const __fx = window.__fx;
+window.__fx.studioBridge = studioBridge;
 window.getVar = getVar;
 __fx.getVar = getVar;
 __fx.version = version + " " + lastUpdated;

@@ -84,6 +84,7 @@ export class StudioLayout {
       map: document.getElementById("panelMapTools"),
       scenario: document.getElementById("panelScenarioProps"),
       roster: document.getElementById("panelRoster"),
+      diplomacy: document.getElementById("panelDiplomacy"),
       economy: document.getElementById("panelEconomy"),
       topology: document.getElementById("panelTopology")
     };
@@ -122,6 +123,18 @@ export class StudioLayout {
         if (confirm("Reset current scenario to defaults? Unsaved changes will be lost.")) {
           store.reset();
           showToast("Scenario reset to default", "info");
+        }
+      });
+    }
+
+    // Pull State from Game Tab
+    const btnPull = document.getElementById("btnPullGame");
+    if (btnPull) {
+      btnPull.addEventListener("click", () => {
+        if (window.__studio?.clientController) {
+          window.__studio.clientController.pullCurrentGameState();
+        } else {
+          showToast("Client controller not initialized", "error");
         }
       });
     }
@@ -172,18 +185,14 @@ export class StudioLayout {
       });
     }
 
-    // Launch in Game
+    // Launch in Game / Push to Client Tab
     const btnLaunch = document.getElementById("btnLaunchGame");
     if (btnLaunch) {
       btnLaunch.addEventListener("click", async () => {
-        btnLaunch.disabled = true;
-        btnLaunch.textContent = "Launching...";
-        try {
-          await ScenarioSerializer.launchInGame(store.state, false);
-        } catch (err) {
-          showToast(`Launch failed: ${err.message}`, "error");
-          btnLaunch.disabled = false;
-          btnLaunch.textContent = "▶ Launch in Game";
+        if (window.__studio?.clientController) {
+          await window.__studio.clientController.launchOrPushScenario(true);
+        } else {
+          await ScenarioSerializer.launchInGame(store.state, true);
         }
       });
     }
@@ -208,6 +217,12 @@ export class StudioLayout {
   bindStatusBar() {
     const coordsEl = document.getElementById("statusCoords");
     const tileTypeEl = document.getElementById("statusTileType");
+    const dimEl = document.getElementById("statusDim");
+
+    const updateDim = () => {
+      if (dimEl) dimEl.textContent = `Dim: ${this.editor.width} × ${this.editor.height}`;
+    };
+    updateDim();
 
     this.editor.canvas.parentElement.addEventListener("mousemove", (e) => {
       const { x, y } = this.editor.screenToWorld(e.clientX, e.clientY);
@@ -218,6 +233,12 @@ export class StudioLayout {
         const t = this.editor.enginePropBuffer[pIdx + 2];
         const label = t === 2 ? "Water" : (t === 5 ? "Mountain" : (t === 1 ? "Land" : "Border"));
         tileTypeEl.textContent = `Tile: ${label}`;
+      }
+    });
+
+    store.subscribe((state, changedKeys) => {
+      if (changedKeys.includes("width") || changedKeys.includes("height")) {
+        updateDim();
       }
     });
   }

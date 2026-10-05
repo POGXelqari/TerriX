@@ -15,7 +15,7 @@ import { EconomyPanel } from "./scenario/economy.js";
 import { StudioLayout } from "./ui/layout.js";
 import { ScenarioSerializer } from "./scenario/serializer.js";
 import { ClientController } from "./client_controller.js";
-import { OFFICIAL_MAPS, generateTemplateTerrain } from "./map/templates/mapRegistry.js";
+import { OFFICIAL_MAPS, loadOfficialMapAsset, generateTemplateTerrain } from "./map/templates/mapRegistry.js";
 import { BIOMES } from "./map/biomes.js";
 import { showToast } from "./ui/components.js";
 
@@ -256,12 +256,20 @@ function initMapToolsPanel(editor, generator, spawnPlacer) {
   });
 
   // Official Map Template Loader
-  document.getElementById("btnLoadOfficialMap")?.addEventListener("click", () => {
+  document.getElementById("btnLoadOfficialMap")?.addEventListener("click", async () => {
     const idx = parseInt(document.getElementById("selOfficialMap").value) || 0;
     const mapSpec = OFFICIAL_MAPS.find((m) => m.index === idx) || OFFICIAL_MAPS[0];
 
-    const template = generateTemplateTerrain(mapSpec.width, mapSpec.height, "continent", 14071);
-    editor.initBuffers(mapSpec.width, mapSpec.height, template.visualImgData, template.enginePropertyBuffer);
+    showToast(`Loading authentic ${mapSpec.name} template...`, "info");
+    const asset = await loadOfficialMapAsset(idx);
+
+    if (asset.img) {
+      if (asset.img.src) {
+        editor.loadCanvasFromSource(asset.img.src);
+      } else if (typeof asset.img.toDataURL === "function") {
+        editor.loadCanvasFromSource(asset.img.toDataURL("image/png"));
+      }
+    }
 
     store.batchUpdate(
       {
@@ -278,7 +286,7 @@ function initMapToolsPanel(editor, generator, spawnPlacer) {
     store.set("spawningData", newSpawns);
     editor.renderOverlays();
 
-    showToast(`Loaded ${mapSpec.name} (${mapSpec.width}×${mapSpec.height}) baseline canvas`, "success");
+    showToast(`Loaded authentic ${mapSpec.name} (${mapSpec.width}×${mapSpec.height}) template`, "success");
   });
 
   // Procedural Terrain Baking

@@ -36,6 +36,38 @@ export function getOfficialMapByIndex(index) {
 }
 
 /**
+ * Loads authentic high-resolution game map assets from assets/maps/map_{index}.png.
+ * Falls back to procedural baseline synthesis if asset cannot be loaded.
+ */
+export async function loadOfficialMapAsset(index) {
+  const mapSpec = getOfficialMapByIndex(index);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      resolve({
+        success: true,
+        img,
+        width: mapSpec.width,
+        height: mapSpec.height,
+        name: mapSpec.name
+      });
+    };
+    img.onerror = () => {
+      const fallback = generateTemplateTerrain(mapSpec.width, mapSpec.height, "continent", 14071);
+      resolve({
+        success: false,
+        img: fallback.canvas,
+        width: mapSpec.width,
+        height: mapSpec.height,
+        name: mapSpec.name
+      });
+    };
+    img.src = `assets/maps/map_${index}.png`;
+  });
+}
+
+/**
  * Procedural baseline landmass generator for map templates when offline.
  */
 export function generateTemplateTerrain(width, height, type = "continent", seed = 14071) {

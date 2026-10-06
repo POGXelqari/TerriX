@@ -31,6 +31,16 @@ _DB_WRITE_LOCK = threading.RLock()
 _PENDING_IMPRESSIONS: Dict[str, int] = {}
 _PENDING_IMPRESSIONS_LOCK = threading.Lock()
 
+def _configure_sqlite_pragmas(conn: sqlite3.Connection):
+    conn.execute("PRAGMA journal_mode = WAL;")
+    conn.execute("PRAGMA synchronous = NORMAL;")
+    conn.execute("PRAGMA busy_timeout = 60000;")
+    conn.execute("PRAGMA cache_size = -16384;")
+    conn.execute("PRAGMA temp_store = MEMORY;")
+    conn.execute("PRAGMA wal_autocheckpoint = 500;")
+    conn.execute("PRAGMA mmap_size = 67108864;")
+
+
 try:
     import urllib3
 except ImportError:
@@ -221,12 +231,14 @@ class CBMDatabase:
         """Initializes local SQLite schema with high-concurrency WAL mode, indexes, and corruption self-healing."""
         try:
             self._execute_init_sqlite()
+            self._init_outbox_table()
         except sqlite3.DatabaseError as db_err:
             err_msg = str(db_err).lower()
             if any(k in err_msg for k in ("malformed", "corrupt", "disk image", "not a database", "file is encrypted")):
                 self._recover_corrupted_sqlite(reason=str(db_err))
                 # Re-execute initialization on clean database
                 self._execute_init_sqlite()
+                self._init_outbox_table()
                 if self.use_supabase:
                     try:
                         self.sync_all_from_supabase(quiet=True)
@@ -1031,38 +1043,25 @@ class CBMDatabase:
 
     def _get_sqlite_conn(self, row_factory: bool = True) -> sqlite3.Connection:
         """
-        Returns a high-performance thread-local SQLite connection configured for concurrent WAL access.
-        Caches and reuses connections per worker thread to eliminate repeated open/close disk overhead.
-        Self-heals if corruption is detected at runtime.
+        Thread-local connection for read operations. Configured in autocommit mode
+        so SELECT statements never hold lingering lock states.
         """
         conn = getattr(self._local, "conn", None)
         if conn is not None:
             try:
-                conn.execute("SELECT count(*) FROM cbm_accounts LIMIT 1;")
+                conn.execute("SELECT 1;")
                 conn.row_factory = sqlite3.Row if row_factory else None
                 return conn
             except sqlite3.DatabaseError as db_err:
                 if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image")):
                     self._recover_corrupted_sqlite(reason=str(db_err))
                     self._init_sqlite()
-                    if self.use_supabase:
-                        try:
-                            self.sync_all_from_supabase(quiet=True)
-                        except Exception:
-                            pass
                 conn = None
             except Exception:
                 conn = None
 
         try:
-            conn = self.get_write_connection(timeout=30.0)
-            conn.execute("PRAGMA journal_mode = WAL;")
-            conn.execute("PRAGMA synchronous = NORMAL;")
-            conn.execute("PRAGMA busy_timeout = 30000;")
-            conn.execute("PRAGMA cache_size = -8192;")
-            conn.execute("PRAGMA temp_store = MEMORY;")
-            conn.execute("PRAGMA wal_autocheckpoint = 250;")
-            conn.execute("PRAGMA mmap_size = 33554432;")
+            conn = self.get_write_connection(timeout=60.0)
             conn.row_factory = sqlite3.Row if row_factory else None
             self._local.conn = conn
             return conn
@@ -1070,56 +1069,47 @@ class CBMDatabase:
             if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image")):
                 self._recover_corrupted_sqlite(reason=str(db_err))
                 self._init_sqlite()
-                if self.use_supabase:
-                    try:
-                        self.sync_all_from_supabase(quiet=True)
-                    except Exception:
-                        pass
-                conn = self.get_write_connection(timeout=30.0)
-                conn.execute("PRAGMA journal_mode = WAL;")
-                conn.execute("PRAGMA synchronous = NORMAL;")
-                conn.execute("PRAGMA busy_timeout = 30000;")
-                conn.execute("PRAGMA cache_size = -8192;")
-                conn.execute("PRAGMA temp_store = MEMORY;")
-                conn.execute("PRAGMA wal_autocheckpoint = 250;")
-                conn.execute("PRAGMA mmap_size = 33554432;")
+                conn = self.get_write_connection(timeout=60.0)
                 conn.row_factory = sqlite3.Row if row_factory else None
                 self._local.conn = conn
                 return conn
             raise
 
-    def get_write_connection(self, timeout: float = 30.0) -> sqlite3.Connection:
+    def get_write_connection(self, timeout: float = 60.0) -> sqlite3.Connection:
         """
-        Returns an isolated SQLite connection configured with generous 30s busy timeout
-        and WAL pragmas to prevent 'database is locked' errors during concurrent writes.
+        Creates an isolated SQLite connection with autocommit (isolation_level=None)
+        to eliminate dangling read locks.
         """
-        conn = sqlite3.connect(self.sqlite_path, timeout=timeout)
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA synchronous = NORMAL;")
-        conn.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)};")
-        conn.execute("PRAGMA cache_size = -8192;")
-        conn.execute("PRAGMA temp_store = MEMORY;")
-        conn.execute("PRAGMA wal_autocheckpoint = 250;")
-        conn.execute("PRAGMA mmap_size = 33554432;")
+        conn = sqlite3.connect(self.sqlite_path, timeout=timeout, isolation_level=None)
+        _configure_sqlite_pragmas(conn)
         return conn
 
     @contextmanager
-    def write_transaction(self, timeout: float = 30.0):
+    def write_transaction(self, timeout: float = 60.0):
         """
-        Serialized process-wide write transaction.
-        Acquires _DB_WRITE_LOCK and executes BEGIN IMMEDIATE on a fresh connection.
-        Ensures atomic commits/rollbacks and guarantees zero lock contention with readers.
+        Unified transactional boundary. All database writes acquire _DB_WRITE_LOCK
+        and explicitly execute BEGIN IMMEDIATE.
         """
         with _DB_WRITE_LOCK:
             conn = self.get_write_connection(timeout=timeout)
+            cur = conn.cursor()
+            for attempt in range(5):
+                try:
+                    cur.execute("BEGIN IMMEDIATE;")
+                    break
+                except sqlite3.OperationalError as op_err:
+                    if ("locked" in str(op_err).lower() or "busy" in str(op_err).lower()) and attempt < 4:
+                        time.sleep(0.05 * (2 ** attempt))
+                        continue
+                    conn.close()
+                    raise
+
             try:
-                cur = conn.cursor()
-                cur.execute("BEGIN IMMEDIATE;")
                 yield conn, cur
-                conn.commit()
+                cur.execute("COMMIT;")
             except Exception:
                 try:
-                    conn.rollback()
+                    cur.execute("ROLLBACK;")
                 except Exception:
                     pass
                 raise
@@ -1164,54 +1154,122 @@ class CBMDatabase:
                     _PENDING_IMPRESSIONS[pub] = _PENDING_IMPRESSIONS.get(pub, 0) + count
         return flushed
 
+    def _init_outbox_table(self):
+        with self.write_transaction() as (conn, cur):
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS cbm_sync_outbox (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    table_name TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    params TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    retry_count INTEGER DEFAULT 0,
+                    last_error TEXT
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_outbox_created ON cbm_sync_outbox(id ASC);")
+
     def _start_supabase_worker(self):
-        """Spawns an asynchronous background worker to decouple Supabase writes from the request latency path."""
-        def _worker():
+        """
+        Background worker that continuously flushes the outbox table to Supabase.
+        """
+        def _outbox_worker_loop():
             while True:
                 try:
-                    item = self._sb_queue.get()
-                    if item is None:
-                        break
-                    table, method, params, body, upsert = item
-                    try:
-                        self._sb_request(table, method=method, params=params, body=body, upsert=upsert)
-                    except Exception:
-                        pass
-                    finally:
-                        self._sb_queue.task_done()
-                except Exception:
-                    time.sleep(0.05)
+                    self.flush_outbox(batch_size=20)
+                except Exception as loop_err:
+                    print(f"[!] Outbox worker error: {loop_err}")
+                time.sleep(1.0)
 
-        self._sb_worker_thread = threading.Thread(target=_worker, daemon=True, name="CBM-Supabase-Sync")
-        self._sb_worker_thread.start()
+        t = threading.Thread(target=_outbox_worker_loop, daemon=True, name="CBM-Outbox-Worker")
+        t.start()
+        self._sb_worker_thread = t
 
     def _enqueue_sb_task(self, table: str, method: str = "POST", params: str = "", body: Optional[dict] = None, upsert: bool = False):
-        """Asynchronously enqueues a database mutation for background cloud replication."""
+        """
+        Persists outbound cloud mutations directly to the local transactional outbox.
+        Prevents data loss during network interruptions or unexpected terminations.
+        """
         if not self.use_supabase:
             return
-        if ("unittest" in sys.modules or "pytest" in sys.modules or os.environ.get("CBM_ENV") == "test") and not os.environ.get("ALLOW_LIVE_PROD_ACCESS") and not getattr(self, "_allow_test_queue", False):
-            return
 
-        # ZERO-KNOWLEDGE CLOUD SANITIZATION:
-        # Strip all credentials, hashes, and salts before dispatching to cloud PostgREST
+        # Strip sensitive credentials prior to persistence
         clean_body = body
         if body and isinstance(body, dict):
             clean_body = {
-                k: v for k, v in body.items() 
+                k: v for k, v in body.items()
                 if k not in ("territorial_password", "pin_hash", "password_hash", "salt", "password_salt")
             }
 
+        now = time.time()
+        payload_str = json.dumps(clean_body or {})
+
         try:
-            self._sb_queue.put_nowait((table, method, params, clean_body, upsert))
-        except queue.Full:
-            pass
+            with self.write_transaction() as (conn, cur):
+                cur.execute("""
+                    INSERT INTO cbm_sync_outbox (table_name, method, params, payload_json, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (table, method, params, payload_str, now))
+        except Exception as e:
+            print(f"[!] Outbox enqueue failed: {e}")
+
+    def flush_outbox(self, batch_size: int = 50) -> int:
+        """
+        Reads pending mutations, executes HTTP calls against Supabase, and
+        removes confirmed entries from the outbox.
+        """
+        if not self.use_supabase:
+            return 0
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, table_name, method, params, payload_json, retry_count
+            FROM cbm_sync_outbox
+            ORDER BY id ASC
+            LIMIT ?
+        """, (batch_size,))
+        entries = [dict(r) for r in cur.fetchall()]
+
+        if not entries:
+            return 0
+
+        processed_ids = []
+        for item in entries:
+            table = item["table_name"]
+            method = item["method"]
+            params = item["params"]
+            try:
+                body = json.loads(item["payload_json"])
+            except Exception:
+                body = {}
+
+            status_code, _ = self._sb_request(table, method=method, params=params, body=body)
+
+            # Success conditions for PostgREST
+            if status_code in (200, 201, 204):
+                processed_ids.append(item["id"])
+            else:
+                with self.write_transaction() as (w_conn, w_cur):
+                    w_cur.execute("""
+                        UPDATE cbm_sync_outbox
+                        SET retry_count = retry_count + 1, last_error = ?
+                        WHERE id = ?
+                    """, (f"HTTP {status_code}", item["id"]))
+                break
+
+        if processed_ids:
+            placeholders = ",".join("?" for _ in processed_ids)
+            with self.write_transaction() as (w_conn, w_cur):
+                w_cur.execute(f"DELETE FROM cbm_sync_outbox WHERE id IN ({placeholders})", tuple(processed_ids))
+
+        return len(processed_ids)
 
     def flush_supabase_queue(self, timeout: float = 2.0):
-        """Blocks until the pending cloud replication queue is drained or timeout is reached."""
-        if hasattr(self, "_sb_queue"):
-            t0 = time.time()
-            while not self._sb_queue.empty() and (time.time() - t0 < timeout):
-                time.sleep(0.01)
+        """Blocks until the pending cloud replication outbox is drained or timeout is reached."""
+        if self.use_supabase:
+            self.flush_outbox(batch_size=100)
 
     @staticmethod
     def _format_iso(ts: Optional[Union[int, float]]) -> Optional[str]:
@@ -1319,6 +1377,9 @@ class CBMDatabase:
             except Exception:
                 return time.time()
 
+        # Drain outgoing mutations before pulling remote state
+        self.flush_outbox(batch_size=100)
+
         try:
             # 1. Fetch remote data over HTTP without holding any SQLite connection
             st_accs, accs = self._sb_request('cbm_accounts', 'GET', '?select=*')
@@ -1335,14 +1396,38 @@ class CBMDatabase:
             st_slots, sb_slots = self._sb_request('cbm_sponsorship_slots', 'GET', '?select=*')
             st_ads, sb_ads = self._sb_request('cbm_sponsored_ads', 'GET', '?select=*&status=eq.ACTIVE')
 
-            # 2. Persist to SQLite in an isolated write transaction with 30s busy timeout
-            conn = self.get_write_connection()
-            try:
-                cur = conn.cursor()
+            # 2. Persist to SQLite in an isolated write transaction with 60s busy timeout
+            with self.write_transaction() as (conn, cur):
+                # Fetch pending outbox mutations to prevent overwriting active local edits
+                cur.execute("SELECT params, payload_json FROM cbm_sync_outbox WHERE table_name = 'cbm_accounts';")
+                outbox_items = cur.fetchall()
+                locked_accounts = set()
+                for p, body_str in outbox_items:
+                    if "account_name=eq." in p:
+                        locked_accounts.add(p.split("account_name=eq.")[1].split("&")[0].strip().lower())
+                    try:
+                        b = json.loads(body_str)
+                        if "account_name" in b:
+                            locked_accounts.add(b["account_name"].strip().lower())
+                    except Exception:
+                        pass
 
-                # Accounts
+                # Accounts with monotonic timestamp resolution
                 if st_accs == 200 and isinstance(accs, list):
                     for a in accs:
+                        acc_name = a.get("account_name", "").strip()
+                        if not acc_name or acc_name.lower() in locked_accounts:
+                            continue
+
+                        remote_updated = _parse_iso(a.get("updated_at"))
+
+                        # Check existing local timestamp
+                        cur.execute("SELECT updated_at, deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_name,))
+                        local_row = cur.fetchone()
+                        if local_row and local_row[0] and local_row[0] > remote_updated:
+                            # Local record is newer; do not overwrite
+                            continue
+
                         cur.execute("""
                             INSERT INTO cbm_accounts (
                                 account_name, display_name, clan_tag, role, deposited_cents,
@@ -1366,7 +1451,7 @@ class CBMDatabase:
                                 password_salt = COALESCE(excluded.password_salt, cbm_accounts.password_salt),
                                 updated_at = excluded.updated_at
                         """, (
-                            a.get('account_name'),
+                            acc_name,
                             a.get('display_name'),
                             a.get('clan_tag', 'ANTI-OG'),
                             a.get('role', 'member'),
@@ -1374,7 +1459,7 @@ class CBMDatabase:
                             int(a.get('total_deposited_cents') or 0),
                             int(a.get('total_withdrawn_cents') or 0),
                             _parse_iso(a.get('created_at')),
-                            _parse_iso(a.get('updated_at')),
+                            remote_updated,
                             a.get('avatar_url', ''),
                             a.get('pin_hash'),
                             a.get('salt'),
@@ -1560,24 +1645,29 @@ class CBMDatabase:
                 # Treasury
                 if st_tr == 200 and isinstance(tr, list) and tr:
                     t = tr[0]
-                    cur.execute("""
-                        UPDATE cbm_treasury
-                        SET vault_total_gold_cents = ?,
-                            member_liabilities_cents = ?,
-                            bank_reserves_cents = ?,
-                            unencumbered_capital_cents = ?,
-                            loan_penalties_cents = ?,
-                            last_sync_at = ?
-                        WHERE id = 1
-                    """, (
-                        int(t.get('vault_total_gold_cents') or 0),
-                        int(t.get('member_liabilities_cents') or 0),
-                        int(t.get('bank_reserves_cents') or 0),
-                        int(t.get('unencumbered_capital_cents') or 0),
-                        int(t.get('loan_penalties_cents') or 0),
-                        _parse_iso(t.get('last_sync_at'))
-                    ))
-                    stats["treasury"] = True
+                    remote_sync_time = _parse_iso(t.get('last_sync_at'))
+                    cur.execute("SELECT last_sync_at FROM cbm_treasury WHERE id = 1")
+                    local_t = cur.fetchone()
+
+                    if not (local_t and local_t[0] and local_t[0] > remote_sync_time):
+                        cur.execute("""
+                            UPDATE cbm_treasury
+                            SET vault_total_gold_cents = ?,
+                                member_liabilities_cents = ?,
+                                bank_reserves_cents = ?,
+                                unencumbered_capital_cents = ?,
+                                loan_penalties_cents = ?,
+                                last_sync_at = ?
+                            WHERE id = 1
+                        """, (
+                            int(t.get('vault_total_gold_cents') or 0),
+                            int(t.get('member_liabilities_cents') or 0),
+                            int(t.get('bank_reserves_cents') or 0),
+                            int(t.get('unencumbered_capital_cents') or 0),
+                            int(t.get('loan_penalties_cents') or 0),
+                            remote_sync_time
+                        ))
+                        stats["treasury"] = True
 
                 # Withdrawals
                 if st_wds == 200 and isinstance(wds, list):
@@ -1743,10 +1833,6 @@ class CBMDatabase:
                             ad.get('status', 'ACTIVE')
                         ))
                     stats["sponsored_ads"] = len(sb_ads)
-
-                conn.commit()
-            finally:
-                conn.close()
 
             if not quiet:
                 print(f"[+] Supabase bi-directional sync completed: {stats}")
@@ -2956,30 +3042,23 @@ class CBMDatabase:
         ledger_note = f"Voluntary loan repayment: {repay_amount / 100.0:.2f} Gold toward {target_loan.get('principal_gold')} Gold loan (Status: {new_status})"
 
         # 1. Update SQLite with atomic decrement and lock
-        conn = self.get_write_connection()
-        cur = conn.cursor()
         try:
-            cur.execute("BEGIN IMMEDIATE;")
-            cur.execute("""
-                UPDATE cbm_accounts
-                SET deposited_cents = deposited_cents - ?, updated_at = ?
-                WHERE account_name = ? AND deposited_cents >= ?
-            """, (repay_amount, now, acc_key, repay_amount))
+            with self.write_transaction() as (conn, cur):
+                cur.execute("""
+                    UPDATE cbm_accounts
+                    SET deposited_cents = deposited_cents - ?, updated_at = ?
+                    WHERE account_name = ? AND deposited_cents >= ?
+                """, (repay_amount, now, acc_key, repay_amount))
 
-            if cur.rowcount == 0:
-                conn.rollback()
-                return False, "Insufficient balance or concurrent update conflict.", {}
+                if cur.rowcount == 0:
+                    return False, "Insufficient balance or concurrent update conflict.", {}
 
-            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_key,))
-            new_balance = cur.fetchone()[0]
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_key,))
+                new_balance = cur.fetchone()[0]
 
-            cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (acc_key, repay_amount, new_balance, tx_hash, ledger_note, now))
-            conn.commit()
+                cur.execute("INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'LOAN_REPAYMENT', ?, ?, ?, ?, ?)", (acc_key, repay_amount, new_balance, tx_hash, ledger_note, now))
         except Exception as e:
-            conn.rollback()
             return False, f"Transaction error: {e}", {}
-        finally:
-            conn.close()
 
         # 2. Mirror to Supabase if active
         if self.use_supabase:
@@ -3947,39 +4026,32 @@ class CBMDatabase:
         ledger_notes = f"Clan War Chest Donation: {amount_gold:.2f} Gold. {clean_msg}".strip()
 
         # 1. Dual-Write: Always update SQLite first with atomic balance deduction
-        conn = self.get_write_connection()
-        cur = conn.cursor()
         try:
-            cur.execute("BEGIN IMMEDIATE;")
-            min_req_cents = amount_cents + (2000 if active_loans else 0)
-            cur.execute("""
-                UPDATE cbm_accounts
-                SET deposited_cents = deposited_cents - ?, updated_at = ?
-                WHERE account_name = ? AND deposited_cents >= ?
-            """, (amount_cents, now, acc_key, min_req_cents))
+            with self.write_transaction() as (conn, cur):
+                min_req_cents = amount_cents + (2000 if active_loans else 0)
+                cur.execute("""
+                    UPDATE cbm_accounts
+                    SET deposited_cents = deposited_cents - ?, updated_at = ?
+                    WHERE account_name = ? AND deposited_cents >= ?
+                """, (amount_cents, now, acc_key, min_req_cents))
 
-            if cur.rowcount == 0:
-                conn.rollback()
-                return False, "Insufficient available balance or protected account buffer constraint.", None
+                if cur.rowcount == 0:
+                    return False, "Insufficient available balance or protected account buffer constraint.", None
 
-            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_key,))
-            new_balance_cents = cur.fetchone()[0]
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_key,))
+                new_balance_cents = cur.fetchone()[0]
 
-            cur.execute("""
-                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
-                VALUES (?, 'TREASURY_DONATION', ?, ?, ?, ?, ?)
-            """, (acc_key, -amount_cents, new_balance_cents, tx_hash, ledger_notes, now))
-            donor_disp = acc.get("display_name") or acc_key
-            cur.execute("""
-                INSERT INTO cbm_donations (donor_name, territorial_account, amount_gold, amount_cents, message, source, tx_hash, is_refundable, status, created_at)
-                VALUES (?, ?, ?, ?, ?, 'BALANCE', ?, 0, 'IRREVOCABLE', ?)
-            """, (donor_disp, territorial_account or acc_key, round(amount_gold, 2), amount_cents, clean_msg, tx_hash, now))
-            conn.commit()
+                cur.execute("""
+                    INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                    VALUES (?, 'TREASURY_DONATION', ?, ?, ?, ?, ?)
+                """, (acc_key, -amount_cents, new_balance_cents, tx_hash, ledger_notes, now))
+                donor_disp = acc.get("display_name") or acc_key
+                cur.execute("""
+                    INSERT INTO cbm_donations (donor_name, territorial_account, amount_gold, amount_cents, message, source, tx_hash, is_refundable, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'BALANCE', ?, 0, 'IRREVOCABLE', ?)
+                """, (donor_disp, territorial_account or acc_key, round(amount_gold, 2), amount_cents, clean_msg, tx_hash, now))
         except Exception as e:
-            conn.rollback()
             return False, f"Donation transaction failed: {e}", None
-        finally:
-            conn.close()
 
         # 2. Dual-Write: Mirror to Supabase if active
         if self.use_supabase:
@@ -4423,50 +4495,35 @@ class CBMDatabase:
         if not candidates:
             return None
 
-        conn = self.get_write_connection()
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
         try:
-            # BEGIN IMMEDIATE: prevent concurrent claims on the same slip (Fix: race condition)
-            cur.execute("BEGIN IMMEDIATE")
+            with self.write_transaction() as (conn, cur):
+                conn.row_factory = sqlite3.Row
+                lower_candidates = [c.lower() for c in candidates]
+                placeholders = ",".join("?" for _ in lower_candidates)
 
-            # COLLATE NOCASE is on the column definition; LOWER() on params is belt-and-suspenders.
-            lower_candidates = [c.lower() for c in candidates]
-            placeholders = ",".join("?" for _ in lower_candidates)
+                cur.execute(f"""
+                    SELECT * FROM cbm_pending_donations
+                    WHERE LOWER(account_name) IN ({placeholders})
+                      AND status = 'PENDING'
+                      AND expires_at >= ?
+                    ORDER BY ABS(amount_cents - ?) ASC, created_at ASC
+                    LIMIT 1
+                """, (*lower_candidates, now, amount_cents))
+                row = cur.fetchone()
+                if not row:
+                    return None
 
-            # Tolerance match: ORDER BY ABS(amount_cents - ?) so the nearest slip wins.
-            # The daemon still books the ACTUAL received amount to the War Chest.
-            cur.execute(f"""
-                SELECT * FROM cbm_pending_donations
-                WHERE LOWER(account_name) IN ({placeholders})
-                  AND status = 'PENDING'
-                  AND expires_at >= ?
-                ORDER BY ABS(amount_cents - ?) ASC, created_at ASC
-                LIMIT 1
-            """, (*lower_candidates, now, amount_cents))
-            row = cur.fetchone()
-            if not row:
-                conn.rollback()
-                conn.close()
-                return None
+                slip = dict(row)
+                slip_id = slip["id"]
+                slip_amount = slip["amount_cents"]
+                variance_cents = amount_cents - slip_amount
 
-            slip = dict(row)
-            slip_id = slip["id"]
-            slip_amount = slip["amount_cents"]
-            variance_cents = amount_cents - slip_amount
-
-            cur.execute(
-                "UPDATE cbm_pending_donations SET status = 'FULFILLED', tx_hash = ? WHERE id = ? AND status = 'PENDING'",
-                (tx_id, slip_id)
-            )
-            if cur.rowcount == 0:
-                # Another concurrent writer claimed it first
-                conn.rollback()
-                conn.close()
-                return None
-
-            conn.commit()
-            conn.close()
+                cur.execute(
+                    "UPDATE cbm_pending_donations SET status = 'FULFILLED', tx_hash = ? WHERE id = ? AND status = 'PENDING'",
+                    (tx_id, slip_id)
+                )
+                if cur.rowcount == 0:
+                    return None
 
             if variance_cents != 0:
                 print(
@@ -4474,8 +4531,6 @@ class CBMDatabase:
                     f"received {amount_cents/100:.2f}G, delta {variance_cents/100:+.2f}G. "
                     f"Booking actual received amount to War Chest."
                 )
-            # Return slip but override amount_cents with the actual received amount
-            # so the caller (deposit_daemon) books the correct figure to the War Chest.
             slip["actual_amount_cents"] = amount_cents
             slip["variance_cents"] = variance_cents
 
@@ -4487,13 +4542,7 @@ class CBMDatabase:
                     body={"status": "FULFILLED", "tx_hash": tx_id}
                 )
             return slip
-
         except Exception as e:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            conn.close()
             print(f"[!] find_and_claim_pending_donation error: {e}")
             return None
 
@@ -5056,11 +5105,8 @@ class CBMDatabase:
             except Exception:
                 pass
 
-        conn = self.get_write_connection(timeout=15.0)
-        cur = conn.cursor()
-        try:
-            cur.execute("BEGIN IMMEDIATE;")
-
+        # Atomic write transaction via global write coordinator
+        with self.write_transaction() as (conn, cur):
             # 1. Idempotency Check
             if idempotency_key:
                 cur.execute("""
@@ -5069,7 +5115,6 @@ class CBMDatabase:
                 """, (owner_account, tx_hash))
                 existing = cur.fetchone()
                 if existing:
-                    conn.rollback()
                     return True, "Idempotent transaction already executed.", {
                         "credits_cost": 0.0,
                         "credits_remaining": round(existing[0] / 100.0, 2),
@@ -5077,7 +5122,7 @@ class CBMDatabase:
                         "is_idempotent_replay": True
                     }
 
-            # 2. Atomic Balance Deduction
+            # 2. Check and decrement balance
             cur.execute("""
                 UPDATE cbm_accounts
                 SET deposited_cents = deposited_cents - ?, updated_at = ?
@@ -5085,10 +5130,13 @@ class CBMDatabase:
             """, (cost_cents, now, owner_account, cost_cents))
 
             if cur.rowcount == 0:
-                conn.rollback()
-                return False, (
-                    f"Insufficient API Credits or concurrent modification: {cost_gold:.2f} Gold required."
-                ), {"credits_remaining": 0.0, "credits_cost": cost_gold}
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
+                row = cur.fetchone()
+                avail = (row[0] / 100.0) if row else 0.0
+                return False, f"Insufficient API credits. Required: {cost_gold:.2f}, Available: {avail:.2f}", {
+                    "credits_remaining": avail,
+                    "credits_cost": cost_gold
+                }
 
             cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
             new_balance = cur.fetchone()[0]
@@ -5101,7 +5149,7 @@ class CBMDatabase:
                 ) VALUES (?, 'API_CONSUMPTION', ?, ?, ?, ?, ?)
             """, (owner_account, -cost_cents, new_balance, tx_hash, ledger_note, now))
 
-            # 4. Update API Key usage if key_id provided
+            # 4. Update key metrics if key_id is present
             if key_id:
                 cur.execute("""
                     UPDATE cbm_api_keys
@@ -5110,13 +5158,6 @@ class CBMDatabase:
                         last_used_at = ?
                     WHERE key_id = ?
                 """, (cost_gold, now, key_id))
-
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            return False, f"API credit transaction failed: {e}", {}
-        finally:
-            conn.close()
 
         if self.use_supabase:
             self._enqueue_sb_task(
@@ -5169,11 +5210,7 @@ class CBMDatabase:
         orig_tag = f" [orig: {original_tx_hash}]" if original_tx_hash else ""
         notes = f"API Refund ({key_id or 'direct'}): {cost_gold:.2f} Credit refunded to deposit ({reason}){orig_tag}"
 
-        conn = self.get_write_connection(timeout=15.0)
-        cur = conn.cursor()
-        try:
-            cur.execute("BEGIN IMMEDIATE;")
-
+        with self.write_transaction() as (conn, cur):
             cur.execute("""
                 UPDATE cbm_accounts
                 SET deposited_cents = deposited_cents + ?, updated_at = ?
@@ -5181,7 +5218,6 @@ class CBMDatabase:
             """, (cost_cents, now, owner_account))
 
             if cur.rowcount == 0:
-                conn.rollback()
                 return False, "Account not found for refund.", {}
 
             cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
@@ -5201,13 +5237,6 @@ class CBMDatabase:
                         total_requests = MAX(0, total_requests - 1)
                     WHERE key_id = ?
                 """, (cost_gold, key_id))
-
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            return False, f"API credit refund failed: {e}", {}
-        finally:
-            conn.close()
 
         if self.use_supabase:
             self._enqueue_sb_task(
@@ -5480,95 +5509,84 @@ class CBMDatabase:
             pass
 
         # 3. Atomic Write Lock: Budget Cap & Anti-Abuse Verification
-        conn = self.get_write_connection()
-        cur = conn.cursor()
         try:
-            cur.execute("BEGIN IMMEDIATE;")
+            with self.write_transaction() as (conn, cur):
+                # Auto-expire outdated pending slips for this voter
+                cur.execute("""
+                    UPDATE cbm_admin_votes
+                    SET status = 'EXPIRED', rejection_reason = '15-minute verification window expired.'
+                    WHERE voter_account = ? COLLATE NOCASE AND status IN ('PENDING', 'PENDING_REVIEW')
+                      AND expires_at > 0 AND expires_at < ?
+                """, (voter_account.strip(), now))
 
-            # Auto-expire outdated pending slips for this voter
-            cur.execute("""
-                UPDATE cbm_admin_votes
-                SET status = 'EXPIRED', rejection_reason = '15-minute verification window expired.'
-                WHERE voter_account = ? COLLATE NOCASE AND status IN ('PENDING', 'PENDING_REVIEW')
-                  AND expires_at > 0 AND expires_at < ?
-            """, (voter_account.strip(), now))
+                # 3a. Disallow multiple unsettled pending claims for the same voter
+                cur.execute("""
+                    SELECT claim_id FROM cbm_admin_votes
+                    WHERE voter_account = ? COLLATE NOCASE AND status IN ('PENDING', 'PENDING_REVIEW')
+                """, (voter_account.strip(),))
+                active_pending = cur.fetchone()
+                if active_pending:
+                    return False, f"Voter account '{voter_account}' already has an active pending slip ({active_pending[0]}). Await audit verification before submitting new claims.", {}
 
-            # 3a. Disallow multiple unsettled pending claims for the same voter
-            cur.execute("""
-                SELECT claim_id FROM cbm_admin_votes
-                WHERE voter_account = ? COLLATE NOCASE AND status IN ('PENDING', 'PENDING_REVIEW')
-            """, (voter_account.strip(),))
-            active_pending = cur.fetchone()
-            if active_pending:
-                conn.rollback()
-                return False, f"Voter account '{voter_account}' already has an active pending slip ({active_pending[0]}). Await audit verification before submitting new claims.", {}
+                # 3b. Anti-replay: Prevent duplicate identical volume claims within 24 hours
+                cur.execute("""
+                    SELECT claim_id FROM cbm_admin_votes
+                    WHERE voter_account = ? COLLATE NOCASE AND votes_count = ? AND status = 'REWARDED'
+                      AND created_at > ?
+                """, (voter_account.strip(), votes_count, now - 86400))
+                dup = cur.fetchone()
+                if dup:
+                    return False, f"Duplicate claim detected: identical vote volume ({votes_count} votes) for voter '{voter_account}' was already rewarded within the last 24 hours.", {}
 
-            # 3b. Anti-replay: Prevent duplicate identical volume claims within 24 hours
-            cur.execute("""
-                SELECT claim_id FROM cbm_admin_votes
-                WHERE voter_account = ? COLLATE NOCASE AND votes_count = ? AND status = 'REWARDED'
-                  AND created_at > ?
-            """, (voter_account.strip(), votes_count, now - 86400))
-            dup = cur.fetchone()
-            if dup:
-                conn.rollback()
-                return False, f"Duplicate claim detected: identical vote volume ({votes_count} votes) for voter '{voter_account}' was already rewarded within the last 24 hours.", {}
+                # 3c. Rate limit: Max 10 claims or 5,000 votes per voter per 24 hours
+                cur.execute("""
+                    SELECT COUNT(*), COALESCE(SUM(votes_count), 0) FROM cbm_admin_votes
+                    WHERE voter_account = ? COLLATE NOCASE AND created_at > ?
+                """, (voter_account.strip(), now - 86400))
+                row_daily = cur.fetchone()
+                daily_claims = row_daily[0] if row_daily else 0
+                daily_votes = row_daily[1] if row_daily else 0
+                if daily_claims >= 10 or (daily_votes + votes_count) > 5000:
+                    return False, f"Daily sponsorship limit reached for voter '{voter_account}' (max 10 claims or 5,000 votes / 24h).", {}
 
-            # 3c. Rate limit: Max 10 claims or 5,000 votes per voter per 24 hours
-            cur.execute("""
-                SELECT COUNT(*), COALESCE(SUM(votes_count), 0) FROM cbm_admin_votes
-                WHERE voter_account = ? COLLATE NOCASE AND created_at > ?
-            """, (voter_account.strip(), now - 86400))
-            row_daily = cur.fetchone()
-            daily_claims = row_daily[0] if row_daily else 0
-            daily_votes = row_daily[1] if row_daily else 0
-            if daily_claims >= 10 or (daily_votes + votes_count) > 5000:
-                conn.rollback()
-                return False, f"Daily sponsorship limit reached for voter '{voter_account}' (max 10 claims or 5,000 votes / 24h).", {}
+                # 3d. Check 15% Reserve Budget Cap under exclusive write lock
+                cur.execute("SELECT bank_reserves_cents FROM cbm_treasury WHERE id = 1")
+                t_row = cur.fetchone()
+                reserves_cents = t_row[0] if t_row else 0
+                max_budget_cents = int(round(0.15 * reserves_cents))
 
-            # 3d. Check 15% Reserve Budget Cap under exclusive write lock
-            cur.execute("SELECT bank_reserves_cents FROM cbm_treasury WHERE id = 1")
-            t_row = cur.fetchone()
-            reserves_cents = t_row[0] if t_row else 0
-            max_budget_cents = int(round(0.15 * reserves_cents))
+                cur.execute("""
+                    SELECT COALESCE(SUM(reward_cents), 0)
+                    FROM cbm_admin_votes
+                    WHERE status IN ('REWARDED', 'PENDING', 'PENDING_REVIEW')
+                """)
+                allocated_cents = cur.fetchone()[0] or 0
+                available_budget_cents = max(0, max_budget_cents - allocated_cents)
 
-            cur.execute("""
-                SELECT COALESCE(SUM(reward_cents), 0)
-                FROM cbm_admin_votes
-                WHERE status IN ('REWARDED', 'PENDING', 'PENDING_REVIEW')
-            """)
-            allocated_cents = cur.fetchone()[0] or 0
-            available_budget_cents = max(0, max_budget_cents - allocated_cents)
+                if reward_cents > available_budget_cents:
+                    available_budget_gold = available_budget_cents / 100.0
+                    max_budget_gold = max_budget_cents / 100.0
+                    return False, (
+                        f"Campaign reserve cap reached. Current available budget is {available_budget_gold:.2f} Gold "
+                        f"(maximum 15% of bank reserves: {max_budget_gold:.2f} Gold). "
+                        f"Claim of {reward_gold:.2f} Gold exceeds remaining cap."
+                    ), {}
 
-            if reward_cents > available_budget_cents:
-                conn.rollback()
-                available_budget_gold = available_budget_cents / 100.0
-                max_budget_gold = max_budget_cents / 100.0
-                return False, (
-                    f"Campaign reserve cap reached. Current available budget is {available_budget_gold:.2f} Gold "
-                    f"(maximum 15% of bank reserves: {max_budget_gold:.2f} Gold). "
-                    f"Claim of {reward_gold:.2f} Gold exceeds remaining cap."
-                ), {}
-
-            expires_at = now + 900.0  # 15-minute verification slip window
-            initial_status = "PENDING"
-            cur.execute("""
-                INSERT INTO cbm_admin_votes (
-                    claim_id, cbm_username, voter_account, target_account,
-                    votes_count, gold_spent, reward_gold, reward_cents,
-                    status, quarantine_until, created_at, expires_at, baseline_admin_points
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?)
-            """, (
-                claim_id, cbm_username, voter_account.strip(), target_vault,
-                votes_count, calculated_gold_spent, reward_gold, reward_cents,
-                initial_status, now, expires_at, baseline_points
-            ))
-            conn.commit()
+                expires_at = now + 900.0  # 15-minute verification slip window
+                initial_status = "PENDING"
+                cur.execute("""
+                    INSERT INTO cbm_admin_votes (
+                        claim_id, cbm_username, voter_account, target_account,
+                        votes_count, gold_spent, reward_gold, reward_cents,
+                        status, quarantine_until, created_at, expires_at, baseline_admin_points
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?, ?, ?)
+                """, (
+                    claim_id, cbm_username, voter_account.strip(), target_vault,
+                    votes_count, calculated_gold_spent, reward_gold, reward_cents,
+                    initial_status, now, expires_at, baseline_points
+                ))
         except Exception as e:
-            conn.rollback()
             return False, f"Failed to record claim: {e}", {}
-        finally:
-            conn.close()
 
         if self.use_supabase:
             self._enqueue_sb_task("cbm_admin_votes", method="POST", body={
@@ -5614,73 +5632,64 @@ class CBMDatabase:
         - Records double-entry audit entry in cbm_ledger
         - Recalculates treasury
         """
-        conn = self.get_write_connection()
-        cur = conn.cursor()
         now = time.time()
         try:
-            cur.execute("BEGIN IMMEDIATE;")
-            cur.execute("SELECT * FROM cbm_admin_votes WHERE claim_id = ?", (claim_id,))
-            row = cur.fetchone()
-            if not row:
-                conn.rollback()
-                return False, f"Admin vote claim '{claim_id}' not found.", {}
+            with self.write_transaction() as (conn, cur):
+                cur.execute("SELECT * FROM cbm_admin_votes WHERE claim_id = ?", (claim_id,))
+                row = cur.fetchone()
+                if not row:
+                    return False, f"Admin vote claim '{claim_id}' not found.", {}
 
-            col_names = [d[0] for d in cur.description]
-            claim = dict(zip(col_names, row))
+                col_names = [d[0] for d in cur.description]
+                claim = dict(zip(col_names, row))
 
-            if claim.get("status") == "REWARDED":
-                conn.rollback()
-                return False, f"Claim '{claim_id}' has already been settled and rewarded.", {}
+                if claim.get("status") == "REWARDED":
+                    return False, f"Claim '{claim_id}' has already been settled and rewarded.", {}
 
-            cbm_username = claim["cbm_username"]
-            reward_gold = float(claim["reward_gold"])
-            reward_cents = int(claim["reward_cents"])
+                cbm_username = claim["cbm_username"]
+                reward_gold = float(claim["reward_gold"])
+                reward_cents = int(claim["reward_cents"])
 
-            if not verified:
-                reason = rejection_reason or "Verification failed or rejected by administrator."
-                cur.execute("""
-                    UPDATE cbm_admin_votes
-                    SET status = 'REJECTED', rejection_reason = ?, verified_at = ?
-                    WHERE claim_id = ?
-                """, (reason, now, claim_id))
-                conn.commit()
-                if self.use_supabase:
-                    self._enqueue_sb_task("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
-                        "status": "REJECTED",
-                        "rejection_reason": reason
-                    })
-                return True, f"Claim '{claim_id}' rejected: {reason}", {"claim_id": claim_id, "status": "REJECTED"}
+                if not verified:
+                    reason = rejection_reason or "Verification failed or rejected by administrator."
+                    cur.execute("""
+                        UPDATE cbm_admin_votes
+                        SET status = 'REJECTED', rejection_reason = ?, verified_at = ?
+                        WHERE claim_id = ?
+                    """, (reason, now, claim_id))
+                else:
+                    cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (cbm_username,))
+                    acc_row = cur.fetchone()
+                    if not acc_row:
+                        return False, f"Member account '{cbm_username}' not found.", {}
 
-            # Double check account exists
-            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (cbm_username,))
-            acc_row = cur.fetchone()
-            if not acc_row:
-                conn.rollback()
-                return False, f"Member account '{cbm_username}' not found.", {}
+                    current_balance_cents = acc_row[0] or 0
+                    new_balance_cents = current_balance_cents + reward_cents
+                    tx_hash = f"tx_adminvote_{claim_id}"
+                    notes = f"Admin Election Reward: 1:1 reimbursement for {claim['votes_count']} votes ({reward_gold:.2f} Gold) cast for {claim['target_account']}"
+                    quarantine_until = now + (quarantine_hours * 3600.0)
 
-            current_balance_cents = acc_row[0] or 0
-            new_balance_cents = current_balance_cents + reward_cents
-            tx_hash = f"tx_adminvote_{claim_id}"
-            notes = f"Admin Election Reward: 1:1 reimbursement for {claim['votes_count']} votes ({reward_gold:.2f} Gold) cast for {claim['target_account']}"
-            quarantine_until = now + (quarantine_hours * 3600.0)
-
-            # Atomic settlement in SQLite
-            cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance_cents, now, cbm_username))
-            cur.execute("""
-                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
-                VALUES (?, 'ADMIN_VOTE_REWARD', ?, ?, ?, ?, ?)
-            """, (cbm_username, reward_cents, new_balance_cents, tx_hash, notes, now))
-            cur.execute("""
-                UPDATE cbm_admin_votes
-                SET status = 'REWARDED', verified_at = ?, quarantine_until = ?
-                WHERE claim_id = ?
-            """, (now, quarantine_until, claim_id))
-            conn.commit()
+                    # Atomic settlement in SQLite
+                    cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_balance_cents, now, cbm_username))
+                    cur.execute("""
+                        INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                        VALUES (?, 'ADMIN_VOTE_REWARD', ?, ?, ?, ?, ?)
+                    """, (cbm_username, reward_cents, new_balance_cents, tx_hash, notes, now))
+                    cur.execute("""
+                        UPDATE cbm_admin_votes
+                        SET status = 'REWARDED', verified_at = ?, quarantine_until = ?
+                        WHERE claim_id = ?
+                    """, (now, quarantine_until, claim_id))
         except Exception as e:
-            conn.rollback()
             return False, f"Failed to settle claim: {e}", {}
-        finally:
-            conn.close()
+
+        if not verified:
+            if self.use_supabase:
+                self._enqueue_sb_task("cbm_admin_votes", method="PATCH", params=f"?claim_id=eq.{claim_id}", body={
+                    "status": "REJECTED",
+                    "rejection_reason": reason
+                })
+            return True, f"Claim '{claim_id}' rejected: {reason}", {"claim_id": claim_id, "status": "REJECTED"}
 
         # Dual-Write to Supabase
         if self.use_supabase:
@@ -6531,47 +6540,41 @@ class CBMDatabase:
         owner_share_cents = int(order["price_cents"] * 0.5)
         now = time.time()
 
-        conn = self.get_write_connection()
-        cur = conn.cursor()
+        notes = f"Product Sale: 50% revenue share for '{order['product_name']}' (Order {order_id})"
+        new_bal = 0
         try:
-            cur.execute("BEGIN IMMEDIATE;")
-            # 1. Update order status
-            cur.execute("""
-                UPDATE cbm_product_orders
-                SET status = 'FULFILLED', tx_hash = ?, fulfilled_at = ?
-                WHERE order_id = ?
-            """, (tx_hash, now, order_id))
+            with self.write_transaction() as (conn, cur):
+                # 1. Update order status
+                cur.execute("""
+                    UPDATE cbm_product_orders
+                    SET status = 'FULFILLED', tx_hash = ?, fulfilled_at = ?
+                    WHERE order_id = ?
+                """, (tx_hash, now, order_id))
 
-            # 2. Credit 50% share to product owner
-            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
-            acc_row = cur.fetchone()
-            current_bal = acc_row[0] if acc_row else 0
-            new_bal = current_bal + owner_share_cents
+                # 2. Credit 50% share to product owner
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (owner_account,))
+                acc_row = cur.fetchone()
+                current_bal = acc_row[0] if acc_row else 0
+                new_bal = current_bal + owner_share_cents
 
-            cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_bal, now, owner_account))
+                cur.execute("UPDATE cbm_accounts SET deposited_cents = ?, updated_at = ? WHERE account_name = ?", (new_bal, now, owner_account))
 
-            # 3. Double-entry ledger entry
-            notes = f"Product Sale: 50% revenue share for '{order['product_name']}' (Order {order_id})"
-            cur.execute("""
-                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
-                VALUES (?, 'PRODUCT_SALE_REVENUE', ?, ?, ?, ?, ?)
-            """, (owner_account, owner_share_cents, new_bal, tx_hash, notes, now))
+                # 3. Double-entry ledger entry
+                cur.execute("""
+                    INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                    VALUES (?, 'PRODUCT_SALE_REVENUE', ?, ?, ?, ?, ?)
+                """, (owner_account, owner_share_cents, new_bal, tx_hash, notes, now))
 
-            # 4. Update product statistics
-            cur.execute("""
-                UPDATE cbm_products
-                SET sales_count = sales_count + 1,
-                    total_revenue_gold = total_revenue_gold + ?,
-                    updated_at = ?
-                WHERE product_id = ?
-            """, (order["price_gold"], now, order["product_id"]))
-
-            conn.commit()
+                # 4. Update product statistics
+                cur.execute("""
+                    UPDATE cbm_products
+                    SET sales_count = sales_count + 1,
+                        total_revenue_gold = total_revenue_gold + ?,
+                        updated_at = ?
+                    WHERE product_id = ?
+                """, (order["price_gold"], now, order["product_id"]))
         except Exception as e:
-            conn.rollback()
             return False, f"Failed to fulfill order: {e}"
-        finally:
-            conn.close()
 
         # Dual-write to Supabase
         if self.use_supabase:
@@ -6893,173 +6896,169 @@ class CBMDatabase:
         if not clean_invitee:
             return
 
-        conn = self.get_write_connection()
-        cur = conn.cursor()
         now = time.time()
+        should_recompute = False
         try:
-            cur.execute("BEGIN IMMEDIATE;")
-            cur.execute(
-                "SELECT inviter_account, status, tier1_rewarded_at, tier2_rewarded_at, tier3_rewarded_at, COALESCE(perpetual_commission_gold, 0.0), rewarded_at FROM cbm_referrals WHERE LOWER(invitee_account) = LOWER(?)",
-                (clean_invitee,)
-            )
-            ref = cur.fetchone()
-            if not ref:
-                conn.rollback()
-                return
-
-            inviter, current_status, t1_at, t2_at, t3_at, perp_comm, old_rewarded_at = ref
-
-            # Legacy migration safety: if already marked REWARDED under old scheme, treat Tier 1 as settled
-            if current_status == "REWARDED" and not t1_at:
-                t1_at = old_rewarded_at or now
-
-            # Fetch lifetime gross deposited gold
-            cur.execute(
-                "SELECT total_deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
-                (clean_invitee,)
-            )
-            acc_row = cur.fetchone()
-            deposited_gold = (acc_row[0] or 0) / 100.0 if acc_row else 0.0
-
-            # Sum verified War Chest donations for invitee
-            cur.execute("""
-                SELECT COALESCE(SUM(d.amount_cents), 0)
-                FROM cbm_donations d
-                LEFT JOIN cbm_accounts a
-                    ON LOWER(d.donor_name) = LOWER(a.display_name)
-                    OR LOWER(d.donor_name) = LOWER(a.account_name)
-                    OR LOWER(d.territorial_account) = LOWER(a.primary_territorial_account)
-                WHERE
-                    LOWER(a.account_name) = LOWER(?)
-                    OR LOWER(d.donor_name) = LOWER(?)
-                    OR LOWER(d.territorial_account) = LOWER(?)
-            """, (clean_invitee, clean_invitee, clean_invitee))
-            donated_gold = (cur.fetchone()[0] or 0) / 100.0
-
-            # Update progress tracking
-            cur.execute(
-                "UPDATE cbm_referrals SET invitee_deposited_gold = ?, invitee_donated_gold = ? WHERE LOWER(invitee_account) = LOWER(?)",
-                (deposited_gold, donated_gold, clean_invitee)
-            )
-
-            payouts = []
-            new_t1_at = t1_at
-            new_t2_at = t2_at
-            new_t3_at = t3_at
-            new_perp_comm = perp_comm
-
-            # 1. Tier 1 Milestone: Deposits >= 500G & Donations >= 100G (Inviter: 15G, Invitee: 10G)
-            if deposited_gold >= 500.0 and donated_gold >= 100.0 and not t1_at:
-                new_t1_at = now
-                payouts.append({
-                    "recipient": inviter,
-                    "amount_cents": 1500,
-                    "note": f"Referral Milestone Tier 1: {clean_invitee} qualified (>=100G donated & >=500G deposited)"
-                })
-                payouts.append({
-                    "recipient": clean_invitee,
-                    "amount_cents": 1000,
-                    "note": f"Referral Welcome Bonus Tier 1: Qualified under sponsor {inviter}"
-                })
-
-            # 2. Tier 2 Milestone: Deposits >= 1,000G & Donations >= 300G (Inviter: 35G)
-            if deposited_gold >= 1000.0 and donated_gold >= 300.0 and not t2_at:
-                new_t2_at = now
-                payouts.append({
-                    "recipient": inviter,
-                    "amount_cents": 3500,
-                    "note": f"Referral Milestone Tier 2: {clean_invitee} qualified (>=300G donated & >=1,000G deposited)"
-                })
-
-            # 3. Tier 3 Milestone: Deposits >= 2,500G & Donations >= 1,000G (Inviter: 100G, Invitee: 25G)
-            if deposited_gold >= 2500.0 and donated_gold >= 1000.0 and not t3_at:
-                new_t3_at = now
-                payouts.append({
-                    "recipient": inviter,
-                    "amount_cents": 10000,
-                    "note": f"Referral Milestone Tier 3: {clean_invitee} reached Benefactor (>=1,000G donated & >=2,500G deposited)"
-                })
-                payouts.append({
-                    "recipient": clean_invitee,
-                    "amount_cents": 2500,
-                    "note": f"Referral Benefactor Bonus Tier 3: Qualified under sponsor {inviter}"
-                })
-
-            # 4. Perpetual Patron Share: 10% commission on donations beyond 1,000G once Tier 3 is achieved
-            if (t3_at or new_t3_at) and donated_gold > 1000.0:
-                excess_donated_cents = max(0, int(round((donated_gold - 1000.0) * 100)))
-                already_commissioned_basis_cents = int(round(perp_comm * 1000))
-                commissionable_cents = excess_donated_cents - already_commissioned_basis_cents
-                if commissionable_cents >= 100:  # At least 1.00 Gold in new donations
-                    comm_cents = int(round(commissionable_cents * 0.10))
-                    if comm_cents > 0:
-                        new_perp_comm += (comm_cents / 100.0)
-                        payouts.append({
-                            "recipient": inviter,
-                            "amount_cents": comm_cents,
-                            "note": f"Referral Perpetual Patron Share (10%): {clean_invitee} donated additional {commissionable_cents/100:.2f}G"
-                        })
-
-            total_payout_cents = sum(p["amount_cents"] for p in payouts)
-            if total_payout_cents > 0:
-                treasury = self.get_treasury()
-                vault_excess_cents = treasury.get("vault_excess_cents", 0)
-                if vault_excess_cents < total_payout_cents:
-                    print(
-                        f"[CBM Referral] Insufficient vault excess ({vault_excess_cents/100:.2f}G) "
-                        f"to settle referral {inviter} -> {clean_invitee}. "
-                        f"Required: {total_payout_cents/100:.2f}G. Deferred."
-                    )
-                    conn.commit()
+            with self.write_transaction() as (conn, cur):
+                cur.execute(
+                    "SELECT inviter_account, status, tier1_rewarded_at, tier2_rewarded_at, tier3_rewarded_at, COALESCE(perpetual_commission_gold, 0.0), rewarded_at FROM cbm_referrals WHERE LOWER(invitee_account) = LOWER(?)",
+                    (clean_invitee,)
+                )
+                ref = cur.fetchone()
+                if not ref:
                     return
 
-                for p in payouts:
-                    recip = p["recipient"]
-                    amt = p["amount_cents"]
-                    note = p["note"]
+                inviter, current_status, t1_at, t2_at, t3_at, perp_comm, old_rewarded_at = ref
 
-                    cur.execute(
-                        "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
-                        (amt, now, recip)
-                    )
-                    cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)", (recip,))
-                    bal_row = cur.fetchone()
-                    bal_after = bal_row[0] if bal_row else 0
+                # Legacy migration safety: if already marked REWARDED under old scheme, treat Tier 1 as settled
+                if current_status == "REWARDED" and not t1_at:
+                    t1_at = old_rewarded_at or now
 
-                    cur.execute(
-                        "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
-                        (recip, amt, bal_after, f"ref_{recip}_{clean_invitee}_{int(now)}_{amt}", note, now)
-                    )
-                    vault_excess_cents -= amt
-                    cur.execute(
-                        "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'RESERVE_DEBIT', ?, ?, ?, ?, ?)",
-                        ("reserves", amt, max(0, vault_excess_cents), f"ref_rsv_{recip}_{clean_invitee}_{int(now)}_{amt}", f"Reserve debit: {note}", now)
-                    )
-
-                new_status = 'TIER3' if new_t3_at else ('TIER2' if new_t2_at else ('TIER1' if new_t1_at else 'PENDING'))
-                cur.execute("""
-                    UPDATE cbm_referrals
-                    SET status = ?,
-                        tier1_rewarded_at = ?,
-                        tier2_rewarded_at = ?,
-                        tier3_rewarded_at = ?,
-                        perpetual_commission_gold = ?,
-                        rewarded_at = COALESCE(rewarded_at, ?)
-                    WHERE LOWER(invitee_account) = LOWER(?)
-                """, (new_status, new_t1_at, new_t2_at, new_t3_at, new_perp_comm, now, clean_invitee))
-                conn.commit()
-                print(
-                    f"[CBM Referral] Settled milestone/commission for {inviter} <- {clean_invitee}: "
-                    f"{total_payout_cents/100:.2f}G distributed across {len(payouts)} payouts."
+                # Fetch lifetime gross deposited gold
+                cur.execute(
+                    "SELECT total_deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)",
+                    (clean_invitee,)
                 )
-                self.recompute_treasury()
-            else:
-                conn.commit()
+                acc_row = cur.fetchone()
+                deposited_gold = (acc_row[0] or 0) / 100.0 if acc_row else 0.0
+
+                # Sum verified War Chest donations for invitee
+                cur.execute("""
+                    SELECT COALESCE(SUM(d.amount_cents), 0)
+                    FROM cbm_donations d
+                    LEFT JOIN cbm_accounts a
+                        ON LOWER(d.donor_name) = LOWER(a.display_name)
+                        OR LOWER(d.donor_name) = LOWER(a.account_name)
+                        OR LOWER(d.territorial_account) = LOWER(a.primary_territorial_account)
+                    WHERE
+                        LOWER(a.account_name) = LOWER(?)
+                        OR LOWER(d.donor_name) = LOWER(?)
+                        OR LOWER(d.territorial_account) = LOWER(?)
+                """, (clean_invitee, clean_invitee, clean_invitee))
+                donated_gold = (cur.fetchone()[0] or 0) / 100.0
+
+                # Update progress tracking
+                cur.execute(
+                    "UPDATE cbm_referrals SET invitee_deposited_gold = ?, invitee_donated_gold = ? WHERE LOWER(invitee_account) = LOWER(?)",
+                    (deposited_gold, donated_gold, clean_invitee)
+                )
+
+                payouts = []
+                new_t1_at = t1_at
+                new_t2_at = t2_at
+                new_t3_at = t3_at
+                new_perp_comm = perp_comm
+
+                # 1. Tier 1 Milestone: Deposits >= 500G & Donations >= 100G (Inviter: 15G, Invitee: 10G)
+                if deposited_gold >= 500.0 and donated_gold >= 100.0 and not t1_at:
+                    new_t1_at = now
+                    payouts.append({
+                        "recipient": inviter,
+                        "amount_cents": 1500,
+                        "note": f"Referral Milestone Tier 1: {clean_invitee} qualified (>=100G donated & >=500G deposited)"
+                    })
+                    payouts.append({
+                        "recipient": clean_invitee,
+                        "amount_cents": 1000,
+                        "note": f"Referral Welcome Bonus Tier 1: Qualified under sponsor {inviter}"
+                    })
+
+                # 2. Tier 2 Milestone: Deposits >= 1,000G & Donations >= 300G (Inviter: 35G)
+                if deposited_gold >= 1000.0 and donated_gold >= 300.0 and not t2_at:
+                    new_t2_at = now
+                    payouts.append({
+                        "recipient": inviter,
+                        "amount_cents": 3500,
+                        "note": f"Referral Milestone Tier 2: {clean_invitee} qualified (>=300G donated & >=1,000G deposited)"
+                    })
+
+                # 3. Tier 3 Milestone: Deposits >= 2,500G & Donations >= 1,000G (Inviter: 100G, Invitee: 25G)
+                if deposited_gold >= 2500.0 and donated_gold >= 1000.0 and not t3_at:
+                    new_t3_at = now
+                    payouts.append({
+                        "recipient": inviter,
+                        "amount_cents": 10000,
+                        "note": f"Referral Milestone Tier 3: {clean_invitee} reached Benefactor (>=1,000G donated & >=2,500G deposited)"
+                    })
+                    payouts.append({
+                        "recipient": clean_invitee,
+                        "amount_cents": 2500,
+                        "note": f"Referral Benefactor Bonus Tier 3: Qualified under sponsor {inviter}"
+                    })
+
+                # 4. Perpetual Patron Share: 10% commission on donations beyond 1,000G once Tier 3 is achieved
+                if (t3_at or new_t3_at) and donated_gold > 1000.0:
+                    excess_donated_cents = max(0, int(round((donated_gold - 1000.0) * 100)))
+                    already_commissioned_basis_cents = int(round(perp_comm * 1000))
+                    commissionable_cents = excess_donated_cents - already_commissioned_basis_cents
+                    if commissionable_cents >= 100:  # At least 1.00 Gold in new donations
+                        comm_cents = int(round(commissionable_cents * 0.10))
+                        if comm_cents > 0:
+                            new_perp_comm += (comm_cents / 100.0)
+                            payouts.append({
+                                "recipient": inviter,
+                                "amount_cents": comm_cents,
+                                "note": f"Referral Perpetual Patron Share (10%): {clean_invitee} donated additional {commissionable_cents/100:.2f}G"
+                            })
+
+                total_payout_cents = sum(p["amount_cents"] for p in payouts)
+                if total_payout_cents > 0:
+                    cur.execute("SELECT vault_total_gold_cents, member_liabilities_cents FROM cbm_treasury WHERE id = 1")
+                    tr_row = cur.fetchone()
+                    vault_excess_cents = (tr_row[0] - tr_row[1]) if tr_row else 0
+                    if vault_excess_cents < total_payout_cents:
+                        print(
+                            f"[CBM Referral] Insufficient vault excess ({vault_excess_cents/100:.2f}G) "
+                            f"to settle referral {inviter} -> {clean_invitee}. "
+                            f"Required: {total_payout_cents/100:.2f}G. Deferred."
+                        )
+                        return
+
+                    for p in payouts:
+                        recip = p["recipient"]
+                        amt = p["amount_cents"]
+                        note = p["note"]
+
+                        cur.execute(
+                            "UPDATE cbm_accounts SET deposited_cents = deposited_cents + ?, updated_at = ? WHERE LOWER(account_name) = LOWER(?)",
+                            (amt, now, recip)
+                        )
+                        cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE LOWER(account_name) = LOWER(?)", (recip,))
+                        bal_row = cur.fetchone()
+                        bal_after = bal_row[0] if bal_row else 0
+
+                        cur.execute(
+                            "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'REFERRAL_REWARD', ?, ?, ?, ?, ?)",
+                            (recip, amt, bal_after, f"ref_{recip}_{clean_invitee}_{int(now)}_{amt}", note, now)
+                        )
+                        vault_excess_cents -= amt
+                        cur.execute(
+                            "INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at) VALUES (?, 'RESERVE_DEBIT', ?, ?, ?, ?, ?)",
+                            ("reserves", amt, max(0, vault_excess_cents), f"ref_rsv_{recip}_{clean_invitee}_{int(now)}_{amt}", f"Reserve debit: {note}", now)
+                        )
+
+                    new_status = 'TIER3' if new_t3_at else ('TIER2' if new_t2_at else ('TIER1' if new_t1_at else 'PENDING'))
+                    cur.execute("""
+                        UPDATE cbm_referrals
+                        SET status = ?,
+                            tier1_rewarded_at = ?,
+                            tier2_rewarded_at = ?,
+                            tier3_rewarded_at = ?,
+                            perpetual_commission_gold = ?,
+                            rewarded_at = COALESCE(rewarded_at, ?)
+                        WHERE LOWER(invitee_account) = LOWER(?)
+                    """, (new_status, new_t1_at, new_t2_at, new_t3_at, new_perp_comm, now, clean_invitee))
+
+                    should_recompute = True
+                    print(
+                        f"[CBM Referral] Settled milestone/commission for {inviter} <- {clean_invitee}: "
+                        f"{total_payout_cents/100:.2f}G distributed across {len(payouts)} payouts."
+                    )
         except Exception as e:
-            conn.rollback()
             print(f"[!] Referral settlement error: {e}")
-        finally:
-            conn.close()
+
+        if should_recompute:
+            self.recompute_treasury()
 
     def get_referral_stats(self, inviter_account: str) -> dict:
         """Returns referral program statistics for a given inviter account."""
@@ -7268,72 +7267,61 @@ class CBMDatabase:
         ad_id = f"ad_{uuid.uuid4().hex[:12]}"
         tx_hash = f"sponsor_{slot_id}_{int(now_ts)}"
 
-        conn = self.get_write_connection()
-        cur = conn.cursor()
+        new_bal_cents = 0
         try:
-            cur.execute("BEGIN IMMEDIATE;")
+            with self.write_transaction() as (conn, cur):
+                # 1. Deduct price atomically from buyer
+                cur.execute("""
+                    UPDATE cbm_accounts
+                    SET deposited_cents = deposited_cents - ?, updated_at = ?
+                    WHERE account_name = ? AND deposited_cents >= ?
+                """, (price_cents, now_ts, buyer_account, price_cents))
 
-            # 1. Deduct price atomically from buyer
-            cur.execute("""
-                UPDATE cbm_accounts
-                SET deposited_cents = deposited_cents - ?, updated_at = ?
-                WHERE account_name = ? AND deposited_cents >= ?
-            """, (price_cents, now_ts, buyer_account, price_cents))
+                if cur.rowcount == 0:
+                    return False, "Insufficient balance during atomic deduction.", None
 
-            if cur.rowcount == 0:
-                conn.rollback()
-                return False, "Insufficient balance during atomic deduction.", None
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (buyer_account,))
+                new_bal_cents = cur.fetchone()[0]
 
-            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (buyer_account,))
-            new_bal_cents = cur.fetchone()[0]
+                # 2. Record ledger entry
+                cur.execute("""
+                    INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                    VALUES (?, 'SPONSORSHIP_LEASE', ?, ?, ?, ?, ?)
+                """, (buyer_account, -price_cents, new_bal_cents, tx_hash, f"Booked {duration_days}-day lease for {slot['name']}", now_ts))
 
-            # 2. Record ledger entry
-            cur.execute("""
-                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
-                VALUES (?, 'SPONSORSHIP_LEASE', ?, ?, ?, ?, ?)
-            """, (buyer_account, -price_cents, new_bal_cents, tx_hash, f"Booked {duration_days}-day lease for {slot['name']}", now_ts))
+                # 3. Inject 60% share directly into Bank Unencumbered Reserves
+                cur.execute("""
+                    UPDATE cbm_treasury
+                    SET bank_reserves_cents = bank_reserves_cents + ?,
+                        unencumbered_capital_cents = unencumbered_capital_cents + ?,
+                        last_sync_at = ?
+                    WHERE id = 1
+                """, (reserve_split_cents, reserve_split_cents, now_ts))
 
-            # 3. Inject 60% share directly into Bank Unencumbered Reserves
-            cur.execute("""
-                UPDATE cbm_treasury
-                SET bank_reserves_cents = bank_reserves_cents + ?,
-                    unencumbered_capital_cents = unencumbered_capital_cents + ?,
-                    last_sync_at = ?
-                WHERE id = 1
-            """, (reserve_split_cents, reserve_split_cents, now_ts))
+                # 4. Deactivate old active ads for this slot
+                cur.execute("""
+                    UPDATE cbm_sponsored_ads
+                    SET status = 'EXPIRED'
+                    WHERE slot_id = ? AND status = 'ACTIVE' AND (is_official IS NULL OR is_official = 0)
+                """, (slot_id,))
 
-            # 4. Deactivate old active ads for this slot
-            cur.execute("""
-                UPDATE cbm_sponsored_ads
-                SET status = 'EXPIRED'
-                WHERE slot_id = ? AND status = 'ACTIVE' AND (is_official IS NULL OR is_official = 0)
-            """, (slot_id,))
+                # 5. Insert new active sponsored ad
+                cur.execute("""
+                    INSERT INTO cbm_sponsored_ads (
+                        ad_id, slot_id, owner_account, title, tagline, target_url, badge_text,
+                        image_url, image_width, image_height, is_official, priority,
+                        impressions, clicks, expires_at, created_at, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, 'ACTIVE')
+                """, (ad_id, slot_id, buyer_account, clean_title, clean_tagline, clean_url, clean_badge, clean_image, image_width, image_height, lease_end_ts, now_ts))
 
-            # 5. Insert new active sponsored ad
-            cur.execute("""
-                INSERT INTO cbm_sponsored_ads (
-                    ad_id, slot_id, owner_account, title, tagline, target_url, badge_text,
-                    image_url, image_width, image_height, is_official, priority,
-                    impressions, clicks, expires_at, created_at, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, 'ACTIVE')
-            """, (ad_id, slot_id, buyer_account, clean_title, clean_tagline, clean_url, clean_badge, clean_image, image_width, image_height, lease_end_ts, now_ts))
-
-            # 6. Update slot lease status
-            cur.execute("""
-                UPDATE cbm_sponsorship_slots
-                SET active_sponsor_account = ?, lease_start_ts = ?, lease_end_ts = ?, is_available = 0, updated_at = ?
-                WHERE slot_id = ?
-            """, (buyer_account, now_ts, lease_end_ts, now_ts, slot_id))
-
-            conn.commit()
+                # 6. Update slot lease status
+                cur.execute("""
+                    UPDATE cbm_sponsorship_slots
+                    SET active_sponsor_account = ?, lease_start_ts = ?, lease_end_ts = ?, is_available = 0, updated_at = ?
+                    WHERE slot_id = ?
+                """, (buyer_account, now_ts, lease_end_ts, now_ts, slot_id))
         except Exception as e:
-            conn.rollback()
             return False, f"Failed to execute lease transaction: {e}", None
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
         # 7. Mirror mutations to Supabase for multi-instance persistent synchronization
         try:
@@ -8213,36 +8201,25 @@ class CBMDatabase:
         code_hash = hashlib.sha256(raw_code.strip().encode("utf-8")).hexdigest()
         now = time.time()
 
-        conn = self.get_write_connection()
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
         try:
-            cur.execute("BEGIN IMMEDIATE;")
-            cur.execute("""
-                SELECT * FROM cbm_oauth_codes
-                WHERE code_hash = ? AND client_id = ? AND used_at IS NULL AND expires_at > ?
-            """, (code_hash, client_id, now))
-            row = cur.fetchone()
-            if not row:
-                cur.execute("ROLLBACK;")
-                return None
+            with self.write_transaction() as (conn, cur):
+                cur.execute("""
+                    SELECT * FROM cbm_oauth_codes
+                    WHERE code_hash = ? AND client_id = ? AND used_at IS NULL AND expires_at > ?
+                """, (code_hash, client_id, now))
+                row = cur.fetchone()
+                if not row:
+                    return None
 
-            rec = dict(row)
-            if rec.get("redirect_uri") != redirect_uri:
-                cur.execute("ROLLBACK;")
-                return None
+                col_names = [d[0] for d in cur.description] if cur.description else []
+                rec = dict(zip(col_names, row))
+                if rec.get("redirect_uri") != redirect_uri:
+                    return None
 
-            cur.execute("UPDATE cbm_oauth_codes SET used_at = ? WHERE code_hash = ?", (now, code_hash))
-            cur.execute("COMMIT;")
-            return rec
+                cur.execute("UPDATE cbm_oauth_codes SET used_at = ? WHERE code_hash = ?", (now, code_hash))
+                return rec
         except Exception:
-            try:
-                cur.execute("ROLLBACK;")
-            except Exception:
-                pass
             return None
-        finally:
-            conn.close()
 
     def create_oauth_tokens(
         self,

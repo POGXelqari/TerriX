@@ -17,6 +17,7 @@ import ssl
 import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional, List, Tuple
+from resilient_fetcher import fetcher
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -35,27 +36,24 @@ class TerritorialGoldClient:
         """Sends an authenticated POST request to territorial.io API."""
         url = f"{self.base_url}{endpoint}"
         body = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": DEFAULT_USER_AGENT,
-                "Accept": "application/json"
-            },
-            method="POST"
-        )
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
         try:
-            with urllib.request.urlopen(req, context=self._ssl_ctx, timeout=self.timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return resp.status, data
-        except urllib.error.HTTPError as e:
-            raw = e.read().decode("utf-8")
+            status_code, resp_bytes, _ = fetcher.fetch(
+                url,
+                method="POST",
+                data=body,
+                headers=headers,
+                timeout=self.timeout
+            )
+            raw = resp_bytes.decode("utf-8", errors="replace")
             try:
                 data = json.loads(raw)
             except Exception:
-                data = {"status": "http_error", "code": e.code, "raw": raw}
-            return e.code, data
+                data = {"status": "parse_error", "code": status_code, "raw": raw}
+            return status_code, data
         except Exception as e:
             return 0, {"status": "client_error", "message": str(e)}
 
@@ -164,34 +162,34 @@ class TerritorialGoldClient:
         Returns recent transactions matching filter criteria.
         """
         url = "https://territorial.io/log/transactions"
-        req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
-        ctx = ssl.create_default_context()
         txs = []
         try:
-            with urllib.request.urlopen(req, context=ctx, timeout=10.0) as resp:
-                text = resp.read().decode("utf-8")
-                lines = [l.strip() for l in text.split("\n") if l.strip()]
-                for line in lines:
-                    parts = line.split(",")
-                    if len(parts) >= 5 and parts[0].isdigit():
-                        ts = int(parts[0])
-                        sender = parts[1]
-                        receiver = parts[2]
-                        amt = float(parts[3])
-                        fee = float(parts[4])
+            status_code, resp_bytes, _ = fetcher.fetch(url, method="GET", timeout=10.0)
+            if status_code != 200:
+                return txs
+            text = resp_bytes.decode("utf-8", errors="replace")
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            for line in lines:
+                parts = line.split(",")
+                if len(parts) >= 5 and parts[0].isdigit():
+                    ts = int(parts[0])
+                    sender = parts[1]
+                    receiver = parts[2]
+                    amt = float(parts[3])
+                    fee = float(parts[4])
 
-                        if filter_account:
-                            if filter_account.lower() not in (sender.lower(), receiver.lower()):
-                                continue
+                    if filter_account:
+                        if filter_account.lower() not in (sender.lower(), receiver.lower()):
+                            continue
 
-                        txs.append({
-                            "timestamp_ms": ts,
-                            "timestamp_iso": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts / 1000.0)),
-                            "sender": sender,
-                            "receiver": receiver,
-                            "amount_gold": amt,
-                            "fee_gold": fee
-                        })
+                    txs.append({
+                        "timestamp_ms": ts,
+                        "timestamp_iso": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ts / 1000.0)),
+                        "sender": sender,
+                        "receiver": receiver,
+                        "amount_gold": amt,
+                        "fee_gold": fee
+                    })
         except Exception as e:
             print(f"[!] Error fetching transaction log: {e}")
         return txs

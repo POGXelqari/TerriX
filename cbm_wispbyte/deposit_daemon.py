@@ -16,6 +16,7 @@ import hashlib
 import ssl
 import urllib.request
 from typing import Optional, Callable
+from resilient_fetcher import fetcher
 from db_layer import CBMDatabase
 
 DEFAULT_USER_AGENT = (
@@ -52,13 +53,13 @@ class CBMDepositDaemon:
     def poll_once(self) -> int:
         """Polls /log/transactions once, reconciling any new inbound deposits to the vault."""
         url = "https://territorial.io/log/transactions"
-        req = urllib.request.Request(url, headers={"User-Agent": DEFAULT_USER_AGENT})
         new_deposits = 0
         try:
-            with urllib.request.urlopen(req, context=self._ssl_ctx, timeout=10.0) as resp:
-                text = resp.read().decode("utf-8")
+            status_code, body_bytes, _ = fetcher.fetch(url, method="GET", timeout=7.0)
+            if status_code != 200:
+                return 0
+            text = body_bytes.decode("utf-8", errors="replace")
         except Exception as e:
-            print(f"[!] Error fetching transaction stream: {e}")
             return 0
 
         lines = [line.strip() for line in text.split("\n") if line.strip()]

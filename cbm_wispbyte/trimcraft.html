@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CBM | TrimCraft Pro</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+body{font-family:'Plus Jakarta Sans',sans-serif}
+.font-mono{font-family:'JetBrains Mono',monospace}
+.bg-grid-dark{background-color:#090d16;background-image:linear-gradient(45deg,#131b2e 25%,transparent 25%),linear-gradient(-45deg,#131b2e 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#131b2e 75%),linear-gradient(-45deg,transparent 75%,#131b2e 75%);background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0}
+.bg-grid-light{background-color:#f1f5f9;background-image:linear-gradient(45deg,#cbd5e1 25%,transparent 25%),linear-gradient(-45deg,#cbd5e1 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#cbd5e1 75%),linear-gradient(-45deg,transparent 75%,#cbd5e1 75%);background-size:16px 16px;background-position:0 0,0 8px,8px -8px,-8px 0}
+input[type=range]{-webkit-appearance:none;background:#1e293b;height:4px;border-radius:2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;height:14px;width:14px;border-radius:50%;background:#38bdf8;cursor:ew-resize;border:2px solid #0f172a;transition:transform .1s}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.2)}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:#0b0f19}
+::-webkit-scrollbar-thumb{background:#1e293b;border-radius:2px}
+</style>
+</head>
+<body class="bg-[#060911] text-slate-200 min-h-screen flex flex-col selection:bg-sky-500/30 selection:text-sky-300">
+
+<header class="border-b border-slate-800/80 bg-[#090d16]/80 backdrop-blur sticky top-0 z-50">
+  <div class="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <img src="https://cbm.wispbyte.org/cbm-logo-new.png" alt="CBM" class="h-7 w-auto object-contain">
+      <div class="h-4 w-px bg-slate-800"></div>
+      <span class="font-bold text-sm tracking-tight text-white flex items-center gap-1.5">
+        TrimCraft <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 text-sky-400 font-semibold tracking-normal">PRO</span>
+      </span>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-mono text-emerald-400">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        CLIENT-SIDE
+      </div>
+      <button id="rstBtn" class="hidden text-xs font-mono font-medium text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 px-3 py-1.5 rounded border border-slate-800 transition">CLEAR</button>
+    </div>
+  </div>
+</header>
+
+<main class="flex-1 flex flex-col max-w-7xl w-full mx-auto p-4 gap-4">
+  <div id="uSec" class="flex-1 flex flex-col justify-center items-center py-10">
+    <div id="dZone" class="w-full max-w-xl border border-dashed border-slate-800 hover:border-sky-500/50 bg-[#090d16]/50 hover:bg-[#0b101c] rounded-xl p-8 sm:p-12 text-center cursor-pointer transition relative group">
+      <input type="file" id="fIn" accept="image/*" multiple class="hidden">
+      <div class="w-12 h-12 mx-auto mb-4 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 group-hover:text-sky-400 group-hover:border-sky-500/30 transition">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+      </div>
+      <h2 class="text-base font-semibold text-slate-100 mb-1">Import Targets</h2>
+      <p class="text-xs text-slate-500 mb-6 font-mono">PNG, WEBP, JPG, SVG &bull; PASTE CLIPBOARD (CTRL+V)</p>
+      <div class="flex items-center justify-center gap-2">
+        <button type="button" onclick="document.getElementById('fIn').click()" class="px-4 py-2 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs tracking-wide uppercase transition shadow-lg shadow-sky-500/10">Select Files</button>
+        <button type="button" id="sBtn" class="px-4 py-2 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 font-mono text-xs transition">Load Sample</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="wSec" class="hidden flex-1 flex flex-col gap-4">
+    <div id="fStrip" class="hidden flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800/80"></div>
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+      <div class="lg:col-span-4 bg-[#090d16] border border-slate-800/80 rounded-xl p-4 space-y-4">
+        <div>
+          <label class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Detection Mode</label>
+          <div class="grid grid-cols-2 gap-1.5 p-1 bg-black/40 rounded border border-slate-800/80">
+            <button id="mAlpha" class="py-1.5 text-xs font-mono font-medium rounded transition bg-sky-500/10 border border-sky-500/30 text-sky-400">Alpha</button>
+            <button id="mColor" class="py-1.5 text-xs font-mono font-medium rounded transition text-slate-400 hover:text-white">Corner Color</button>
+          </div>
+        </div>
+
+        <div id="cThresh">
+          <div class="flex justify-between items-center mb-1.5">
+            <label class="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider">Alpha Floor</label>
+            <span id="vThresh" class="text-xs font-mono font-bold text-sky-400">5</span>
+          </div>
+          <input type="range" id="sThresh" min="0" max="255" value="5" class="w-full">
+        </div>
+
+        <div id="cTol" class="hidden">
+          <div class="flex justify-between items-center mb-1.5">
+            <label class="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider">Color Delta</label>
+            <span id="vTol" class="text-xs font-mono font-bold text-sky-400">20</span>
+          </div>
+          <input type="range" id="sTol" min="1" max="120" value="20" class="w-full">
+        </div>
+
+        <div>
+          <div class="flex justify-between items-center mb-1.5">
+            <label class="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider">Padding</label>
+            <span id="vPad" class="text-xs font-mono font-bold text-sky-400">0px</span>
+          </div>
+          <input type="range" id="sPad" min="0" max="100" value="0" class="w-full">
+        </div>
+
+        <div>
+          <label class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Viewport Background</label>
+          <div class="flex items-center gap-1.5">
+            <button data-bg="bg-grid-dark" class="bg-opt w-7 h-7 rounded bg-grid-dark border border-sky-500" title="Dark Grid"></button>
+            <button data-bg="bg-grid-light" class="bg-opt w-7 h-7 rounded bg-grid-light border border-slate-800" title="Light Grid"></button>
+            <button data-bg="bg-black" class="bg-opt w-7 h-7 rounded bg-black border border-slate-800" title="Pure Black"></button>
+            <button data-bg="bg-white" class="bg-opt w-7 h-7 rounded bg-white border border-slate-800" title="Pure White"></button>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-800/80 space-y-3">
+          <div>
+            <label class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Output Format</label>
+            <select id="fmt" class="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-xs font-mono text-slate-300 focus:outline-none focus:border-sky-500">
+              <option value="image/png">PNG (Lossless Transparency)</option>
+              <option value="image/webp">WEBP (High Compression)</option>
+            </select>
+          </div>
+
+          <div class="space-y-1.5">
+            <button id="dlBtn" class="w-full py-2.5 rounded bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition shadow-lg shadow-sky-500/10">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              Export Trimmed
+            </button>
+            <button id="cpBtn" class="w-full py-2 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 font-mono text-xs border border-slate-800 flex items-center justify-center gap-2 transition">
+              <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3"/></svg>
+              Copy To Clipboard
+            </button>
+            <button id="zipBtn" class="hidden w-full py-2 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-mono text-xs border border-emerald-500/30 flex items-center justify-center gap-2 transition">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v1a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+              Download Batch (ZIP)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="lg:col-span-8 flex flex-col gap-3">
+        <div class="flex items-center justify-between bg-[#090d16] border border-slate-800/80 rounded-xl px-2 py-1.5">
+          <div class="flex items-center gap-1 font-mono text-xs">
+            <button id="tRes" class="px-3 py-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400 font-semibold">Trimmed</button>
+            <button id="tMsk" class="px-3 py-1 rounded text-slate-400 hover:text-white">Bounding Mask</button>
+            <button id="tSplt" class="px-3 py-1 rounded text-slate-400 hover:text-white">Split</button>
+          </div>
+          <div id="eWarn" class="hidden text-[11px] font-mono text-amber-400 px-2">Image bounds are empty</div>
+        </div>
+
+        <div id="vBox" class="bg-grid-dark border border-slate-800/80 rounded-xl p-4 min-h-[440px] max-h-[580px] flex items-center justify-center overflow-auto relative">
+          <div id="pRes" class="w-full h-full flex items-center justify-center">
+            <img id="imgRes" class="max-w-full max-h-[460px] object-contain">
+          </div>
+          <div id="pMsk" class="hidden w-full h-full flex items-center justify-center">
+            <canvas id="cnvMsk" class="max-w-full max-h-[460px] object-contain"></canvas>
+          </div>
+          <div id="pSplt" class="hidden w-full h-full grid grid-cols-1 sm:grid-cols-2 gap-4 items-center justify-center">
+            <div class="flex flex-col items-center gap-1.5">
+              <span class="text-[10px] font-mono uppercase text-slate-500">Source</span>
+              <img id="imgSrc" class="max-w-full max-h-[340px] object-contain border border-slate-800/60 rounded">
+            </div>
+            <div class="flex flex-col items-center gap-1.5">
+              <span class="text-[10px] font-mono uppercase text-sky-400">Trimmed</span>
+              <img id="imgCmp" class="max-w-full max-h-[340px] object-contain border border-sky-500/30 rounded">
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 bg-[#090d16] border border-slate-800/80 rounded-xl p-3 text-center font-mono">
+          <div>
+            <p class="text-[10px] text-slate-500 uppercase">Input</p>
+            <p id="stIn" class="text-xs font-semibold text-slate-300 mt-0.5">0×0</p>
+          </div>
+          <div>
+            <p class="text-[10px] text-slate-500 uppercase">Output</p>
+            <p id="stOut" class="text-xs font-semibold text-sky-400 mt-0.5">0×0</p>
+          </div>
+          <div>
+            <p class="text-[10px] text-slate-500 uppercase">Reduction</p>
+            <p id="stSaved" class="text-xs font-semibold text-emerald-400 mt-0.5">0%</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+let q = [], cur = 0, mod = 'alpha', aCnv = null;
+
+const $ = id => document.getElementById(id);
+const dZone = $('dZone'), fIn = $('fIn'), uSec = $('uSec'), wSec = $('wSec'), rstBtn = $('rstBtn');
+const sBtn = $('sBtn'), fStrip = $('fStrip'), sThresh = $('sThresh'), vThresh = $('vThresh');
+const sTol = $('sTol'), vTol = $('vTol'), sPad = $('sPad'), vPad = $('vPad');
+const mAlpha = $('mAlpha'), mColor = $('mColor'), cThresh = $('cThresh'), cTol = $('cTol');
+const tRes = $('tRes'), tMsk = $('tMsk'), tSplt = $('tSplt');
+const pRes = $('pRes'), pMsk = $('pMsk'), pSplt = $('pSplt'), vBox = $('vBox');
+const imgRes = $('imgRes'), cnvMsk = $('cnvMsk'), imgSrc = $('imgSrc'), imgCmp = $('imgCmp');
+const dlBtn = $('dlBtn'), cpBtn = $('cpBtn'), zipBtn = $('zipBtn'), fmt = $('fmt'), eWarn = $('eWarn');
+
+['dragenter', 'dragover'].forEach(e => dZone.addEventListener(e, ev => { ev.preventDefault(); dZone.classList.add('border-sky-500', 'bg-sky-500/5') }));
+['dragleave', 'drop'].forEach(e => dZone.addEventListener(e, ev => { ev.preventDefault(); dZone.classList.remove('border-sky-500', 'bg-sky-500/5') }));
+dZone.addEventListener('drop', ev => {
+  const f = Array.from(ev.dataTransfer.files).filter(i => i.type.startsWith('image/'));
+  f.length && loadFiles(f);
+});
+dZone.addEventListener('click', () => fIn.click());
+fIn.addEventListener('change', ev => ev.target.files.length && loadFiles(Array.from(ev.target.files)));
+
+window.addEventListener('paste', ev => {
+  const it = (ev.clipboardData || ev.originalEvent?.clipboardData)?.items || [];
+  const fls = [];
+  for (let i of it) i.type.includes('image') && fls.push(i.getAsFile());
+  fls.length && (loadFiles(fls), notify('Image pasted'));
+});
+
+rstBtn.addEventListener('click', () => {
+  q = []; cur = 0; aCnv = null;
+  wSec.classList.add('hidden'); rstBtn.classList.add('hidden'); fStrip.classList.add('hidden');
+  uSec.classList.remove('hidden'); fStrip.innerHTML = ''; fIn.value = '';
+});
+
+sBtn.addEventListener('click', ev => {
+  ev.stopPropagation();
+  const c = document.createElement('canvas');
+  c.width = 800; c.height = 800;
+  const cx = c.getContext('2d');
+  const g = cx.createLinearGradient(250, 250, 550, 550);
+  g.addColorStop(0, '#0284c7'); g.addColorStop(1, '#38bdf8');
+  cx.fillStyle = g;
+  cx.beginPath();
+  cx.roundRect(250, 250, 300, 300, 32);
+  cx.fill();
+  cx.fillStyle = '#060911';
+  cx.font = 'bold 36px "JetBrains Mono"';
+  cx.textAlign = 'center';
+  cx.textBaseline = 'middle';
+  cx.fillText('CBM', 400, 400);
+  c.toBlob(b => loadFiles([new File([b], 'cbm_sample.png', { type: 'image/png' })]));
+});
+
+function loadFiles(fls) {
+  Promise.all(fls.map(f => new Promise(res => {
+    const im = new Image(), u = URL.createObjectURL(f);
+    im.onload = () => res({ name: f.name, img: im });
+    im.src = u;
+  }))).then(res => {
+    const s = q.length;
+    q = [...q, ...res];
+    uSec.classList.add('hidden');
+    wSec.classList.remove('hidden');
+    rstBtn.classList.remove('hidden');
+    renderStrip();
+    setCur(s);
+  });
+}
+
+function renderStrip() {
+  if (q.length > 1) {
+    fStrip.classList.remove('hidden');
+    zipBtn.classList.remove('hidden');
+    fStrip.innerHTML = '';
+    q.forEach((it, i) => {
+      const d = document.createElement('div');
+      d.className = `w-12 h-12 rounded border flex-shrink-0 cursor-pointer overflow-hidden p-0.5 bg-grid-dark transition ${i === cur ? 'border-sky-500 ring-1 ring-sky-500' : 'border-slate-800 opacity-50 hover:opacity-100'}`;
+      d.innerHTML = `<img src="${it.img.src}" class="w-full h-full object-contain">`;
+      d.onclick = () => setCur(i);
+      fStrip.appendChild(d);
+    });
+  } else {
+    fStrip.classList.add('hidden');
+    zipBtn.classList.add('hidden');
+  }
+}
+
+function setCur(i) {
+  cur = i;
+  renderStrip();
+  compute();
+}
+
+sThresh.addEventListener('input', e => { vThresh.textContent = e.target.value; compute(); });
+sTol.addEventListener('input', e => { vTol.textContent = e.target.value; compute(); });
+sPad.addEventListener('input', e => { vPad.textContent = `${e.target.value}px`; compute(); });
+
+mAlpha.addEventListener('click', () => {
+  mod = 'alpha';
+  mAlpha.className = 'py-1.5 text-xs font-mono font-medium rounded transition bg-sky-500/10 border border-sky-500/30 text-sky-400';
+  mColor.className = 'py-1.5 text-xs font-mono font-medium rounded transition text-slate-400 hover:text-white';
+  cThresh.classList.remove('hidden'); cTol.classList.add('hidden');
+  compute();
+});
+
+mColor.addEventListener('click', () => {
+  mod = 'color';
+  mColor.className = 'py-1.5 text-xs font-mono font-medium rounded transition bg-sky-500/10 border border-sky-500/30 text-sky-400';
+  mAlpha.className = 'py-1.5 text-xs font-mono font-medium rounded transition text-slate-400 hover:text-white';
+  cThresh.classList.add('hidden'); cTol.classList.remove('hidden');
+  compute();
+});
+
+const tTabs = [[tRes, pRes], [tMsk, pMsk], [tSplt, pSplt]];
+tTabs.forEach(([btn, pan]) => {
+  btn.addEventListener('click', () => {
+    tTabs.forEach(([b, p]) => {
+      b.className = 'px-3 py-1 rounded text-slate-400 hover:text-white font-mono text-xs';
+      p.classList.add('hidden');
+    });
+    btn.className = 'px-3 py-1 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400 font-semibold font-mono text-xs';
+    pan.classList.remove('hidden');
+  });
+});
+
+document.querySelectorAll('.bg-opt').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.bg-opt').forEach(x => { x.classList.remove('border-sky-500'); x.classList.add('border-slate-800'); });
+    b.classList.remove('border-slate-800'); b.classList.add('border-sky-500');
+    vBox.className = `${b.dataset.bg} border border-slate-800/80 rounded-xl p-4 min-h-[440px] max-h-[580px] flex items-center justify-center overflow-auto relative`;
+  });
+});
+
+function getBounds(im, m, th, tol) {
+  const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const cx = c.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(im, 0, 0);
+  const d = cx.getImageData(0, 0, w, h).data;
+  const r0 = d[0], g0 = d[1], b0 = d[2], a0 = d[3];
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+
+  for (let y = 0; y < h; y++) {
+    const off = y * w * 4;
+    for (let x = 0; x < w; x++) {
+      const i = off + (x * 4);
+      const hit = m === 'alpha' ? d[i + 3] > th : (Math.abs(d[i] - r0) + Math.abs(d[i + 1] - g0) + Math.abs(d[i + 2] - b0) + Math.abs(d[i + 3] - a0)) > tol;
+      if (hit) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  return x1 === -1 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, ow: w, oh: h };
+}
+
+function compute() {
+  if (!q.length) return;
+  const it = q[cur];
+  const b = getBounds(it.img, mod, +sThresh.value, +sTol.value);
+  if (!b) {
+    eWarn.classList.remove('hidden');
+    $('stIn').textContent = `${it.img.naturalWidth}×${it.img.naturalHeight}`;
+    $('stOut').textContent = '0×0';
+    $('stSaved').textContent = '100%';
+    return;
+  }
+  eWarn.classList.add('hidden');
+
+  const pad = +sPad.value, tw = b.w + pad * 2, th = b.h + pad * 2;
+  const c = document.createElement('canvas'); c.width = tw; c.height = th;
+  const cx = c.getContext('2d');
+  cx.drawImage(it.img, b.x, b.y, b.w, b.h, pad, pad, b.w, b.h);
+
+  aCnv = c;
+  const u = c.toDataURL('image/png');
+  imgRes.src = u;
+  imgCmp.src = u;
+  imgSrc.src = it.img.src;
+
+  cnvMsk.width = b.ow; cnvMsk.height = b.oh;
+  const mcx = cnvMsk.getContext('2d');
+  mcx.drawImage(it.img, 0, 0);
+  mcx.fillStyle = 'rgba(6,9,17,0.78)';
+  mcx.fillRect(0, 0, b.ow, b.y);
+  mcx.fillRect(0, b.y + b.h, b.ow, b.oh - (b.y + b.h));
+  mcx.fillRect(0, b.y, b.x, b.h);
+  mcx.fillRect(b.x + b.w, b.y, b.ow - (b.x + b.w), b.h);
+  mcx.strokeStyle = '#38bdf8';
+  mcx.lineWidth = Math.max(1, Math.floor(b.ow / 300));
+  mcx.setLineDash([6, 3]);
+  mcx.strokeRect(b.x, b.y, b.w, b.h);
+
+  const sa = Math.max(0, Math.round((1 - (tw * th) / (b.ow * b.oh)) * 100));
+  $('stIn').textContent = `${b.ow}×${b.oh}`;
+  $('stOut').textContent = `${tw}×${th}`;
+  $('stSaved').textContent = `${sa}%`;
+}
+
+dlBtn.addEventListener('click', () => {
+  if (!aCnv) return;
+  const f = fmt.value, ext = f === 'image/webp' ? 'webp' : 'png';
+  const n = (q[cur].name || 'cbm_trimmed').replace(/\.[^/.]+$/, '') + `_trimmed.${ext}`;
+  const a = document.createElement('a');
+  a.download = n; a.href = aCnv.toDataURL(f, 0.95); a.click();
+  notify('Image exported');
+});
+
+cpBtn.addEventListener('click', () => {
+  if (!aCnv) return;
+  aCnv.toBlob(b => {
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': b })])
+      .then(() => notify('Copied to clipboard'))
+      .catch(() => notify('Copy failed', 1));
+  });
+});
+
+zipBtn.addEventListener('click', async () => {
+  if (!window.JSZip || !q.length) return;
+  const z = new JSZip(), f = fmt.value, ext = f === 'image/webp' ? 'webp' : 'png';
+  const th = +sThresh.value, tol = +sTol.value, pad = +sPad.value;
+
+  q.forEach((it, i) => {
+    const b = getBounds(it.img, mod, th, tol);
+    if (b) {
+      const c = document.createElement('canvas');
+      c.width = b.w + pad * 2; c.height = b.h + pad * 2;
+      c.getContext('2d').drawImage(it.img, b.x, b.y, b.w, b.h, pad, pad, b.w, b.h);
+      const b64 = c.toDataURL(f, 0.95).split(',')[1];
+      const nm = (it.name || `trim_${i + 1}`).replace(/\.[^/.]+$/, '') + `_trimmed.${ext}`;
+      z.file(nm, b64, { base64: true });
+    }
+  });
+
+  const blob = await z.generateAsync({ type: 'blob' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cbm_trimmed_batch.zip';
+  a.click();
+  notify('Batch ZIP downloaded');
+});
+
+function notify(m, err) {
+  const d = document.createElement('div');
+  d.className = `fixed bottom-4 right-4 px-3.5 py-2 rounded text-xs font-mono font-medium z-50 border shadow-2xl transition-all duration-200 transform translate-y-2 opacity-0 ${err ? 'bg-red-950/90 text-red-300 border-red-800' : 'bg-slate-900/90 text-sky-400 border-sky-500/30'}`;
+  d.textContent = m;
+  document.body.appendChild(d);
+  requestAnimationFrame(() => d.classList.remove('translate-y-2', 'opacity-0'));
+  setTimeout(() => { d.classList.add('opacity-0', 'translate-y-2'); setTimeout(() => d.remove(), 200); }, 2200);
+}
+
+// CBM Plus Paywall Verification Handshake
+let isCbmPlusActive = false;
+async function checkAuthAndCbmPlus() {
+  try {
+    const res = await fetch('/api/cbm/subscription/status');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.cbm_plus_active) {
+        isCbmPlusActive = true;
+        return;
+      }
+    }
+  } catch(e) {}
+  const modal = document.getElementById('cbmPlusModal');
+  if (modal) modal.classList.remove('hidden');
+  if (dlBtn) dlBtn.disabled = true;
+  if (cpBtn) cpBtn.disabled = true;
+  if (zipBtn) zipBtn.disabled = true;
+}
+window.addEventListener('DOMContentLoaded', checkAuthAndCbmPlus);
+</script>
+
+<div id="cbmPlusModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 hidden">
+  <div class="bg-[#0d121f] border border-sky-500/30 rounded-2xl max-w-md w-full p-6 text-center shadow-2xl relative">
+    <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
+      <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+    </div>
+    <h3 class="text-lg font-bold text-white mb-2">CBM Plus Subscription Required</h3>
+    <p class="text-xs text-slate-400 mb-6">TrimCraft Pro high-resolution frame trimming and server batch processing require an active <strong>CBM Plus</strong> membership (500 Gold/month).</p>
+    <div class="flex flex-col gap-2.5">
+      <a href="/vault.html" class="w-full py-2.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs tracking-wider uppercase transition">Upgrade to CBM Plus</a>
+      <a href="/login.html" class="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 font-mono text-xs transition">Sign In with Member Account</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

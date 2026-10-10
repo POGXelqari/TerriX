@@ -178,6 +178,37 @@ class TestTerriXOfficialClientKey(unittest.TestCase):
         status, body = self._request("GET", "/api/v1/products/ownership?account=B8bbq", headers=headers)
         self.assertEqual(status, 401)
 
+    def test_09_chat_endpoints_require_api_key(self):
+        """Verifies all /api/cbm/chat/* endpoints strictly require a valid API key."""
+        # 1. Unauthenticated requests return 401 Unauthorized
+        status, body = self._request("GET", "/api/cbm/chat/messages?room_id=auth_key_test_room")
+        self.assertEqual(status, 401)
+        self.assertEqual(body.get("error"), "unauthorized")
+
+        status, body = self._request("GET", "/api/cbm/chat/stickers")
+        self.assertEqual(status, 401)
+        self.assertEqual(body.get("error"), "unauthorized")
+
+        status, body = self._request("POST", "/api/cbm/chat/send", body={"room_id": "auth_key_test_room", "content": "Hi"})
+        self.assertEqual(status, 401)
+        self.assertEqual(body.get("error"), "unauthorized")
+
+        status, body = self._request("POST", "/api/cbm/chat/check", body={"content": "Hi"})
+        self.assertEqual(status, 401)
+        self.assertEqual(body.get("error"), "unauthorized")
+
+        # 2. Forged key returns 401 invalid_key
+        headers = {"X-CBM-API-Key": "cbm_live_forged_fake_token_12345"}
+        status, body = self._request("GET", "/api/cbm/chat/messages?room_id=auth_key_test_room", headers=headers)
+        self.assertEqual(status, 401)
+        self.assertEqual(body.get("error"), "invalid_key")
+
+        # 3. Query parameter api_key authorization succeeds
+        status, body = self._request("GET", f"/api/cbm/chat/messages?room_id=auth_key_test_room&api_key={OFFICIAL_TOKEN}")
+        self.assertEqual(status, 200)
+        self.assertEqual(body.get("status"), "ok")
+        self.assertTrue(body.get("client_authorized"))
+
 
 if __name__ == "__main__":
     unittest.main()

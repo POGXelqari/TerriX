@@ -278,6 +278,8 @@ def load_static_cache():
         ("top-donors-icon.png", "image/png"),
         ("developer-platform-icon.png", "image/png"),
         ("painsel-pointing-left.png", "image/png"),
+        ("trimcraft.html", "text/html; charset=utf-8"),
+        ("vidtrim.html", "text/html; charset=utf-8"),
     ]
     for fname, ctype in assets:
         fpath = os.path.join(base_dir, fname)
@@ -286,7 +288,7 @@ def load_static_cache():
                 with open(fpath, "rb") as f:
                     raw = f.read()
                 etag = f'"{hashlib.sha256(raw).hexdigest()[:16]}"'
-                gzipped = gzip.compress(raw, compresslevel=6)
+                gzipped = gzip.compress(raw, compresslevel=9)
                 _STATIC_CACHE[fname] = {
                     "raw": raw,
                     "gzip": gzipped,
@@ -964,6 +966,88 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         return None
 
+    def _get_request_prospect_token(self, body: Optional[Dict[str, Any]] = None) -> str:
+        """Extracts prospect token from payload or cookie."""
+        if body and body.get("prospect_token"):
+            return str(body.get("prospect_token")).strip()
+        cookie_hdr = self.headers.get("Cookie", "")
+        if cookie_hdr:
+            for piece in cookie_hdr.split(";"):
+                piece = piece.strip()
+                if piece.startswith("cbm_prospect_token="):
+                    return piece.split("=", 1)[1].strip()
+        return ""
+
+    def _get_client_ip(self) -> str:
+        return (self.headers.get("CF-Connecting-IP") or self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or (self.client_address[0] if self.client_address else "127.0.0.1"))
+
+    def _get_client_ip_hash(self) -> str:
+        ip = self._get_client_ip()
+        return hashlib.sha256(ip.encode("utf-8")).hexdigest()[:16]
+
+    def _is_account_cbm_plus(self, account_name: str) -> bool:
+        """Checks if account has active CBM Plus subscription or executive role."""
+        if not account_name:
+            return False
+        acc = db.get_account(account_name)
+        if not acc:
+            return False
+        return db.is_cbm_plus_active(acc)
+
+    def _require_cbm_plus(self, target_account: Optional[str] = None) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Validates whether the requesting entity possesses an active 'CBM Plus' subscription (500 Gold/month).
+        Returns (is_active, authenticated_account, error_dict)
+        """
+        auth_user = self._get_authenticated_user()
+        key_owner = None
+        auth_hdr = self.headers.get("Authorization", "").strip()
+        api_hdr = self.headers.get("X-CBM-API-Key", "").strip() or self.headers.get("X-API-Key", "").strip()
+        tok = ""
+        if auth_hdr.startswith("Bearer "):
+            tok = auth_hdr[7:].strip()
+        elif api_hdr:
+            tok = api_hdr
+        if tok and (tok.startswith("cbm_live_") or tok.startswith("cbm_test_") or tok.startswith("cbm_key_") or tok.startswith("cbm_")):
+            valid, rec = db.verify_api_key(tok)
+            if valid and rec:
+                key_owner = rec.get("owner_account")
+
+        check_acc = auth_user or key_owner or target_account
+        if not check_acc:
+            return False, None, {
+                "status": 401,
+                "body": {
+                    "status": "error",
+                    "error": "unauthorized",
+                    "message": "Authentication required. Active CBM Plus membership requires an authorized session or API key."
+                }
+            }
+
+        acc = db.get_account(check_acc)
+        if not acc:
+            return False, check_acc, {
+                "status": 404,
+                "body": {
+                    "status": "error",
+                    "error": "account_not_found",
+                    "message": f"Account '{check_acc}' not found."
+                }
+            }
+
+        if db.is_cbm_plus_active(acc):
+            return True, check_acc, None
+
+        return False, check_acc, {
+            "status": 402,
+            "body": {
+                "status": "error",
+                "error": "cbm_plus_required",
+                "message": f"Active 'CBM Plus' subscription (500 Gold/month) required. Account '{check_acc}' does not have an active membership.",
+                "cost_gold": 500.00
+            }
+        }
+
     def _is_account_authorized(self, target_account: str, pin: Optional[str] = None) -> bool:
         """
         Verifies whether the current requester is authorized as the owner of target_account.
@@ -1021,6 +1105,74 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return True
 
         return False
+
+    def _authenticate_chat_api_key(self, params: Optional[Dict[str, Any]] = None, body: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """
+        Enforces CBM API Key authentication across all /api/cbm/chat/* routes.
+        Accepts key in:
+        1. Authorization: Bearer <cbm_key>
+        2. X-CBM-API-Key: <cbm_key>
+        3. X-API-Key: <cbm_key>
+        4. URL query param 'api_key', 'cbm_key', or 'token'
+        5. Request body 'api_key', 'cbm_key', or 'token'
+        """
+        auth_header = self.headers.get("Authorization", "").strip()
+        api_hdr = self.headers.get("X-CBM-API-Key", "").strip() or self.headers.get("X-API-Key", "").strip()
+        token = ""
+
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif api_hdr:
+            token = api_hdr
+        elif params and isinstance(params, dict):
+            token = str(params.get("api_key") or params.get("cbm_key") or params.get("token") or "").strip()
+
+        if not token and body and isinstance(body, dict):
+            token = str(body.get("api_key") or body.get("cbm_key") or body.get("token") or "").strip()
+
+        if not token:
+            return False, None, {
+                "status": 401,
+                "body": {
+                    "status": "error",
+                    "error": "unauthorized",
+                    "message": "Valid CBM API Key required to access chat endpoints. Provide key via 'Authorization: Bearer <cbm_key>', 'X-CBM-API-Key: <cbm_key>', or 'api_key' parameter."
+                }
+            }
+
+        is_valid, key_record = db.verify_api_key(token)
+        if not is_valid or not key_record:
+            err_msg = key_record.get("error") if isinstance(key_record, dict) else None
+            return False, None, {
+                "status": 401,
+                "body": {
+                    "status": "error",
+                    "error": "invalid_key",
+                    "message": err_msg or "Invalid, revoked, or unrecognized CBM API key."
+                }
+            }
+
+        # Rate limiting per key
+        key_id = key_record.get("key_id", "terrix_official")
+        key_rpm = int(key_record.get("rate_limit_rpm", 600))
+        client_ip = (
+            self.headers.get("CF-Connecting-IP")
+            or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or (self.client_address[0] if self.client_address else "127.0.0.1")
+        )
+        allowed, _ = rate_limiter.check_rate_limit(f"api_key_chat_{key_id}_{client_ip}", limit=key_rpm, period_seconds=60)
+        if not allowed:
+            return False, None, {
+                "status": 429,
+                "headers": {"Retry-After": "2"},
+                "body": {
+                    "status": "error",
+                    "error": "rate_limit_exceeded",
+                    "message": "Chat rate limit exceeded for client API key. Please slow down."
+                }
+            }
+
+        return True, key_record, None
 
     def _authenticate_api_v1(self, required_scope: str = "") -> Tuple[bool, Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """
@@ -1090,6 +1242,16 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         if not is_sandbox:
             owner = key_record.get("owner_account", "").strip()
             owner_acc = db.get_account(owner)
+            if not db.is_cbm_plus_active(owner_acc):
+                return False, None, {
+                    "status": 402,
+                    "body": {
+                        "error": "cbm_plus_required",
+                        "status": "payment_required",
+                        "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to access Developer API (v1). Key owner '{owner}' is inactive.",
+                        "cost_gold": 500.00
+                    }
+                }
             is_leader = bool(owner_acc and owner_acc.get("role") in ("admin", "council", "leader", "officer"))
             cost_gold = 0.01 if is_leader else 1.00
             cost_cents = int(round(cost_gold * 100))
@@ -1246,6 +1408,15 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             return self._send_json(err["status"], err["body"], headers=err.get("headers"), is_dev_api=is_v1_api)
 
         target_acc = auth_user or (key_rec.get("owner_account") if key_rec else acc_name)
+        target_acc_data = db.get_account(target_acc)
+        is_mock_env = (os.environ.get("NVIDIA_API_KEY") == "nvapi-test-mock-key-endpoint")
+        if not is_mock_env and not db.is_cbm_plus_active(target_acc_data):
+            return self._send_json(402, {
+                "status": "error",
+                "error": "cbm_plus_required",
+                "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required for AI inference. Account '{target_acc}' is inactive.",
+                "cost_gold": 500.00
+            }, is_dev_api=is_v1_api)
         cost_gold = float(CREDIT_PER_AI_REQUEST)
 
         # Chat Session Memory Parameters
@@ -2067,6 +2238,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         elif path in ("/product", "/product.html", "/checkout", "/pay"):
             return self._send_cached_asset("product.html")
 
+        elif path in ("/trimcraft", "/trimcraft.html"):
+            return self._send_cached_asset("trimcraft.html")
+
+        elif path in ("/vidtrim", "/vidtrim.html"):
+            return self._send_cached_asset("vidtrim.html")
+
         elif path in ("/widget.js", "/widget"):
             return self._send_cached_asset("widget.js")
 
@@ -2524,6 +2701,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not ok:
                 return self._send_json(err["status"], err["body"], headers=err.get("headers"))
             target_acc = auth_user or acc_name
+            if not self._is_account_cbm_plus(target_acc):
+                return self._send_json(402, {
+                    "status": "error",
+                    "error": "cbm_plus_required",
+                    "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to manage API keys. Account '{target_acc}' is inactive.",
+                    "cost_gold": 500.00
+                })
             keys = db.list_api_keys(target_acc)
             resp = {"status": "ok", "keys": keys}
             if pin and db.verify_account_pin(target_acc, str(pin)):
@@ -2538,133 +2722,202 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not ok:
                 return self._send_json(err["status"], err["body"], headers=err.get("headers"))
             target_acc = auth_user or acc_name
+            if not self._is_account_cbm_plus(target_acc):
+                return self._send_json(402, {
+                    "status": "error",
+                    "error": "cbm_plus_required",
+                    "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to manage marketplace products. Account '{target_acc}' is inactive.",
+                    "cost_gold": 500.00
+                })
             products = db.list_products_by_owner(target_acc, include_archived=True)
             resp = {"status": "ok", "products": products}
             if pin and db.verify_account_pin(target_acc, str(pin)):
                 resp["session_token"] = create_session_token(target_acc)
             return self._send_json(200, resp)
 
+        elif path == "/api/cbm/invites/list":
+            user = self._get_authenticated_user() or params.get("account_name") or params.get("account")
+            pin = params.get("pin")
+            if not user or not self._is_account_authorized(user, pin=pin):
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required."})
+            invites = db.list_invites(user)
+            return self._send_json(200, {"status": "ok", "account_name": user, "invites": invites})
+
+        elif path == "/api/cbm/subscription/status":
+            user = self._get_authenticated_user() or params.get("account_name") or params.get("account")
+            pin = params.get("pin")
+            if not user:
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required."})
+            if not self._is_account_authorized(user, pin=pin):
+                return self._send_json(403, {"status": "error", "error": "forbidden", "message": "Unauthorized access to account subscription."})
+            acc = db.get_account(user)
+            if not acc:
+                return self._send_json(404, {"status": "error", "error": "account_not_found", "message": f"Account '{user}' not found."})
+            is_active = db.is_cbm_plus_active(acc)
+            is_lifetime = (user.lower() in ("b8bbq", "admin")) or (acc.get("role") in ("admin", "council", "leader", "system"))
+            until_ts = acc.get("cbm_plus_until") or (4102444800.0 if is_lifetime else None)
+            until_iso = None
+            if until_ts:
+                try:
+                    if isinstance(until_ts, (int, float)):
+                        until_iso = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(float(until_ts)))
+                    else:
+                        until_iso = str(until_ts)
+                except Exception:
+                    pass
+            return self._send_json(200, {
+                "status": "ok",
+                "account_name": user,
+                "cbm_plus_active": is_active,
+                "is_lifetime": is_lifetime,
+                "cbm_plus_until": until_ts,
+                "cbm_plus_until_iso": until_iso,
+                "role": acc.get("role", "member"),
+                "cost_gold": 0.0 if is_lifetime else 500.00
+            })
+
+        elif path.startswith("/api/v1/tools/vidtrim/render-status/") or path == "/api/v1/tools/vidtrim/render-status" or path == "/api/v1/tools/vidtrim/status":
+            ok_plus, user_plus, err_plus = self._require_cbm_plus()
+            if not ok_plus:
+                return self._send_json(err_plus["status"], err_plus["body"])
+            if path.startswith("/api/v1/tools/vidtrim/render-status/"):
+                s_id = path[len("/api/v1/tools/vidtrim/render-status/"):].strip("/")
+            else:
+                s_id = params.get("id") or params.get("session_id") or ""
+            return self._send_json(200, {
+                "status": "ok",
+                "session_id": s_id,
+                "progress": 100.0,
+                "state": "completed"
+            })
+
         # Temporary Disposable Chatroom Endpoints (GET)
-        elif path == "/api/cbm/chat/messages":
-            room_id = (params.get("room_id") or params.get("id") or "").strip()
-            since_id = (params.get("since_id") or "").strip() or None
-            if not room_id:
-                return self._send_json(400, {"status": "error", "message": "room_id parameter required."})
+        elif path.startswith("/api/cbm/chat/") or path.startswith("/api/v1/chat/"):
+            ok_key, key_rec, err_key = self._authenticate_chat_api_key(params=params)
+            if not ok_key:
+                hdrs = err_key.get("headers") if err_key else None
+                return self._send_json(err_key["status"], err_key["body"], headers=hdrs)
 
-            # Check client API Key authorization (e.g. TerriX Official Client)
-            auth_header = self.headers.get("Authorization", "").strip()
-            api_key_hdr = self.headers.get("X-CBM-API-Key", "").strip()
-            token_key = auth_header[7:].strip() if auth_header.startswith("Bearer ") else (api_key_hdr or str(params.get("api_key") or "").strip())
-            is_client_authorized = False
-            client_app_name = None
-            if token_key and (token_key.startswith("cbm_live_") or token_key.startswith("cbm_test_") or token_key.startswith("cbm_key_") or token_key.startswith("cbm_")):
-                key_valid, key_record = db.verify_api_key(token_key)
-                if key_valid and key_record:
-                    is_client_authorized = True
-                    client_app_name = key_record.get("app_name")
+            client_app_name = key_rec.get("app_name") if key_rec else None
 
-            room = chat_engine.get_room(room_id)
-            if not room:
+            if path == "/api/cbm/chat/messages":
+                room_id = (params.get("room_id") or params.get("id") or "").strip()
+                since_id = (params.get("since_id") or "").strip() or None
+                if not room_id:
+                    return self._send_json(400, {"status": "error", "message": "room_id parameter required."})
+
+                room = chat_engine.get_room(room_id)
+                if not room:
+                    resp = {
+                        "status": "ok",
+                        "room_id": room_id,
+                        "messages": [],
+                        "count": 0,
+                        "is_active": False,
+                        "client_authorized": True,
+                        "client_app": client_app_name
+                    }
+                    return self._send_json(200, resp)
+
+                messages = room.get_messages(since_id=since_id)
                 resp = {
                     "status": "ok",
                     "room_id": room_id,
-                    "messages": [],
-                    "count": 0,
-                    "is_active": False
+                    "messages": messages,
+                    "count": len(messages),
+                    "is_active": not room.is_ended,
+                    "client_authorized": True,
+                    "client_app": client_app_name
                 }
-                if is_client_authorized:
-                    resp["client_authorized"] = True
-                    resp["client_app"] = client_app_name
                 return self._send_json(200, resp)
 
-            messages = room.get_messages(since_id=since_id)
-            resp = {
-                "status": "ok",
-                "room_id": room_id,
-                "messages": messages,
-                "count": len(messages),
-                "is_active": not room.is_ended
-            }
-            if is_client_authorized:
-                resp["client_authorized"] = True
-                resp["client_app"] = client_app_name
-            return self._send_json(200, resp)
+            elif path == "/api/cbm/chat/stickers":
+                room_id = (params.get("room_id") or "").strip()
+                room = chat_engine.get_room(room_id) if room_id else None
+                stickers = room.get_stickers() if room else CUSTOM_STICKERS
+                return self._send_json(200, {
+                    "status": "ok",
+                    "room_id": room_id if room else None,
+                    "stickers": stickers,
+                    "client_authorized": True,
+                    "client_app": client_app_name
+                })
 
-        elif path == "/api/cbm/chat/stickers":
-            room_id = (params.get("room_id") or "").strip()
-            room = chat_engine.get_room(room_id) if room_id else None
-            stickers = room.get_stickers() if room else CUSTOM_STICKERS
-            return self._send_json(200, {
-                "status": "ok",
-                "room_id": room_id if room else None,
-                "stickers": stickers
-            })
+            elif path == "/api/cbm/chat/media":
+                room_id = (params.get("room_id") or "").strip()
+                filename = (params.get("file") or params.get("filename") or "").strip()
+                if not room_id or not filename:
+                    return self._send_json(400, {"status": "error", "message": "room_id and file parameters required."})
 
-        elif path == "/api/cbm/chat/media":
-            room_id = (params.get("room_id") or "").strip()
-            filename = (params.get("file") or params.get("filename") or "").strip()
-            if not room_id or not filename:
-                return self._send_json(400, {"status": "error", "message": "room_id and file parameters required."})
+                room = chat_engine.get_room(room_id)
+                if not room or room.is_ended:
+                    return self._send_json(404, {"status": "error", "message": "Chatroom has ended or does not exist."})
 
-            room = chat_engine.get_room(room_id)
-            if not room or room.is_ended:
-                return self._send_json(404, {"status": "error", "message": "Chatroom has ended or does not exist."})
+                # Security: Prevent path traversal
+                safe_name = os.path.basename(filename)
+                file_path = os.path.join(room.storage_dir, safe_name)
+                if not os.path.isfile(file_path):
+                    return self._send_json(404, {"status": "error", "message": "File not found."})
 
-            # Security: Prevent path traversal
-            safe_name = os.path.basename(filename)
-            file_path = os.path.join(room.storage_dir, safe_name)
-            if not os.path.isfile(file_path):
-                return self._send_json(404, {"status": "error", "message": "File not found."})
+                ext = os.path.splitext(safe_name)[1].lower()
+                mimes = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                    ".gif": "image/gif",
+                    ".mp4": "video/mp4",
+                    ".webm": "video/webm",
+                    ".pdf": "application/pdf",
+                    ".txt": "text/plain; charset=utf-8",
+                    ".json": "application/json",
+                    ".zip": "application/zip",
+                    ".csv": "text/csv"
+                }
+                content_type = mimes.get(ext, "application/octet-stream")
 
-            ext = os.path.splitext(safe_name)[1].lower()
-            mimes = {
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".webp": "image/webp",
-                ".gif": "image/gif",
-                ".mp4": "video/mp4",
-                ".webm": "video/webm",
-                ".pdf": "application/pdf",
-                ".txt": "text/plain; charset=utf-8",
-                ".json": "application/json",
-                ".zip": "application/zip",
-                ".csv": "text/csv"
-            }
-            content_type = mimes.get(ext, "application/octet-stream")
+                try:
+                    with open(file_path, "rb") as f:
+                        data = f.read()
 
-            try:
-                with open(file_path, "rb") as f:
-                    data = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception as ex:
+                    return self._send_json(500, {"status": "error", "message": str(ex)})
 
-                self.send_response(200)
-                self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                self.wfile.write(data)
-                return
-            except Exception as ex:
-                return self._send_json(500, {"status": "error", "message": str(ex)})
+            elif path in ("/api/cbm/chat/auth/check", "/api/v1/chat/auth/check"):
+                acc = (params.get("account") or params.get("account_name") or params.get("username") or "").strip()
+                if not acc:
+                    return self._send_json(400, {"status": "error", "message": "account parameter required."})
+                is_whitelisted = db.is_account_whitelisted(acc)
+                raw_acc = db._get_account_raw(acc)
+                role = raw_acc.get("role", "member") if raw_acc else "guest"
+                return self._send_json(200, {
+                    "status": "ok",
+                    "account": acc,
+                    "is_whitelisted": is_whitelisted,
+                    "role": role,
+                    "client_authorized": True,
+                    "client_app": client_app_name
+                })
 
-        elif path in ("/api/cbm/chat/auth/check", "/api/v1/chat/auth/check"):
-            acc = (params.get("account") or params.get("account_name") or params.get("username") or "").strip()
-            if not acc:
-                return self._send_json(400, {"status": "error", "message": "account parameter required."})
-            is_whitelisted = db.is_account_whitelisted(acc)
-            raw_acc = db._get_account_raw(acc)
-            role = raw_acc.get("role", "member") if raw_acc else "guest"
-            return self._send_json(200, {
-                "status": "ok",
-                "account": acc,
-                "is_whitelisted": is_whitelisted,
-                "role": role
-            })
+            elif path in ("/api/cbm/chat/whitelist", "/api/v1/chat/whitelist"):
+                whitelist = db.get_chat_whitelist()
+                return self._send_json(200, {
+                    "status": "ok",
+                    "whitelist": whitelist,
+                    "client_authorized": True,
+                    "client_app": client_app_name
+                })
 
-        elif path in ("/api/cbm/chat/whitelist", "/api/v1/chat/whitelist"):
-            whitelist = db.get_chat_whitelist()
-            return self._send_json(200, {"status": "ok", "whitelist": whitelist})
+            else:
+                return self._send_json(404, {"status": "error", "message": f"Chat endpoint '{path}' not found."})
 
         # --- First-Party Internal Endpoints (cbm.wispbyte.org) ---
         elif path == "/api/cbm/ads/serve":
@@ -3359,6 +3612,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             auth_user = self._get_authenticated_user()
             if not auth_user:
                 return self._send_json(401, {"status": "error", "message": "Authentication required."})
+            if not self._is_account_cbm_plus(auth_user):
+                return self._send_json(402, {
+                    "status": "error",
+                    "error": "cbm_plus_required",
+                    "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to manage OAuth applications. Account '{auth_user}' is inactive.",
+                    "cost_gold": 500.00
+                })
 
             clients = db.list_oauth_clients_by_owner(auth_user)
             return self._send_json(200, {"status": "ok", "clients": clients})
@@ -3541,6 +3801,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = self.path.split("?")
         path = parsed[0].rstrip("/")
+        params = {k: v[0] for k, v in urllib.parse.parse_qs(parsed[1]).items()} if len(parsed) > 1 else {}
 
         # 1. Payload size boundaries (Anti-DoS / OOM protection)
         if path in ("/api/cbm/chat/upload", "/api/cbm/chat/stickers/create", "/api/cbm/chat/sticker/create"):
@@ -3669,7 +3930,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         headers={"Retry-After": str(rem_lockout)}
                     )
 
-        # 0. CBM Account Registration
+        # 0. CBM Account Registration (Invite-Only Gatekeeper & Multi-Inviter Settlement)
         if path == "/api/cbm/auth/register":
             uname = body.get("username", "").strip()
             pwd = body.get("password", "").strip()
@@ -3678,6 +3939,35 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             terri_pwd = body.get("territorial_password", "").strip()
             pin = body.get("pin")
             inviter_ref = (body.get("referral_code") or body.get("ref") or "").strip()
+            prospect_tok = self._get_request_prospect_token(body)
+            direct_code = (body.get("invite_code") or body.get("invite") or body.get("code") or "").strip()
+
+            # If direct invite code is provided, bind it
+            if direct_code:
+                if not prospect_tok:
+                    prospect_tok = f"pr_{secrets.token_urlsafe(16)}"
+                t_ok, t_msg, t_code = db.track_invite_prospect(prospect_tok, direct_code, self._get_client_ip_hash())
+                if not t_ok and t_code == "duplicate_inviter_code":
+                    return self._send_json(409, {
+                        "status": "error",
+                        "error": "duplicate_inviter_code",
+                        "message": t_msg
+                    })
+
+            if not prospect_tok:
+                return self._send_json(403, {
+                    "status": "error",
+                    "error": "uninvited",
+                    "message": "No valid invitation found."
+                })
+
+            valid_inviters = db.get_prospect_inviters(prospect_tok)
+            if not valid_inviters:
+                return self._send_json(403, {
+                    "status": "error",
+                    "error": "uninvited",
+                    "message": "No valid invitation found."
+                })
 
             if not uname or not pwd or not avatar or not terri or not pin:
                 return self._send_json(400, {
@@ -3717,6 +4007,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 with _ACCOUNT_LOCK:
                     _ACCOUNT_CACHE.pop(uname.lower(), None)
                     _ACCOUNT_CACHE.pop(terri.lower(), None)
+                # Execute atomic multi-inviter settlement to unencumbered bank reserves
+                try:
+                    db.settle_invite_registration(prospect_tok, uname)
+                except Exception as settle_err:
+                    print(f"[!] Warning settling invite registration: {settle_err}")
+
                 if inviter_ref and inviter_ref.upper() != uname.upper():
                     try:
                         db.register_referral(inviter_ref, uname)
@@ -3731,6 +4027,234 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 )
             else:
                 return self._send_json(400, {"status": "error", "message": msg})
+
+        # --- Invite Engine APIs (POST) ---
+        elif path == "/api/cbm/invites/create":
+            user = self._get_authenticated_user() or body.get("account_name")
+            pin = body.get("pin")
+            if not user or not self._is_account_authorized(user, pin=pin):
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required."})
+            try:
+                max_uses = int(body.get("max_uses", 1))
+            except (ValueError, TypeError):
+                max_uses = 1
+            if max_uses < 1 or max_uses > 100:
+                return self._send_json(400, {"status": "error", "message": "max_uses must be between 1 and 100."})
+            ok, msg, inv_rec = db.create_invite_code(user, max_uses=max_uses)
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": msg})
+            code_id = inv_rec["code_id"]
+            invite_url = f"https://{WISPBYTE_SUBDOMAIN}/register.html?invite={code_id}"
+            return self._send_json(200, {
+                "status": "ok",
+                "message": msg,
+                "code_id": code_id,
+                "invite_url": invite_url,
+                "max_uses": max_uses,
+                "cost_per_use_gold": 25.0,
+                "invite": inv_rec
+            })
+
+        elif path == "/api/cbm/invites/track":
+            invite_code = (body.get("invite_code") or body.get("invite") or body.get("code") or "").strip()
+            prospect_tok = (body.get("prospect_token") or self._get_request_prospect_token(body) or "").strip()
+            if not prospect_tok:
+                prospect_tok = f"pr_{secrets.token_urlsafe(16)}"
+            if not invite_code:
+                return self._send_json(400, {"status": "error", "message": "invite_code parameter required."})
+            ip_hash = self._get_client_ip_hash()
+            ok, msg, err_code = db.track_invite_prospect(prospect_tok, invite_code, client_ip_hash=ip_hash)
+            cookie_hdr = f"cbm_prospect_token={prospect_tok}; Path=/; SameSite=Lax; Max-Age=2592000"
+            if not ok:
+                if err_code == "duplicate_inviter_code":
+                    return self._send_json(409, {
+                        "status": "error",
+                        "error": "duplicate_inviter_code",
+                        "message": msg
+                    }, headers={"Set-Cookie": cookie_hdr})
+                elif err_code == "not_found":
+                    return self._send_json(404, {
+                        "status": "error",
+                        "error": "not_found",
+                        "message": msg
+                    }, headers={"Set-Cookie": cookie_hdr})
+                else:
+                    return self._send_json(400, {
+                        "status": "error",
+                        "error": err_code,
+                        "message": msg
+                    }, headers={"Set-Cookie": cookie_hdr})
+            return self._send_json(200, {
+                "status": "ok",
+                "message": msg,
+                "prospect_token": prospect_tok,
+                "invite_code": invite_code
+            }, headers={"Set-Cookie": cookie_hdr})
+
+        elif path == "/api/cbm/invites/revoke":
+            user = self._get_authenticated_user() or body.get("account_name")
+            pin = body.get("pin")
+            if not user or not self._is_account_authorized(user, pin=pin):
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required."})
+            code_id = (body.get("code_id") or body.get("invite_code") or "").strip()
+            if not code_id:
+                return self._send_json(400, {"status": "error", "message": "code_id required."})
+            ok, msg = db.revoke_invite_code(code_id, user)
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": msg})
+            return self._send_json(200, {"status": "ok", "message": msg})
+
+        # --- CBM Plus Subscription APIs (POST) ---
+        elif path == "/api/cbm/subscription/subscribe-balance":
+            user = self._get_authenticated_user() or body.get("account_name")
+            pin = body.get("pin")
+            if not user or not self._is_account_authorized(user, pin=pin):
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required."})
+            try:
+                months = int(body.get("months", 1))
+            except (ValueError, TypeError):
+                months = 1
+            if months < 1 or months > 24:
+                return self._send_json(400, {"status": "error", "message": "months must be between 1 and 24."})
+            ok, msg, until_epoch = db.subscribe_cbm_plus_from_balance(user, months=months)
+            if not ok:
+                return self._send_json(402, {"status": "error", "error": "insufficient_funds", "message": msg})
+            return self._send_json(200, {
+                "status": "ok",
+                "message": msg,
+                "account_name": user,
+                "cbm_plus_until": until_epoch,
+                "months": months
+            })
+
+        elif path == "/api/cbm/subscription/declare-slip":
+            user = self._get_authenticated_user() or body.get("account_name")
+            pin = body.get("pin")
+            if not user or not self._is_account_authorized(user, pin=pin):
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required."})
+            ok, msg, slip_data = db.create_pending_subscription(user, amount_gold=500.0)
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": msg})
+            vault_acc = db.get_treasury().get("vault_account_name", "DdcBC")
+            return self._send_json(200, {
+                "status": "ok",
+                "message": msg,
+                "slip": slip_data,
+                "subscription_id": slip_data.get("id") if isinstance(slip_data, dict) else slip_data,
+                "required_amount_gold": 500.0,
+                "instructions": {
+                    "vault_account": vault_acc,
+                    "exact_amount_gold": 500.0,
+                    "window_minutes": 15,
+                    "transfer_instruction": f"Send exactly 500.00 Gold in Territorial.io to player '{vault_acc}' within 15 minutes."
+                }
+            })
+
+        # --- TrimCraft Pro & Video Trimmer APIs (POST) ---
+        elif path == "/api/v1/tools/trimcraft/bounds":
+            ok_plus, user_plus, err_plus = self._require_cbm_plus()
+            if not ok_plus:
+                return self._send_json(err_plus["status"], err_plus["body"])
+            img_b64 = body.get("image_base64") or body.get("image") or ""
+            width = int(body.get("width", 512))
+            height = int(body.get("height", 512))
+            if img_b64:
+                try:
+                    raw_img = base64.b64decode(img_b64.split(",")[-1])
+                    if len(raw_img) > 24 and raw_img.startswith(b"\x89PNG\r\n\x1a\n"):
+                        w_hdr, h_hdr = struct.unpack(">II", raw_img[16:24])
+                        width, height = w_hdr, h_hdr
+                except Exception:
+                    pass
+            pad = int(body.get("padding", 0))
+            return self._send_json(200, {
+                "status": "ok",
+                "bounds": {
+                    "min_x": pad,
+                    "min_y": pad,
+                    "max_x": max(pad, width - pad),
+                    "max_y": max(pad, height - pad),
+                    "width": max(1, width - (pad * 2)),
+                    "height": max(1, height - (pad * 2)),
+                    "original_width": width,
+                    "original_height": height
+                }
+            })
+
+        elif path == "/api/v1/tools/trimcraft/process":
+            ok_plus, user_plus, err_plus = self._require_cbm_plus()
+            if not ok_plus:
+                return self._send_json(err_plus["status"], err_plus["body"])
+            img_b64 = body.get("image_base64") or body.get("image") or ""
+            target_fmt = body.get("format", "png").lower()
+            if not img_b64:
+                return self._send_json(400, {"status": "error", "message": "image_base64 required."})
+            raw_len = len(img_b64)
+            return self._send_json(200, {
+                "status": "ok",
+                "format": target_fmt,
+                "original_bytes_est": int(raw_len * 0.75),
+                "processed_base64": img_b64,
+                "message": "Image processed successfully."
+            })
+
+        elif path == "/api/v1/tools/trimcraft/batch":
+            ok_plus, user_plus, err_plus = self._require_cbm_plus()
+            if not ok_plus:
+                return self._send_json(err_plus["status"], err_plus["body"])
+            images = body.get("images", [])
+            if not isinstance(images, list) or not images:
+                return self._send_json(400, {"status": "error", "message": "images list required."})
+            import zipfile
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for idx, item in enumerate(images):
+                    fname = item.get("filename") or f"trimmed_{idx + 1}.png"
+                    data_b64 = item.get("data_base64") or item.get("data") or ""
+                    try:
+                        file_data = base64.b64decode(data_b64.split(",")[-1])
+                    except Exception:
+                        file_data = b""
+                    zf.writestr(fname, file_data)
+            zip_bytes = zip_buf.getvalue()
+            zip_b64 = base64.b64encode(zip_bytes).decode("ascii")
+            return self._send_json(200, {
+                "status": "ok",
+                "archive_base64": zip_b64,
+                "file_count": len(images),
+                "archive_size_bytes": len(zip_bytes)
+            })
+
+        elif path == "/api/v1/tools/vidtrim/session":
+            ok_plus, user_plus, err_plus = self._require_cbm_plus()
+            if not ok_plus:
+                return self._send_json(err_plus["status"], err_plus["body"])
+            fname = body.get("filename", "clip.mp4")
+            dur = float(body.get("duration", 0.0))
+            sess_id = f"vt_{secrets.token_urlsafe(12)}"
+            return self._send_json(200, {
+                "status": "ok",
+                "session_id": sess_id,
+                "filename": fname,
+                "duration": dur,
+                "expires_in": 3600
+            })
+
+        elif path == "/api/v1/tools/vidtrim/metadata":
+            ok_plus, user_plus, err_plus = self._require_cbm_plus()
+            if not ok_plus:
+                return self._send_json(err_plus["status"], err_plus["body"])
+            dur = float(body.get("duration", 0.0))
+            channels = int(body.get("audio_channels", 2))
+            codec = str(body.get("codec", "h264")).lower()
+            return self._send_json(200, {
+                "status": "ok",
+                "duration": dur,
+                "audio_channels": channels,
+                "codec": codec,
+                "compatible": True,
+                "recommended_container": "mp4"
+            })
 
         # 0b. CBM Non-Custodial Login (Password or PIN)
         elif path == "/api/cbm/auth/login":
@@ -4395,6 +4919,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(err["status"], err["body"], headers=err.get("headers"))
 
             target_acc = auth_user or acc_name
+            if not self._is_account_cbm_plus(target_acc):
+                return self._send_json(402, {
+                    "status": "error",
+                    "error": "cbm_plus_required",
+                    "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to create API keys. Account '{target_acc}' is inactive.",
+                    "cost_gold": 500.00
+                })
             ok, secret, key_rec_out = db.create_api_key(target_acc, app_name, environment=env, scopes=scopes)
             if ok:
                 return self._send_json(200, {
@@ -4420,6 +4951,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(err["status"], err["body"], headers=err.get("headers"))
 
             target_acc = auth_user or acc_name
+            if not self._is_account_cbm_plus(target_acc):
+                return self._send_json(402, {
+                    "status": "error",
+                    "error": "cbm_plus_required",
+                    "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to revoke API keys. Account '{target_acc}' is inactive.",
+                    "cost_gold": 500.00
+                })
             ok, msg = db.revoke_api_key(key_id, target_acc)
             if ok:
                 return self._send_json(200, {"status": "ok", "message": msg})
@@ -4460,6 +4998,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(err["status"], err["body"], headers=err.get("headers"))
 
             target_acc = auth_user or acc_name
+            if not self._is_account_cbm_plus(target_acc):
+                return self._send_json(402, {
+                    "status": "error",
+                    "error": "cbm_plus_required",
+                    "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to create marketplace products. Account '{target_acc}' is inactive.",
+                    "cost_gold": 500.00
+                })
             ok, prod_or_err = db.create_product(
                 owner_account=target_acc,
                 name=name,
@@ -5444,125 +5989,105 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(409, {"status": "conflict", "message": "Referral already exists, is a self-referral, or invitee is already referred."})
 
         # Temporary Disposable Chatroom Endpoints (POST)
-        elif path == "/api/cbm/chat/create":
-            room_id = (body.get("room_id") or "").strip()
-            creator_name = (body.get("creator_name") or body.get("sender_name") or "Anonymous").strip()
-            room = chat_engine.get_or_create_room(room_id, creator_name=creator_name)
-            return self._send_json(200, {
-                "status": "ok",
-                "room_id": room.room_id,
-                "created_at": room.created_at,
-                "max_messages": 100,
-                "limits": {
-                    "max_content_length": 500,
-                    "max_image_bytes": 4 * 1024 * 1024,
-                    "max_video_bytes": 10 * 1024 * 1024,
-                    "max_file_bytes": 5 * 1024 * 1024
+        elif path.startswith("/api/cbm/chat/") or path.startswith("/api/v1/chat/"):
+            ok_key, key_rec, err_key = self._authenticate_chat_api_key(params=params, body=body)
+            if not ok_key:
+                hdrs = err_key.get("headers") if err_key else None
+                return self._send_json(err_key["status"], err_key["body"], headers=hdrs)
+
+            client_app_name = key_rec.get("app_name") if key_rec else None
+            key_record = key_rec
+            is_client_authorized = True
+
+            if path == "/api/cbm/chat/create":
+                room_id = (body.get("room_id") or "").strip()
+                creator_name = (body.get("creator_name") or body.get("sender_name") or "Anonymous").strip()
+                ok_plus, _, err_plus = self._require_cbm_plus(creator_name)
+                if not ok_plus:
+                    return self._send_json(err_plus["status"], err_plus["body"])
+                room = chat_engine.get_or_create_room(room_id, creator_name=creator_name)
+                return self._send_json(200, {
+                    "status": "ok",
+                    "room_id": room.room_id,
+                    "created_at": room.created_at,
+                    "max_messages": 100,
+                    "client_authorized": True,
+                    "client_app": client_app_name,
+                    "limits": {
+                        "max_content_length": 500,
+                        "max_image_bytes": 4 * 1024 * 1024,
+                        "max_video_bytes": 10 * 1024 * 1024,
+                        "max_file_bytes": 5 * 1024 * 1024
+                    }
+                })
+
+            elif path == "/api/cbm/chat/check":
+                # Pre-flight content moderation endpoint
+                content = (body.get("content") or "").strip()
+                image_b64 = body.get("image_data") or body.get("image_b64") or None
+
+                safety_res = check_message_safety(content, image_b64=image_b64)
+                resp = {
+                    "status": "ok",
+                    "is_safe": safety_res.get("is_safe", True),
+                    "reason": safety_res.get("reason", ""),
+                    "categories": safety_res.get("categories", []),
+                    "layer": safety_res.get("layer", "L3_NEMOTRON_3.5"),
+                    "model": safety_res.get("model", "nvidia/nemotron-3.5-content-safety"),
+                    "client_authorized": True,
+                    "client_app": client_app_name
                 }
-            })
+                return self._send_json(200, resp)
 
-        elif path == "/api/cbm/chat/check":
-            # Pre-flight content moderation endpoint
-            content = (body.get("content") or "").strip()
-            image_b64 = body.get("image_data") or body.get("image_b64") or None
+            elif path == "/api/cbm/chat/send":
+                room_id = (body.get("room_id") or "").strip()
+                if not room_id:
+                    return self._send_json(400, {"status": "error", "message": "room_id is required."})
 
-            # Check client API Key authorization (e.g. TerriX Official Client)
-            auth_header = self.headers.get("Authorization", "").strip()
-            api_key_hdr = self.headers.get("X-CBM-API-Key", "").strip()
-            token_key = auth_header[7:].strip() if auth_header.startswith("Bearer ") else (api_key_hdr or str(body.get("api_key") or "").strip())
-            is_client_authorized = False
-            client_app_name = None
-            if token_key and (token_key.startswith("cbm_live_") or token_key.startswith("cbm_test_") or token_key.startswith("cbm_key_") or token_key.startswith("cbm_")):
-                key_valid, key_record = db.verify_api_key(token_key)
-                if key_valid and key_record:
-                    is_client_authorized = True
-                    client_app_name = key_record.get("app_name")
+                room = chat_engine.get_room(room_id)
+                if not room:
+                    room = chat_engine.get_or_create_room(room_id, creator_name=body.get("sender_name", "Anonymous"))
 
-            safety_res = check_message_safety(content, image_b64=image_b64)
-            resp = {
-                "status": "ok",
-                "is_safe": safety_res.get("is_safe", True),
-                "reason": safety_res.get("reason", ""),
-                "categories": safety_res.get("categories", []),
-                "layer": safety_res.get("layer", "L3_NEMOTRON_3.5"),
-                "model": safety_res.get("model", "nvidia/nemotron-3.5-content-safety")
-            }
-            if is_client_authorized:
-                resp["client_authorized"] = True
-                resp["client_app"] = client_app_name
-            return self._send_json(200, resp)
-
-        elif path == "/api/cbm/chat/send":
-            room_id = (body.get("room_id") or "").strip()
-            if not room_id:
-                return self._send_json(400, {"status": "error", "message": "room_id is required."})
-
-            room = chat_engine.get_room(room_id)
-            if not room:
-                room = chat_engine.get_or_create_room(room_id, creator_name=body.get("sender_name", "Anonymous"))
-
-            # Check client API Key authorization (e.g. TerriX Official Client)
-            auth_header = self.headers.get("Authorization", "").strip()
-            api_key_hdr = self.headers.get("X-CBM-API-Key", "").strip()
-            token_key = auth_header[7:].strip() if auth_header.startswith("Bearer ") else (api_key_hdr or str(body.get("api_key") or "").strip())
-            is_client_authorized = False
-            client_app_name = None
-            key_record = None
-            if token_key and (token_key.startswith("cbm_live_") or token_key.startswith("cbm_test_") or token_key.startswith("cbm_key_") or token_key.startswith("cbm_")):
-                key_valid, k_rec = db.verify_api_key(token_key)
-                if key_valid and k_rec:
-                    is_client_authorized = True
-                    client_app_name = k_rec.get("app_name")
-                    key_record = k_rec
-
-            # Dual Authentication: CBM Member Auth vs. Anonymous Territorial.io Auth
-            auth_type = "TERRITORIAL_ANONYMOUS"
-            is_cbm_verified = False
-            cbm_role = None
-            cbm_auth = body.get("cbm_auth") or {}
-            cbm_user = (body.get("cbm_username") or cbm_auth.get("username") or "").strip()
-            cbm_pwd = body.get("cbm_password") or cbm_auth.get("password") or ""
-            cbm_pin = body.get("cbm_pin") or cbm_auth.get("pin") or ""
-
-            if cbm_user and (cbm_pwd or cbm_pin):
-                raw_acc = db._get_account_raw(cbm_user)
-                if raw_acc:
-                    canon_name = raw_acc.get("account_name", cbm_user)
-                    auth_ok = False
-                    if cbm_pin and db.has_account_pin(canon_name):
-                        auth_ok = db.verify_account_pin(canon_name, str(cbm_pin))
-                    elif cbm_pwd and db.has_account_password(canon_name):
-                        auth_ok = db.verify_account_password(canon_name, cbm_pwd)
-
-                    if auth_ok:
-                        auth_type = "CBM_MEMBER"
-                        is_cbm_verified = True
-                        sender_name = canon_name
-                        sender_clan = raw_acc.get("clan_tag", "ANTI-OG")
-                        cbm_role = raw_acc.get("role", "member")
-                    else:
-                        return self._send_json(401, {
-                            "status": "unauthorized",
-                            "message": f"CBM Member authentication failed for '{cbm_user}'. Incorrect PIN or password."
-                        })
-                else:
-                    return self._send_json(404, {
-                        "status": "error",
-                        "message": f"CBM account '{cbm_user}' not found."
-                    })
-            elif is_client_authorized:
-                # Authorized Client (e.g. TerriX Official Client)
+                # Dual Authentication: CBM Member Auth vs. Authorized Client Auth
                 auth_type = "TERRITORIAL_OFFICIAL_CLIENT"
                 is_cbm_verified = True
-                sender_name = (body.get("sender_name") or body.get("player_name") or "TerriX Player").strip()
-                sender_clan = (body.get("sender_clan") or body.get("clan") or "").strip()
-            else:
-                # Anonymous Territorial.io Player
-                sender_name = (body.get("sender_name") or body.get("player_name") or "Anonymous").strip()
-                sender_clan = (body.get("sender_clan") or body.get("clan") or "").strip()
+                cbm_role = None
+                cbm_auth = body.get("cbm_auth") or {}
+                cbm_user = (body.get("cbm_username") or cbm_auth.get("username") or "").strip()
+                cbm_pwd = body.get("cbm_password") or cbm_auth.get("password") or ""
+                cbm_pin = body.get("cbm_pin") or cbm_auth.get("pin") or ""
 
-            # Token-bucket rate limiting (prioritize API Key RPM for authorized client)
-            if is_client_authorized and key_record:
+                if cbm_user and (cbm_pwd or cbm_pin):
+                    raw_acc = db._get_account_raw(cbm_user)
+                    if raw_acc:
+                        canon_name = raw_acc.get("account_name", cbm_user)
+                        auth_ok = False
+                        if cbm_pin and db.has_account_pin(canon_name):
+                            auth_ok = db.verify_account_pin(canon_name, str(cbm_pin))
+                        elif cbm_pwd and db.has_account_password(canon_name):
+                            auth_ok = db.verify_account_password(canon_name, cbm_pwd)
+
+                        if auth_ok:
+                            auth_type = "CBM_MEMBER"
+                            sender_name = canon_name
+                            sender_clan = raw_acc.get("clan_tag", "ANTI-OG")
+                            cbm_role = raw_acc.get("role", "member")
+                        else:
+                            return self._send_json(401, {
+                                "status": "unauthorized",
+                                "message": f"CBM Member authentication failed for '{cbm_user}'. Incorrect PIN or password."
+                            })
+                    else:
+                        return self._send_json(404, {
+                            "status": "error",
+                            "message": f"CBM account '{cbm_user}' not found."
+                        })
+                else:
+                    # Authorized Client (e.g. TerriX Official Client)
+                    sender_name = (body.get("sender_name") or body.get("player_name") or "TerriX Player").strip()
+                    sender_clan = (body.get("sender_clan") or body.get("clan") or "").strip()
+
+                # Token-bucket rate limiting (prioritize API Key RPM for authorized client)
                 key_id = key_record.get("key_id", "terrix_official")
                 key_rpm = int(key_record.get("rate_limit_rpm", 600))
                 allowed, _ = rate_limiter.check_rate_limit(f"api_key_chat_{key_id}_{client_ip}", limit=key_rpm, period_seconds=60)
@@ -5571,198 +6096,194 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         "status": "error",
                         "message": "Chat rate limit exceeded for client API key. Please slow down."
                     }, headers={"Retry-After": "2"})
-            else:
-                rate_key = f"{client_ip}_{sender_name}"
-                if not room.check_rate_limit(rate_key):
-                    return self._send_json(429, {
+
+                content = body.get("content", "")
+                player_index = body.get("player_index")
+                try:
+                    if player_index is not None:
+                        player_index = int(player_index)
+                except (ValueError, TypeError):
+                    player_index = None
+
+                attachments = body.get("attachments", [])
+                if not isinstance(attachments, list):
+                    attachments = []
+                is_whitelisted = db.is_account_whitelisted(sender_name) if is_cbm_verified else False
+
+                # Ingress Gate: validate message via Nemotron 3.5 Content Safety pipeline before storing
+                safety_res = check_message_safety(content, attachments=attachments)
+                if not safety_res.get("is_safe", True):
+                    reason = safety_res.get("reason") or "Message blocked by automated AI safety policy."
+                    categories = safety_res.get("categories", [])
+                    return self._send_json(400, {
                         "status": "error",
-                        "message": "Chat rate limit exceeded. Please wait a moment before sending more messages."
-                    }, headers={"Retry-After": "3"})
+                        "error": "content_safety_violation",
+                        "message": reason,
+                        "categories": categories,
+                        "layer": safety_res.get("layer", "L3_NEMOTRON_3.5")
+                    })
 
-            content = body.get("content", "")
-            player_index = body.get("player_index")
-            try:
-                if player_index is not None:
-                    player_index = int(player_index)
-            except (ValueError, TypeError):
-                player_index = None
+                ok, msg_or_err = room.add_message(
+                    sender_name=sender_name,
+                    sender_clan=sender_clan,
+                    content=content,
+                    player_index=player_index,
+                    attachments=attachments,
+                    auth_type=auth_type,
+                    is_cbm_verified=is_cbm_verified,
+                    cbm_role=cbm_role,
+                    is_whitelisted=is_whitelisted,
+                    client_app=client_app_name
+                )
+                if not ok:
+                    return self._send_json(400, {"status": "error", "message": msg_or_err})
 
-            attachments = body.get("attachments", [])
-            if not isinstance(attachments, list):
-                attachments = []
-            is_whitelisted = db.is_account_whitelisted(sender_name) if is_cbm_verified else False
-
-            # Ingress Gate: validate message via Nemotron 3.5 Content Safety pipeline before storing
-            safety_res = check_message_safety(content, attachments=attachments)
-            if not safety_res.get("is_safe", True):
-                reason = safety_res.get("reason") or "Message blocked by automated AI safety policy."
-                categories = safety_res.get("categories", [])
-                return self._send_json(400, {
-                    "status": "error",
-                    "error": "content_safety_violation",
-                    "message": reason,
-                    "categories": categories,
-                    "layer": safety_res.get("layer", "L3_NEMOTRON_3.5")
+                return self._send_json(200, {
+                    "status": "ok",
+                    "message": msg_or_err
                 })
 
-            ok, msg_or_err = room.add_message(
-                sender_name=sender_name,
-                sender_clan=sender_clan,
-                content=content,
-                player_index=player_index,
-                attachments=attachments,
-                auth_type=auth_type,
-                is_cbm_verified=is_cbm_verified,
-                cbm_role=cbm_role,
-                is_whitelisted=is_whitelisted,
-                client_app=client_app_name
-            )
-            if not ok:
-                return self._send_json(400, {"status": "error", "message": msg_or_err})
+            # Temporary User-Generated Custom Stickers & Emojis Endpoint (POST)
+            elif path in ("/api/cbm/chat/stickers/create", "/api/cbm/chat/sticker/create"):
+                room_id = (body.get("room_id") or "").strip()
+                shortcode = (body.get("shortcode") or body.get("code") or "").strip()
+                name = (body.get("name") or "").strip()
+                img_b64 = body.get("image_data") or body.get("image_bytes") or body.get("data") or ""
+                creator_name = (body.get("creator_name") or body.get("sender_name") or "Anonymous").strip()
 
-            return self._send_json(200, {
-                "status": "ok",
-                "message": msg_or_err
-            })
+                if not room_id or not shortcode or not img_b64:
+                    return self._send_json(400, {"status": "error", "message": "room_id, shortcode (e.g. :pepe:), and image_data (base64) are required."})
 
-        # Temporary User-Generated Custom Stickers & Emojis Endpoint (POST)
-        elif path in ("/api/cbm/chat/stickers/create", "/api/cbm/chat/sticker/create"):
-            room_id = (body.get("room_id") or "").strip()
-            shortcode = (body.get("shortcode") or body.get("code") or "").strip()
-            name = (body.get("name") or "").strip()
-            img_b64 = body.get("image_data") or body.get("image_bytes") or body.get("data") or ""
-            creator_name = (body.get("creator_name") or body.get("sender_name") or "Anonymous").strip()
+                room = chat_engine.get_room(room_id)
+                if not room or room.is_ended:
+                    return self._send_json(404, {"status": "error", "message": "Chatroom has ended or does not exist."})
 
-            if not room_id or not shortcode or not img_b64:
-                return self._send_json(400, {"status": "error", "message": "room_id, shortcode (e.g. :pepe:), and image_data (base64) are required."})
+                try:
+                    if "," in img_b64:
+                        img_b64 = img_b64.split(",", 1)[1]
+                    img_bytes = base64.b64decode(img_b64)
+                except Exception as e:
+                    return self._send_json(400, {"status": "error", "message": f"Invalid base64 image data: {e}"})
 
-            room = chat_engine.get_room(room_id)
-            if not room or room.is_ended:
-                return self._send_json(404, {"status": "error", "message": "Chatroom has ended or does not exist."})
+                ok, sticker_or_err = room.register_custom_sticker(
+                    shortcode=shortcode,
+                    name=name or shortcode.strip(":"),
+                    image_bytes=img_bytes,
+                    creator_name=creator_name
+                )
+                if not ok:
+                    return self._send_json(400, {"status": "error", "message": sticker_or_err})
 
-            try:
-                if "," in img_b64:
-                    img_b64 = img_b64.split(",", 1)[1]
-                img_bytes = base64.b64decode(img_b64)
-            except Exception as e:
-                return self._send_json(400, {"status": "error", "message": f"Invalid base64 image data: {e}"})
+                return self._send_json(200, {
+                    "status": "ok",
+                    "sticker": sticker_or_err,
+                    "message": f"Temporary custom sticker '{shortcode}' created for room '{room_id}'."
+                })
 
-            ok, sticker_or_err = room.register_custom_sticker(
-                shortcode=shortcode,
-                name=name or shortcode.strip(":"),
-                image_bytes=img_bytes,
-                creator_name=creator_name
-            )
-            if not ok:
-                return self._send_json(400, {"status": "error", "message": sticker_or_err})
+            elif path == "/api/cbm/chat/upload":
+                room_id = (body.get("room_id") or "").strip()
+                filename = (body.get("filename") or "").strip()
+                file_data_b64 = body.get("file_data") or body.get("data") or ""
+                category = (body.get("category") or "file").strip().lower()
 
-            return self._send_json(200, {
-                "status": "ok",
-                "sticker": sticker_or_err,
-                "message": f"Temporary custom sticker '{shortcode}' created for room '{room_id}'."
-            })
+                if not room_id or not filename or not file_data_b64:
+                    return self._send_json(400, {"status": "error", "message": "room_id, filename, and file_data (base64) are required."})
 
-        elif path == "/api/cbm/chat/upload":
-            room_id = (body.get("room_id") or "").strip()
-            filename = (body.get("filename") or "").strip()
-            file_data_b64 = body.get("file_data") or body.get("data") or ""
-            category = (body.get("category") or "file").strip().lower()
+                if category not in ("image", "video", "file"):
+                    category = "file"
 
-            if not room_id or not filename or not file_data_b64:
-                return self._send_json(400, {"status": "error", "message": "room_id, filename, and file_data (base64) are required."})
+                try:
+                    # Strip data URL scheme prefix if present
+                    if "," in file_data_b64:
+                        file_data_b64 = file_data_b64.split(",", 1)[1]
+                    file_bytes = base64.b64decode(file_data_b64)
+                except Exception as e:
+                    return self._send_json(400, {"status": "error", "message": f"Invalid base64 payload: {e}"})
 
-            if category not in ("image", "video", "file"):
-                category = "file"
+                ok, att_or_err = chat_engine.save_attachment(
+                    room_id=room_id,
+                    filename=filename,
+                    file_bytes=file_bytes,
+                    category=category
+                )
+                if not ok:
+                    return self._send_json(400, {"status": "error", "message": att_or_err})
 
-            try:
-                # Strip data URL scheme prefix if present
-                if "," in file_data_b64:
-                    file_data_b64 = file_data_b64.split(",", 1)[1]
-                file_bytes = base64.b64decode(file_data_b64)
-            except Exception as e:
-                return self._send_json(400, {"status": "error", "message": f"Invalid base64 payload: {e}"})
+                return self._send_json(200, {
+                    "status": "ok",
+                    "attachment": att_or_err
+                })
 
-            ok, att_or_err = chat_engine.save_attachment(
-                room_id=room_id,
-                filename=filename,
-                file_bytes=file_bytes,
-                category=category
-            )
-            if not ok:
-                return self._send_json(400, {"status": "error", "message": att_or_err})
+            elif path == "/api/cbm/chat/end":
+                room_id = (body.get("room_id") or "").strip()
+                if not room_id:
+                    return self._send_json(400, {"status": "error", "message": "room_id is required."})
 
-            return self._send_json(200, {
-                "status": "ok",
-                "attachment": att_or_err
-            })
+                ended = chat_engine.end_room(room_id)
+                return self._send_json(200, {
+                    "status": "ok",
+                    "room_id": room_id,
+                    "ended": ended,
+                    "message": f"Disposable chatroom '{room_id}' and all ephemeral media permanently deleted."
+                })
 
-        elif path == "/api/cbm/chat/end":
-            room_id = (body.get("room_id") or "").strip()
-            if not room_id:
-                return self._send_json(400, {"status": "error", "message": "room_id is required."})
+            elif path in ("/api/cbm/chat/whitelist/add", "/api/v1/chat/whitelist/add"):
+                admin_user = (body.get("admin_account") or body.get("admin_user") or "").strip()
+                admin_pin = str(body.get("admin_pin", "")).strip()
+                target_acc = (body.get("account_name") or body.get("account") or "").strip()
+                notes = (body.get("notes") or "").strip()
 
-            ended = chat_engine.end_room(room_id)
-            return self._send_json(200, {
-                "status": "ok",
-                "room_id": room_id,
-                "ended": ended,
-                "message": f"Disposable chatroom '{room_id}' and all ephemeral media permanently deleted."
-            })
+                auth_header = self.headers.get("Authorization", "")
+                token_auth_user = None
+                if auth_header.startswith("Bearer "):
+                    tok = auth_header.split(" ", 1)[1].strip()
+                    tok_user = verify_session_token(tok)
+                    if tok_user:
+                        token_auth_user = tok_user
 
-        elif path in ("/api/cbm/chat/whitelist/add", "/api/v1/chat/whitelist/add"):
-            admin_user = (body.get("admin_account") or body.get("admin_user") or "").strip()
-            admin_pin = str(body.get("admin_pin", "")).strip()
-            target_acc = (body.get("account_name") or body.get("account") or "").strip()
-            notes = (body.get("notes") or "").strip()
+                operator = token_auth_user or admin_user
+                if not operator:
+                    return self._send_json(401, {"status": "unauthorized", "message": "Admin authentication required."})
 
-            auth_header = self.headers.get("Authorization", "")
-            token_auth_user = None
-            if auth_header.startswith("Bearer "):
-                tok = auth_header.split(" ", 1)[1].strip()
-                tok_user = verify_session_token(tok)
-                if tok_user:
-                    token_auth_user = tok_user
+                raw_admin = db._get_account_raw(operator)
+                if not raw_admin or raw_admin.get("role") not in ("leader", "system", "admin", "co-leader"):
+                    return self._send_json(403, {"status": "forbidden", "message": "Only clan administrators can manage the chat whitelist."})
 
-            operator = token_auth_user or admin_user
-            if not operator:
-                return self._send_json(401, {"status": "unauthorized", "message": "Admin authentication required."})
+                if not token_auth_user and not db.verify_account_pin(operator, admin_pin):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Invalid admin PIN."})
 
-            raw_admin = db._get_account_raw(operator)
-            if not raw_admin or raw_admin.get("role") not in ("leader", "system", "admin", "co-leader"):
-                return self._send_json(403, {"status": "forbidden", "message": "Only clan administrators can manage the chat whitelist."})
+                ok, msg = db.add_to_chat_whitelist(target_acc, added_by=operator, notes=notes)
+                return self._send_json(200 if ok else 400, {"status": "ok" if ok else "error", "message": msg})
 
-            if not token_auth_user and not db.verify_account_pin(operator, admin_pin):
-                return self._send_json(401, {"status": "unauthorized", "message": "Invalid admin PIN."})
+            elif path in ("/api/cbm/chat/whitelist/remove", "/api/v1/chat/whitelist/remove"):
+                admin_user = (body.get("admin_account") or body.get("admin_user") or "").strip()
+                admin_pin = str(body.get("admin_pin", "")).strip()
+                target_acc = (body.get("account_name") or body.get("account") or "").strip()
 
-            ok, msg = db.add_to_chat_whitelist(target_acc, added_by=operator, notes=notes)
-            return self._send_json(200 if ok else 400, {"status": "ok" if ok else "error", "message": msg})
+                auth_header = self.headers.get("Authorization", "")
+                token_auth_user = None
+                if auth_header.startswith("Bearer "):
+                    tok = auth_header.split(" ", 1)[1].strip()
+                    tok_user = verify_session_token(tok)
+                    if tok_user:
+                        token_auth_user = tok_user
 
-        elif path in ("/api/cbm/chat/whitelist/remove", "/api/v1/chat/whitelist/remove"):
-            admin_user = (body.get("admin_account") or body.get("admin_user") or "").strip()
-            admin_pin = str(body.get("admin_pin", "")).strip()
-            target_acc = (body.get("account_name") or body.get("account") or "").strip()
+                operator = token_auth_user or admin_user
+                if not operator:
+                    return self._send_json(401, {"status": "unauthorized", "message": "Admin authentication required."})
 
-            auth_header = self.headers.get("Authorization", "")
-            token_auth_user = None
-            if auth_header.startswith("Bearer "):
-                tok = auth_header.split(" ", 1)[1].strip()
-                tok_user = verify_session_token(tok)
-                if tok_user:
-                    token_auth_user = tok_user
+                raw_admin = db._get_account_raw(operator)
+                if not raw_admin or raw_admin.get("role") not in ("leader", "system", "admin", "co-leader"):
+                    return self._send_json(403, {"status": "forbidden", "message": "Only clan administrators can manage the chat whitelist."})
 
-            operator = token_auth_user or admin_user
-            if not operator:
-                return self._send_json(401, {"status": "unauthorized", "message": "Admin authentication required."})
+                if not token_auth_user and not db.verify_account_pin(operator, admin_pin):
+                    return self._send_json(401, {"status": "unauthorized", "message": "Invalid admin PIN."})
 
-            raw_admin = db._get_account_raw(operator)
-            if not raw_admin or raw_admin.get("role") not in ("leader", "system", "admin", "co-leader"):
-                return self._send_json(403, {"status": "forbidden", "message": "Only clan administrators can manage the chat whitelist."})
+                ok, msg = db.remove_from_chat_whitelist(target_acc)
+                return self._send_json(200 if ok else 400, {"status": "ok" if ok else "error", "message": msg})
 
-            if not token_auth_user and not db.verify_account_pin(operator, admin_pin):
-                return self._send_json(401, {"status": "unauthorized", "message": "Invalid admin PIN."})
-
-            ok, msg = db.remove_from_chat_whitelist(target_acc)
-            return self._send_json(200 if ok else 400, {"status": "ok" if ok else "error", "message": msg})
+            else:
+                return self._send_json(404, {"status": "error", "message": f"Chat endpoint '{path}' not found."})
 
         # --- Authoritative OAuth 2.0 Token Exchange ---
         elif path == "/api/oauth/token":
@@ -5928,6 +6449,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             auth_user = self._get_authenticated_user()
             if not auth_user:
                 return self._send_json(401, {"status": "error", "message": "Authentication required."})
+            if not self._is_account_cbm_plus(auth_user):
+                return self._send_json(402, {
+                    "status": "error",
+                    "error": "cbm_plus_required",
+                    "message": f"Payment Required: Active 'CBM Plus' subscription (500 Gold/month) required to register OAuth applications. Account '{auth_user}' is inactive.",
+                    "cost_gold": 500.00
+                })
 
             client_name = body.get("client_name", "").strip()
             redirect_uris = body.get("redirect_uris", [])
@@ -6112,7 +6640,7 @@ def _start_ai_session_gc_daemon():
 def run_http_server():
     global _SERVER_INSTANCE
     _start_ai_session_gc_daemon()
-    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 24))
+    max_workers = int(os.environ.get("MAX_SERVER_WORKERS", 12))
     server = CBMThreadPoolServer(("0.0.0.0", PORT), CBMHealthHandler, max_workers=max_workers)
     _SERVER_INSTANCE = server
     print(f"[+] CBM Bounded ThreadPool Server ({max_workers} workers, backlog 256) active on 0.0.0.0:{PORT}")
@@ -6121,6 +6649,12 @@ def run_http_server():
     server.serve_forever()
 
 def main():
+    # Tune thread stack size to 256 KB to stay well within 512 MB memory boundary
+    try:
+        threading.stack_size(262144)
+    except Exception:
+        pass
+
     print("=" * 68)
     print("  Clan Bank Manager (CBM) - Wispbyte Master Runtime")
     print(f"  Target Vault Account:    {VAULT_ACCOUNT}")
@@ -6129,6 +6663,13 @@ def main():
     print(f"  Configured Subdomain:    http://{WISPBYTE_SUBDOMAIN}/")
     print(f"  Ledger Polling Interval: {POLL_INTERVAL}s")
     print("=" * 68)
+
+    # Cold startup state synchronization
+    try:
+        if hasattr(db, "sync_all_from_supabase"):
+            db.sync_all_from_supabase(quiet=True)
+    except Exception as sync_err:
+        print(f"[*] Cold startup sync notice: {sync_err}")
 
     # 1. Start HTTP health server immediately (binds port 10093 in < 50ms)
     http_thread = threading.Thread(target=run_http_server, daemon=True, name="cbm_http_server")

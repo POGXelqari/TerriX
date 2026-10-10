@@ -268,7 +268,9 @@ class TestLiveCORSServer(unittest.TestCase):
             avatar_url="https://cbm.wispbyte.org/avatar.png",
             primary_territorial_account="TerritoryCorsPlayer",
             pin="123456",
+            role="leader",
         )
+        db.activate_cbm_plus(acc, months=1)
         db.credit_deposit(acc, 10000, "tx_test_cors_setup_123")
         ok, secret_token, key_meta = db.create_api_key(
             owner_account=acc,

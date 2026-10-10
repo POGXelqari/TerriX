@@ -1701,11 +1701,13 @@
               </div>
               <div>
                 <h2 id="accDisplayName" style="font-size: 22px; font-weight: 900; color: #fff;">Guest Member</h2>
-                <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap;">
+                <div style="display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; align-items: center;">
                   <span class="game-pill mono">Account: <strong id="accAccountName"
                       style="color: #fff;">None</strong></span>
                   <span class="game-pill blue">Clan: <strong id="accClanTag">ANTI-OG</strong></span>
                   <span class="game-pill green">Role: <strong id="accRole">Member</strong></span>
+                  <span id="accCbmPlusBadge" class="game-pill gold" style="display: none; cursor: pointer;" onclick="openCbmPlusModal()"
+                    title="CBM Plus Membership Status">⭐ CBM+ Member</span>
                   <span id="accOwnershipBadge" class="game-pill mono" style="display: none;">Public View</span>
                   <span id="accPinBadge" class="game-pill" style="display: none; cursor: pointer;" onclick="openPinModal()"
                     title="Configure Access PIN">🔒 Checking PIN...</span>
@@ -1714,6 +1716,7 @@
               </div>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn-game btn-game-gold" onclick="openCbmPlusModal()" id="btnCbmPlusManage" style="display: none;">⭐ CBM Plus</button>
               <button class="btn-game btn-game-secondary" onclick="openPinModal()" id="btnManagePin" style="display: none;">🔑 Security PIN</button>
               <button class="btn-game btn-game-secondary" onclick="openProfileEdit()" id="btnEditProfile" style="display: none;">✏️ Edit Profile</button>
             </div>
@@ -1736,6 +1739,27 @@
               <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase;">Lifetime Withdrawn</div>
               <div id="accTotalWith" class="mono"
                 style="font-size: 22px; font-weight: 900; color: #fff; margin-top: 4px;">0.00 Gold</div>
+            </div>
+          </div>
+
+          <!-- CBM Plus Tier Card -->
+          <div id="cbmPlusCard" class="game-subpanel" style="margin-top: 16px; border: 1px solid rgba(255, 196, 57, 0.35); background: linear-gradient(135deg, rgba(255, 196, 57, 0.08) 0%, rgba(14, 22, 38, 0.95) 100%);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: rgba(255, 196, 57, 0.15); border: 1px solid rgba(255, 196, 57, 0.35); display: flex; align-items: center; justify-content: center; font-size: 22px;">⭐</div>
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <h3 style="font-size: 16px; font-weight: 800; color: #fff;">CBM Plus Subscription</h3>
+                    <span id="cbmPlusStatusTag" class="game-pill mono" style="font-size: 11px;">Checking...</span>
+                  </div>
+                  <p id="cbmPlusStatusDesc" style="font-size: 12px; color: var(--text-dim); margin-top: 2px;">
+                    Unlock sovereign AI inference, developer API keys, TrimCraft Pro & Video Trimmer for 500 Gold / month.
+                  </p>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn-game btn-game-gold" id="btnSubscribeBalance" onclick="openCbmPlusModal()">⭐ Manage Membership</button>
+              </div>
             </div>
           </div>
         </div>
@@ -2635,6 +2659,55 @@
           </div>
         </div>
 
+        <!-- Sponsored Registration Invites Facility -->
+        <div id="sponsoredInvitesContainer" style="margin-top: 28px; border-top: 1px solid var(--border, #2a2f45); padding-top: 24px;">
+          <div class="panel-headline" style="margin-bottom: 12px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h4 style="font-size: 16px; font-weight: 700; color: #fff;">Sponsored Registration Invites</h4>
+                <span class="game-pill gold" style="font-size: 10px;">25.00 Gold Sponsor Stake</span>
+              </div>
+              <p style="font-size: 12px; color: var(--text-dim); margin-top: 3px;">
+                Generate reusable invite codes. Each recruit who registers with your code has their 25.00 Gold entrance fee covered directly, settling to unencumbered reserves upon onboarding.
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <select id="inviteMaxUsesSelect" class="game-input" style="width: auto; padding: 6px 12px; font-size: 12px;">
+                <option value="1">1 Recruit (1 Use)</option>
+                <option value="5" selected>5 Recruits (5 Uses)</option>
+                <option value="10">10 Recruits (10 Uses)</option>
+                <option value="25">25 Recruits (25 Uses)</option>
+              </select>
+              <button class="btn-game btn-game-primary btn-game-sm" onclick="createSponsoredInviteCode()" id="btnCreateInvite">
+                ➕ Generate Sponsor Code
+              </button>
+            </div>
+          </div>
+
+          <div id="createInviteResult" style="margin-bottom: 12px;"></div>
+
+          <div style="overflow-x: auto; border: 1px solid var(--border, #2a2f45); border-radius: 8px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
+              <thead>
+                <tr style="background: var(--surface-3, #111827); color: var(--text-dim, #8892aa); border-bottom: 1px solid var(--border, #2a2f45);">
+                  <th style="padding: 10px 14px;">Invite Code</th>
+                  <th style="padding: 10px 14px;">Usage Count</th>
+                  <th style="padding: 10px 14px;">Status</th>
+                  <th style="padding: 10px 14px;">Created</th>
+                  <th style="padding: 10px 14px; text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="sponsoredInvitesTableBody">
+                <tr>
+                  <td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">
+                    Loading active invite codes...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div id="referralNotLoggedIn" style="display:none; margin-top: 18px; padding: 18px; background: var(--surface-2, #1a1f2e); border-radius: 10px; text-align: center; color: var(--text-dim, #8892aa); font-size: 13px;">
           Log in to view your referral stats and invite link.
         </div>
@@ -2937,6 +3010,7 @@
       }
       if (tabId === 'referrals') {
         loadReferralTab();
+        loadInvitesList();
       }
     }
 
@@ -3052,6 +3126,354 @@
         document.execCommand('copy');
         showToast('Invite link copied!', 'success');
       });
+    }
+
+    function copyText(text, msg = 'Copied to clipboard!') {
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast(msg, 'success');
+        }).catch(() => {
+          showToast(msg, 'success');
+        });
+      } else {
+        showToast(msg, 'success');
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Sponsored Invites Management
+    // ---------------------------------------------------------------
+    async function loadInvitesList() {
+      const tbody = document.getElementById('sponsoredInvitesTableBody');
+      if (!tbody) return;
+
+      const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
+      if (!user) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">Sign in to view and create sponsored invite codes.</td></tr>';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/cbm/invites/list');
+        if (!res.ok) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">Failed to load invite codes.</td></tr>';
+          return;
+        }
+        const data = await res.json();
+        const list = data.invites || [];
+        if (list.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-dim); padding: 1.5rem;">No sponsored invite codes created yet. Click above to generate one.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = list.map(inv => {
+          const isRevoked = !!inv.is_revoked;
+          const isExhausted = inv.uses_count >= inv.max_uses;
+          let statusPill = '<span class="game-pill green">ACTIVE</span>';
+          if (isRevoked) {
+            statusPill = '<span class="game-pill red">REVOKED</span>';
+          } else if (isExhausted) {
+            statusPill = '<span class="game-pill mono">EXHAUSTED</span>';
+          }
+
+          const createdDate = inv.created_at ? new Date(inv.created_at * 1000).toISOString().split('T')[0] : 'N/A';
+          const inviteUrl = `${window.location.origin}/register.html?invite=${encodeURIComponent(inv.code_id)}`;
+
+          return `
+            <tr style="border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));">
+              <td style="padding: 10px 14px;"><strong class="mono" style="color: var(--paypal-yellow);">${escapeHtml(inv.code_id)}</strong></td>
+              <td style="padding: 10px 14px;"><span class="mono">${inv.uses_count} / ${inv.max_uses}</span></td>
+              <td style="padding: 10px 14px;">${statusPill}</td>
+              <td style="padding: 10px 14px; color: var(--text-dim);">${createdDate}</td>
+              <td style="padding: 10px 14px; text-align: right;">
+                <button class="btn-game btn-game-secondary btn-game-sm" onclick="copyText('${escapeHtml(inviteUrl)}', 'Invite URL copied!')">📋 Copy Link</button>
+                ${(!isRevoked && !isExhausted) ? `<button class="btn-game btn-game-sm" style="background: rgba(234,57,67,0.15); color: #ff858d; border: 1px solid rgba(234,57,67,0.3); margin-left: 6px;" onclick="revokeInviteCode('${escapeHtml(inv.code_id)}')">Revoke</button>` : ''}
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--game-red); padding: 1.5rem;">Error loading invites: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    async function createSponsoredInviteCode() {
+      const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
+      if (!user) {
+        showToast('Please sign in to generate invite codes.', 'error');
+        return;
+      }
+
+      const maxUses = parseInt(document.getElementById('inviteMaxUsesSelect').value, 10) || 5;
+      const resDiv = document.getElementById('createInviteResult');
+      const btn = document.getElementById('btnCreateInvite');
+
+      resDiv.innerHTML = '<span class="text-gold">Generating sponsored invite code...</span>';
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/cbm/invites/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ max_uses: maxUses })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Invite code ${data.code_id} generated!`, 'success');
+          resDiv.innerHTML = `<div class="game-subpanel" style="border-color: var(--game-green);"><strong class="text-green">✓ Created: ${data.code_id}</strong> (${maxUses} uses). <button class="btn-game btn-game-secondary btn-game-sm" style="margin-left:8px;" onclick="copyText('${data.invite_url || (window.location.origin + '/register.html?invite=' + data.code_id)}', 'Copied!')">📋 Copy Invite Link</button></div>`;
+          loadInvitesList();
+        } else {
+          resDiv.innerHTML = `<span class="text-red">✗ ${data.message || data.error || 'Failed to create invite code.'}</span>`;
+          showToast(data.message || 'Creation failed', 'error');
+        }
+      } catch (err) {
+        resDiv.innerHTML = `<span class="text-red">✗ Error: ${err.message}</span>`;
+        showToast(err.message, 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function revokeInviteCode(codeId) {
+      if (!confirm(`Are you sure you want to revoke invite code ${codeId}? Future recruits will no longer be able to use it.`)) return;
+      try {
+        const res = await fetch('/api/cbm/invites/revoke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code_id: codeId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`Invite code ${codeId} revoked.`, 'info');
+          loadInvitesList();
+        } else {
+          showToast(data.message || data.error || 'Failed to revoke code', 'error');
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // CBM Plus Subscription Desk & Membership Logic
+    // ---------------------------------------------------------------
+    let currentCbmPlusStatus = null;
+
+    async function loadCbmPlusAccountStatus() {
+      const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
+      if (!user) {
+        const badge = document.getElementById('accCbmPlusBadge');
+        if (badge) badge.style.display = 'none';
+        const manageBtn = document.getElementById('btnCbmPlusManage');
+        if (manageBtn) manageBtn.style.display = 'none';
+        const card = document.getElementById('cbmPlusCard');
+        if (card) card.style.display = 'none';
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/cbm/subscription/status?account_name=${encodeURIComponent(user)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        currentCbmPlusStatus = data;
+
+        const isActive = !!data.cbm_plus_active;
+        const isLifetime = !!data.is_lifetime;
+        const untilIso = data.cbm_plus_until_iso;
+
+        const badge = document.getElementById('accCbmPlusBadge');
+        const manageBtn = document.getElementById('btnCbmPlusManage');
+        const card = document.getElementById('cbmPlusCard');
+        const tag = document.getElementById('cbmPlusStatusTag');
+        const desc = document.getElementById('cbmPlusStatusDesc');
+
+        if (badge) {
+          badge.style.display = isActive ? 'inline-block' : 'none';
+          if (isLifetime) {
+            badge.innerHTML = '⭐ CBM+ Lifetime';
+            badge.className = 'game-pill gold';
+          } else if (isActive) {
+            badge.innerHTML = '⭐ CBM+ Active';
+            badge.className = 'game-pill green';
+          }
+        }
+
+        if (manageBtn) {
+          manageBtn.style.display = 'inline-block';
+          manageBtn.innerHTML = isActive ? '⭐ CBM Plus' : '⭐ Join CBM+';
+        }
+
+        if (card) {
+          card.style.display = 'block';
+        }
+
+        if (tag) {
+          if (isLifetime) {
+            tag.className = 'game-pill gold';
+            tag.innerText = 'LIFETIME ACCESS';
+          } else if (isActive) {
+            tag.className = 'game-pill green';
+            tag.innerText = `ACTIVE UNTIL ${untilIso ? untilIso.split('T')[0] : 'N/A'}`;
+          } else {
+            tag.className = 'game-pill mono';
+            tag.innerText = 'STANDARD TIER';
+          }
+        }
+
+        if (desc) {
+          if (isLifetime) {
+            desc.innerText = 'Permanent CBM Plus privileges unlocked. Sovereign AI NIM inference, developer API credentials & media suites.';
+          } else if (isActive) {
+            desc.innerText = `Active membership. All privileges unlocked until ${untilIso ? untilIso.split('T')[0] : 'active period'}.`;
+          } else {
+            desc.innerText = 'Unlock sovereign AI NIM inference, developer API keys, TrimCraft Pro & Video Trimmer for 500 Gold / month.';
+          }
+        }
+      } catch (e) {
+        console.error('loadCbmPlusAccountStatus error:', e);
+      }
+    }
+
+    function openCbmPlusModal() {
+      const modal = document.getElementById('modalCbmPlus');
+      if (!modal) return;
+
+      const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
+      if (!user) {
+        showToast('Please sign in to manage CBM Plus membership.', 'error');
+        return;
+      }
+
+      const badge = document.getElementById('cbmPlusModalBadge');
+      const expiry = document.getElementById('cbmPlusModalExpiry');
+
+      if (currentCbmPlusStatus) {
+        if (currentCbmPlusStatus.is_lifetime) {
+          if (badge) { badge.className = 'game-pill gold'; badge.innerText = '⭐ LIFETIME MEMBER'; }
+          if (expiry) expiry.innerText = 'Permanent Access';
+        } else if (currentCbmPlusStatus.cbm_plus_active) {
+          if (badge) { badge.className = 'game-pill green'; badge.innerText = '⭐ ACTIVE'; }
+          if (expiry) expiry.innerText = currentCbmPlusStatus.cbm_plus_until_iso ? currentCbmPlusStatus.cbm_plus_until_iso.split('T')[0] : 'Active';
+        } else {
+          if (badge) { badge.className = 'game-pill mono'; badge.innerText = 'STANDARD MEMBER'; }
+          if (expiry) expiry.innerText = 'No Active Subscription';
+        }
+      }
+
+      switchCbmPlusMode('balance');
+      modal.style.display = 'flex';
+    }
+
+    function closeCbmPlusModal() {
+      const modal = document.getElementById('modalCbmPlus');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function switchCbmPlusMode(mode) {
+      const modeBalance = document.getElementById('cbmPlusModeBalance');
+      const modeSlip = document.getElementById('cbmPlusModeSlip');
+      const btnBal = document.getElementById('tabBtnSubBalance');
+      const btnSlip = document.getElementById('tabBtnSubSlip');
+
+      if (mode === 'balance') {
+        if (modeBalance) modeBalance.style.display = 'block';
+        if (modeSlip) modeSlip.style.display = 'none';
+        if (btnBal) btnBal.className = 'btn-game btn-game-gold btn-game-sm';
+        if (btnSlip) btnSlip.className = 'btn-game btn-game-secondary btn-game-sm';
+      } else {
+        if (modeBalance) modeBalance.style.display = 'none';
+        if (modeSlip) modeSlip.style.display = 'block';
+        if (btnBal) btnBal.className = 'btn-game btn-game-secondary btn-game-sm';
+        if (btnSlip) btnSlip.className = 'btn-game btn-game-primary btn-game-sm';
+      }
+    }
+
+    function updateSubTotal() {
+      const select = document.getElementById('subMonthsSelect');
+      const label = document.getElementById('subTotalGoldLabel');
+      if (!select || !label) return;
+      const m = parseInt(select.value, 10) || 1;
+      label.innerText = (m * 500).toFixed(2);
+    }
+
+    async function handleSubscribeBalance(e) {
+      e.preventDefault();
+      const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
+      if (!user) {
+        showToast('Please sign in first.', 'error');
+        return;
+      }
+
+      const months = parseInt(document.getElementById('subMonthsSelect').value, 10) || 1;
+      const pin = (document.getElementById('subPinInput').value || '').trim();
+      const resDiv = document.getElementById('subBalanceResult');
+      const btn = document.getElementById('btnConfirmSubBalance');
+
+      resDiv.innerHTML = '<span class="text-gold">Authorizing subscription deduction...</span>';
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/cbm/subscription/subscribe-balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_name: user, pin, months })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          resDiv.innerHTML = `<span class="text-green">✓ ${data.message || 'Subscription activated successfully!'}</span>`;
+          showToast(data.message || 'CBM Plus activated!', 'success');
+          loadStatus();
+          loadCbmPlusAccountStatus();
+          setTimeout(closeCbmPlusModal, 1500);
+        } else {
+          resDiv.innerHTML = `<span class="text-red">✗ ${data.message || data.error || 'Subscription failed.'}</span>`;
+          showToast(data.message || 'Subscription failed', 'error');
+        }
+      } catch (err) {
+        resDiv.innerHTML = `<span class="text-red">✗ Error: ${err.message}</span>`;
+        showToast(err.message, 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    async function handleDeclareSlip() {
+      const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
+      if (!user) {
+        showToast('Please sign in first.', 'error');
+        return;
+      }
+
+      const pin = (document.getElementById('slipPinInput').value || '').trim();
+      const resDiv = document.getElementById('slipResult');
+      const btn = document.getElementById('btnDeclareSlip');
+      const slipBox = document.getElementById('slipStatusBox');
+
+      resDiv.innerHTML = '<span class="text-gold">Declaring 15-minute intent slip on ledger...</span>';
+      if (btn) btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/cbm/subscription/declare-slip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_name: user, pin })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          resDiv.innerHTML = `<span class="text-green">✓ ${data.message}</span>`;
+          showToast(data.message, 'success');
+          if (slipBox) slipBox.style.display = 'block';
+        } else {
+          resDiv.innerHTML = `<span class="text-red">✗ ${data.message || data.error || 'Declaration failed.'}</span>`;
+          showToast(data.message || 'Slip declaration failed', 'error');
+        }
+      } catch (err) {
+        resDiv.innerHTML = `<span class="text-red">✗ Error: ${err.message}</span>`;
+        showToast(err.message, 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     }
 
     function copyVault() {
@@ -3432,6 +3854,9 @@
             if (btnPin) btnPin.style.display = 'none';
           }
 
+          // CBM Plus Management & Status
+          loadCbmPlusAccountStatus();
+
           // Identity Verification Badge
           const verBadge = document.getElementById('accVerifiedBadge');
           if (verBadge) {
@@ -3565,6 +3990,9 @@
           if (document.getElementById('btnManagePin')) document.getElementById('btnManagePin').style.display = 'none';
           if (document.getElementById('accPinBadge')) document.getElementById('accPinBadge').style.display = 'none';
           if (document.getElementById('accOwnershipBadge')) document.getElementById('accOwnershipBadge').style.display = 'none';
+          if (document.getElementById('accCbmPlusBadge')) document.getElementById('accCbmPlusBadge').style.display = 'none';
+          if (document.getElementById('btnCbmPlusManage')) document.getElementById('btnCbmPlusManage').style.display = 'none';
+          if (document.getElementById('cbmPlusCard')) document.getElementById('cbmPlusCard').style.display = 'none';
           showToast(data.message || 'Account not found.', 'error');
         }
       } catch (e) {
@@ -3979,6 +4407,7 @@
           </div>
         `;
       }
+      loadCbmPlusAccountStatus();
     }
 
     function handleLogout() {
@@ -4503,6 +4932,116 @@
           <button type="button" class="btn-game btn-game-secondary" onclick="closeRepayModal()">Cancel</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal: CBM Plus Subscription Desk -->
+  <div id="modalCbmPlus" class="cbm-modal-backdrop" style="display: none;">
+    <div class="cbm-modal-card" style="max-width: 540px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 22px;">⭐</span>
+          <h3 style="font-size: 18px; font-weight: 800; color: #fff;">CBM Plus Membership</h3>
+        </div>
+        <button type="button" class="btn-game btn-game-secondary btn-game-sm" onclick="closeCbmPlusModal()"
+          style="border-radius: 50%; width: 28px; height: 28px; padding: 0;">✕</button>
+      </div>
+
+      <!-- Live Status Summary -->
+      <div id="cbmPlusModalStatusBox" class="game-subpanel" style="margin-bottom: 16px; border: 1px solid rgba(255, 196, 57, 0.4); background: rgba(255, 196, 57, 0.08);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 12px; color: var(--text-dim);">Current Tier:</span>
+          <span id="cbmPlusModalBadge" class="game-pill mono">Checking...</span>
+        </div>
+        <div id="cbmPlusModalExpiryRow" style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+          <span style="font-size: 12px; color: var(--text-dim);">Expiration:</span>
+          <strong id="cbmPlusModalExpiry" class="mono text-gold" style="font-size: 12px;">—</strong>
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+          Includes sovereign AI NIM inference, developer API credentials, TrimCraft Pro & Video Trimmer suites.
+        </div>
+      </div>
+
+      <!-- Tab Buttons for Subscription Method -->
+      <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+        <button type="button" id="tabBtnSubBalance" class="btn-game btn-game-gold btn-game-sm" style="flex: 1;" onclick="switchCbmPlusMode('balance')">
+          💳 Pay from Balance (500G)
+        </button>
+        <button type="button" id="tabBtnSubSlip" class="btn-game btn-game-secondary btn-game-sm" style="flex: 1;" onclick="switchCbmPlusMode('slip')">
+          🧈 In-Game Slip Intent (15 Min)
+        </button>
+      </div>
+
+      <!-- Mode 1: Balance Subscription Form -->
+      <div id="cbmPlusModeBalance">
+        <form method="POST" onsubmit="handleSubscribeBalance(event)">
+          <div class="game-form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label style="margin-bottom: 0;">Subscription Term</label>
+              <span style="font-size: 11px; color: var(--paypal-yellow);">500.00 Gold / Month</span>
+            </div>
+            <select id="subMonthsSelect" class="game-input" onchange="updateSubTotal()">
+              <option value="1">1 Month (500.00 Gold)</option>
+              <option value="3">3 Months (1,500.00 Gold)</option>
+              <option value="6">6 Months (3,000.00 Gold)</option>
+              <option value="12">12 Months (6,000.00 Gold)</option>
+            </select>
+          </div>
+
+          <div class="game-form-group">
+            <label>6-Digit CBM Access PIN</label>
+            <input type="password" id="subPinInput" class="game-input" maxlength="8" placeholder="••••••" autocomplete="off" inputmode="numeric">
+            <span class="form-subtext">Required if your account has an access PIN configured.</span>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 18px;">
+            <button type="submit" class="btn-game btn-game-gold" style="flex: 1;" id="btnConfirmSubBalance">
+              ⭐ Confirm Subscription (<span id="subTotalGoldLabel">500.00</span> Gold)
+            </button>
+            <button type="button" class="btn-game btn-game-secondary" onclick="closeCbmPlusModal()">Cancel</button>
+          </div>
+        </form>
+        <div id="subBalanceResult" style="margin-top: 12px;"></div>
+      </div>
+
+      <!-- Mode 2: In-Game Intent Slip -->
+      <div id="cbmPlusModeSlip" style="display: none;">
+        <div class="game-subpanel" style="font-size: 12px; line-height: 1.6; margin-bottom: 14px;">
+          <div style="font-weight: 700; color: #fff; margin-bottom: 6px;">In-Game Deposit Instructions</div>
+          <ol style="margin-left: 18px; color: var(--text-dim); padding-left: 0;">
+            <li>Declare your 15-minute subscription intent slip below.</li>
+            <li>In Territorial.io, transfer exactly <strong class="mono text-green">500.00 Gold</strong> to vault account <strong class="mono" style="color: #fff;">DdcBC</strong>.</li>
+            <li>Our background daemon reconciles the transaction and activates CBM Plus automatically.</li>
+          </ol>
+        </div>
+
+        <div id="slipStatusBox" style="display: none; margin-bottom: 14px;" class="game-subpanel">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; color: var(--text-dim);">Slip Intent:</span>
+            <span class="game-pill green">ACTIVE (15-MIN WINDOW)</span>
+          </div>
+          <div style="font-size: 12px; margin-top: 6px; color: #cbd5e1;">
+            Target Account: <strong class="mono" style="color: #fff;">DdcBC</strong> &bull; Amount: <strong class="mono text-gold">500.00 Gold</strong>
+          </div>
+          <div id="slipCountdownLabel" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            Waiting for in-game transfer detection...
+          </div>
+        </div>
+
+        <div class="game-form-group">
+          <label>6-Digit CBM Access PIN</label>
+          <input type="password" id="slipPinInput" class="game-input" maxlength="8" placeholder="••••••" autocomplete="off" inputmode="numeric">
+          <span class="form-subtext">Required if your account has an access PIN configured.</span>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 18px;">
+          <button type="button" class="btn-game btn-game-primary" style="flex: 1;" onclick="handleDeclareSlip()" id="btnDeclareSlip">
+            🧈 Declare 15-Minute Intent Slip
+          </button>
+          <button type="button" class="btn-game btn-game-secondary" onclick="closeCbmPlusModal()">Cancel</button>
+        </div>
+        <div id="slipResult" style="margin-top: 12px;"></div>
+      </div>
     </div>
   </div>
 

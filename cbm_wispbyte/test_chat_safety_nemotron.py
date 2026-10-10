@@ -314,13 +314,19 @@ class TestLiveNemotronHTTPEndpoints(unittest.TestCase):
         verdict_cache.clear()
         chat_engine.end_room("http_safety_room")
 
-    def _post_json(self, path: str, payload: dict) -> tuple:
+    def _post_json(self, path: str, payload: dict, headers: dict = None) -> tuple:
         url = f"http://127.0.0.1:{self.port}{path}"
         data = json.dumps(payload).encode("utf-8")
+        req_headers = {
+            "Content-Type": "application/json",
+            "X-CBM-API-Key": "cbm_live_2063e984d4e66cbd90cc1fcc33e54a1199d5a978"
+        }
+        if headers is not None:
+            req_headers = headers
         req = urllib.request.Request(
             url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers=req_headers,
             method="POST"
         )
         try:
@@ -427,6 +433,39 @@ class TestLiveNemotronHTTPEndpoints(unittest.TestCase):
             self.assertEqual(res["status"], "ok")
             self.assertIn("message", res)
             self.assertEqual(res["message"]["content"], "Sending resources now :gold:")
+
+    def test_http_chat_check_unauthenticated_rejected(self):
+        """POST /api/cbm/chat/check without API key returns 401 Unauthorized."""
+        status, res = self._post_json(
+            "/api/cbm/chat/check",
+            {"content": "Checking message"},
+            headers={"Content-Type": "application/json"}
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(res.get("error"), "unauthorized")
+
+    def test_http_chat_send_unauthenticated_rejected(self):
+        """POST /api/cbm/chat/send without API key returns 401 Unauthorized."""
+        status, res = self._post_json(
+            "/api/cbm/chat/send",
+            {"room_id": "http_safety_room", "content": "Unauthenticated hello"},
+            headers={"Content-Type": "application/json"}
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(res.get("error"), "unauthorized")
+
+    def test_http_chat_invalid_key_rejected(self):
+        """POST /api/cbm/chat/send with invalid key returns 401 Unauthorized."""
+        status, res = self._post_json(
+            "/api/cbm/chat/send",
+            {"room_id": "http_safety_room", "content": "Hello with fake key"},
+            headers={
+                "Content-Type": "application/json",
+                "X-CBM-API-Key": "cbm_live_forged_fake_key_9999"
+            }
+        )
+        self.assertEqual(status, 401)
+        self.assertEqual(res.get("error"), "invalid_key")
 
 
 if __name__ == "__main__":

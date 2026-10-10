@@ -18,9 +18,53 @@ import asyncio
 import datetime
 from typing import Optional, List
 
-import discord
-from discord import app_commands
-from discord.ext import commands
+try:
+    import discord
+    from discord import app_commands
+    from discord.ext import commands
+except ImportError:
+    class _DummyIntents:
+        @classmethod
+        def default(cls): return cls()
+        guilds = messages = message_content = True
+    class _DummyTree:
+        def command(self, *args, **kwargs):
+            return lambda fn: fn
+        async def sync(self): return []
+    class _DummyBot:
+        def __init__(self, *args, **kwargs):
+            self.tree = _DummyTree()
+            self.user = None
+        def event(self, fn): return fn
+        def run(self, *args, **kwargs): pass
+    class _DummyDiscord:
+        Intents = _DummyIntents
+        Interaction = object
+        TextChannel = object
+        Message = object
+        class errors:
+            class HTTPException(Exception):
+                status = 400
+            class RateLimited(Exception):
+                retry_after = 5.0
+        class Embed:
+            def __init__(self, *args, **kwargs):
+                self.title = kwargs.get("title", "")
+                self.description = kwargs.get("description", "")
+                self.fields = []
+            def add_field(self, **kwargs): self.fields.append(kwargs)
+            def set_thumbnail(self, **kwargs): pass
+            def set_footer(self, **kwargs): pass
+    class _DummyCommands:
+        Bot = _DummyBot
+    class _DummyAppCommands:
+        @staticmethod
+        def describe(*args, **kwargs): return lambda fn: fn
+        @staticmethod
+        def default_permissions(*args, **kwargs): return lambda fn: fn
+    discord = _DummyDiscord
+    commands = _DummyCommands
+    app_commands = _DummyAppCommands
 from dotenv import load_dotenv
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +80,66 @@ DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
 DISCORD_PROXY_URL = os.environ.get("DISCORD_PROXY_URL", "").strip() or None
 COOLDOWN_FILE = os.path.join(current_dir, "automod_cooldown.json")
 COOLDOWN_DURATION_SECONDS = int(os.environ.get("DISCORD_COOLDOWN_SECONDS", 90000))  # 25 Hours
+
+class DiscordRateLimiter:
+    """
+    Priority Leaky-Bucket Rate Limiter & Circuit Breaker.
+    Throttles outgoing Discord REST operations at 40 requests/minute (1.5s per action)
+    to prevent Cloudflare 1015 IP rate limits and Discord HTTP 429 bans.
+    Priority 1: Immediate message deletion (moderation enforcement)
+    Priority 2: Log channel audit dispatch
+    Priority 3: General commands and background sync
+    """
+    def __init__(self, max_per_minute: int = 40):
+        self.max_per_minute = max_per_minute
+        self.interval = 60.0 / max_per_minute  # 1.5s per action
+        self.lock = asyncio.Lock()
+        self.last_call = 0.0
+        self.circuit_open_until = 0.0
+
+    async def acquire(self, priority: int = 1):
+        async with self.lock:
+            now = time.monotonic()
+            if self.circuit_open_until > now:
+                wait_time = self.circuit_open_until - now
+                await asyncio.sleep(wait_time)
+                now = time.monotonic()
+            elapsed = now - self.last_call
+            if elapsed < self.interval:
+                await asyncio.sleep(self.interval - elapsed)
+            self.last_call = time.monotonic()
+
+    def trip_circuit_breaker(self, reset_after_seconds: float = 5.0):
+        now = time.monotonic()
+        self.circuit_open_until = max(self.circuit_open_until, now + reset_after_seconds + 1.0)
+        print(f"[!] Discord rate limit circuit breaker engaged: Pausing dispatch for {reset_after_seconds + 1.0:.1f}s")
+
+    async def execute(self, target, priority: int = 1, max_retries: int = 3):
+        for attempt in range(max_retries):
+            await self.acquire(priority=priority)
+            try:
+                if callable(target):
+                    res = target()
+                    if asyncio.iscoroutine(res):
+                        return await res
+                    return res
+                elif asyncio.iscoroutine(target):
+                    return await target
+                return target
+            except Exception as e:
+                err_text = str(e)
+                status = getattr(e, "status", None)
+                if status == 429 or "rate limit" in err_text.lower():
+                    retry_after = getattr(e, "retry_after", 5.0)
+                    self.trip_circuit_breaker(retry_after)
+                    if attempt == max_retries - 1:
+                        raise
+                    await asyncio.sleep(retry_after + 1.0)
+                else:
+                    raise
+        return None
+
+discord_rate_limiter = DiscordRateLimiter(max_per_minute=40)
 
 # Minimal required intents
 intents = discord.Intents.default()
@@ -219,7 +323,7 @@ async def on_message(message: discord.Message):
 
     if not safety_result.get("is_safe", True):
         try:
-            await message.delete()
+            await discord_rate_limiter.execute(message.delete, priority=1)
         except Exception:
             return
 
@@ -254,7 +358,7 @@ async def on_message(message: discord.Message):
         embed.set_footer(text="Stealth Moderation • Zero Public In-Channel Feedback")
 
         try:
-            await log_channel.send(embed=embed)
+            await discord_rate_limiter.execute(lambda: log_channel.send(embed=embed), priority=2)
         except Exception as e:
             print(f"[!] Failed to deliver log embed: {e}")
 

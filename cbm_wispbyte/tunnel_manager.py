@@ -52,7 +52,12 @@ class CloudflareTunnelManager:
         self.token = token or os.environ.get("CLOUDFLARE_TUNNEL_TOKEN", "").strip()
         raw_domain = domain or os.environ.get("WISPBYTE_SUBDOMAIN", "cbm.wispbyte.org")
         self.domain = raw_domain.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
-        self.protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "http2").strip()
+        self.protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "quic").strip()
+        self.metrics_port = int(os.getenv("CLOUDFLARE_METRICS_PORT", 20241))
+        self.fallback_metrics_port = int(os.getenv("CLOUDFLARE_FALLBACK_METRICS_PORT", 20242))
+        self.log_path = os.path.join(BASE_DIR, "cloudflared.log")
+        self.consecutive_probe_failures = 0
+        self.watchdog_interval = 20.0
 
         self.proc: Optional[subprocess.Popen] = None
         self.fallback_proc: Optional[subprocess.Popen] = None
@@ -109,60 +114,100 @@ class CloudflareTunnelManager:
         self.primary_resolving = resolves
         return resolves
 
-    def _start_fallback_quick_tunnel(self, bin_path: str):
-        """Launches temporary Quick Tunnel fallback during DNS failure or quarantine."""
-        if self.fallback_proc and self.fallback_proc.poll() is None:
-            return
+    def probe_tunnel_health(self) -> bool:
+        """
+        Active synthetic health probe:
+        Checks cloudflared internal metrics server (/ready) and service endpoint.
+        """
+        for p in (self.metrics_port, self.fallback_metrics_port):
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{p}/ready", headers={"User-Agent": "CBM-Tunnel-Watchdog/1.0"})
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    if resp.status == 200:
+                        return True
+            except Exception:
+                pass
 
-        print(f"[+] Automated Ingress Failover: Launching temporary Quick Tunnel fallback on port {self.port}...")
-        cmd = [bin_path, "--loglevel", "info", "tunnel", "--protocol", self.protocol, "--url", f"http://127.0.0.1:{self.port}", "--no-autoupdate"]
+        if self.proc and self.proc.poll() is None:
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{self.port}/health", headers={"User-Agent": "CBM-Tunnel-Watchdog/1.0"})
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    if resp.status == 200:
+                        return True
+            except Exception:
+                pass
+
+        return False
+
+    def _tail_log_file(self, file_path: str, is_fallback: bool = False):
+        """Tails the rotating cloudflared log file without holding blocking pipes."""
         try:
-            proc_env = os.environ.copy()
-            proc_env["GOMAXPROCS"] = "1"
-            self.fallback_proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                env=proc_env
-            )
-
-            def _read_fallback():
-                for line in iter(self.fallback_proc.stdout.readline, ''):
-                    if not self.running:
-                        break
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                f.seek(0, os.SEEK_END)
+                while self.running:
+                    line = f.readline()
+                    if not line:
+                        time.sleep(0.5)
+                        continue
                     line_clean = line.strip()
                     if not line_clean:
                         continue
                     if "trycloudflare.com" in line_clean:
                         match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_clean)
                         if match:
-                            self.fallback_url = match.group(0)
-                            self.public_url = self.fallback_url
-                            try:
-                                with open(ACTIVE_INGRESS_FILE, "w", encoding="utf-8") as f:
-                                    f.write(self.fallback_url)
-                            except Exception:
-                                pass
-                            print("\n" + "=" * 68)
-                            print(f"  [+] Automated Fallback Ingress Active (NXDOMAIN Failover):")
-                            print(f"      {self.fallback_url}")
-                            print(f"      (Temporary SSL access while {self.domain} DNS propagates)")
-                            print("=" * 68 + "\n")
-                    elif any(k in line_clean for k in ["Registered tunnel connection", "Starting tunnel"]):
-                        print(f"[+] Fallback Tunnel: {line_clean}")
+                            url = match.group(0)
+                            if is_fallback:
+                                self.fallback_url = url
+                                self.public_url = url
+                                try:
+                                    with open(ACTIVE_INGRESS_FILE, "w", encoding="utf-8") as af:
+                                        af.write(url)
+                                except Exception:
+                                    pass
+                                print(f"\n[+] Automated Fallback Ingress Active: {url}\n", flush=True)
+                            else:
+                                self.public_url = url
+                                print(f"\n[+] Cloudflare Tunnel Active Public Endpoint: {url}\n", flush=True)
+                    elif any(k in line_clean for k in ["Connected to", "Registered tunnel connection", "Starting tunnel", "Connector ID"]):
+                        print(f"[+] Cloudflare Edge: {line_clean}", flush=True)
+                    elif any(k in line_clean.lower() for k in ["error", "err", "fail", "incorrect usage", "invalid", "unrecognized", "fatal"]):
+                        print(f"[!] Cloudflare Tunnel Notice: {line_clean}", flush=True)
+        except Exception:
+            pass
 
-            t = threading.Thread(target=_read_fallback, daemon=True, name="cbm_fallback_reader")
+    def _start_fallback_quick_tunnel(self, bin_path: str):
+        """Launches temporary Quick Tunnel fallback during DNS failure or quarantine."""
+        if self.fallback_proc and self.fallback_proc.poll() is None:
+            return
+
+        print(f"[+] Automated Ingress Failover: Launching temporary Quick Tunnel fallback on port {self.port}...", flush=True)
+        cmd = [
+            bin_path, "--loglevel", "info", "tunnel",
+            "--protocol", self.protocol,
+            "--url", f"http://127.0.0.1:{self.port}",
+            "--no-autoupdate"
+        ]
+        try:
+            proc_env = os.environ.copy()
+            proc_env["GOMAXPROCS"] = "1"
+            fallback_log = open(self.log_path, "a", encoding="utf-8")
+            self.fallback_proc = subprocess.Popen(
+                cmd,
+                stdout=fallback_log,
+                stderr=subprocess.STDOUT,
+                env=proc_env
+            )
+
+            t = threading.Thread(target=self._tail_log_file, args=(self.log_path, True), daemon=True, name="cbm_fallback_tail")
             t.start()
         except Exception as e:
-            print(f"[!] Failed to spawn fallback quick tunnel: {e}")
+            print(f"[!] Failed to spawn fallback quick tunnel: {e}", flush=True)
 
     def _stop_fallback_quick_tunnel(self):
         """Stops temporary Quick Tunnel when primary domain is healthy."""
         if self.fallback_proc:
-            print(f"[*] Automated Ingress Watchdog: Primary domain '{self.domain}' is now resolving in DNS.")
-            print("[*] Gracefully deactivating temporary Quick Tunnel fallback...")
+            print(f"[*] Automated Ingress Watchdog: Primary domain '{self.domain}' is now resolving in DNS.", flush=True)
+            print("[*] Gracefully deactivating temporary Quick Tunnel fallback...", flush=True)
             try:
                 self.fallback_proc.terminate()
                 self.fallback_proc.wait(timeout=3)
@@ -194,29 +239,43 @@ class CloudflareTunnelManager:
             try:
                 bin_path = self.get_cloudflared_path()
             except Exception as e:
-                print(f"[!] Warning: Cloudflare Tunnel skipped: {e}")
+                print(f"[!] Warning: Cloudflare Tunnel skipped: {e}", flush=True)
                 return
 
             force_quick = os.getenv("ENABLE_QUICK_TUNNEL", "").strip().lower() in ("true", "1", "yes")
 
             if self.token and not force_quick:
-                cmd = [bin_path, "--loglevel", "info", "tunnel", "run", "--protocol", self.protocol, "--token", self.token]
-                print(f"[+] Launching Cloudflare Named Tunnel (Token auth, protocol: {self.protocol})...")
+                cmd = [
+                    bin_path, "--loglevel", "info", "tunnel", "run",
+                    "--protocol", self.protocol,
+                    "--token", self.token
+                ]
+                print(f"[+] Launching Cloudflare Named Tunnel (Token auth, protocol: {self.protocol})...", flush=True)
             else:
-                cmd = [bin_path, "--loglevel", "info", "tunnel", "--protocol", self.protocol, "--url", f"http://127.0.0.1:{self.port}", "--no-autoupdate"]
-                print(f"[*] Launching Cloudflare Quick Tunnel on port {self.port} (protocol: {self.protocol})...")
+                cmd = [
+                    bin_path, "--loglevel", "info", "tunnel",
+                    "--protocol", self.protocol,
+                    "--url", f"http://127.0.0.1:{self.port}",
+                    "--no-autoupdate"
+                ]
+                print(f"[*] Launching Cloudflare Quick Tunnel on port {self.port} (protocol: {self.protocol})...", flush=True)
 
-            # Start Automated Ingress Watchdog if running Named Tunnel
-            if self.token and not force_quick:
-                def _watchdog_loop():
-                    # Initial probe immediately
+            # Active Synthetic Health Watchdog Thread
+            def _watchdog_loop():
+                # Initial domain resolution probe
+                if self.token and not force_quick:
                     resolves = self.check_domain_resolvable()
                     if not resolves:
-                        print(f"[!] Automated Ingress Watchdog: Primary domain '{self.domain}' has no active DNS record (NXDOMAIN).")
+                        print(f"[!] Automated Ingress Watchdog: Primary domain '{self.domain}' has no active DNS record (NXDOMAIN).", flush=True)
                         self._start_fallback_quick_tunnel(bin_path)
 
-                    while self.running:
-                        time.sleep(30.0)
+                while self.running:
+                    time.sleep(self.watchdog_interval)
+                    if not self.running:
+                        break
+
+                    # DNS failover check for Named Tunnel
+                    if self.token and not force_quick:
                         resolves = self.check_domain_resolvable()
                         if not resolves:
                             if self.fallback_proc is None or self.fallback_proc.poll() is not None:
@@ -225,49 +284,75 @@ class CloudflareTunnelManager:
                             if self.fallback_proc and self.fallback_proc.poll() is None:
                                 self._stop_fallback_quick_tunnel()
 
-                watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True, name="cbm_ingress_watchdog")
-                watchdog_thread.start()
+                    # Synthetic health check against cloudflared / ready probes
+                    if self.proc and self.proc.poll() is None:
+                        healthy = self.probe_tunnel_health()
+                        if healthy:
+                            self.consecutive_probe_failures = 0
+                        else:
+                            self.consecutive_probe_failures += 1
+                            print(f"[!] Synthetic Ingress Watchdog: Probe failed ({self.consecutive_probe_failures}/3).", flush=True)
+                            if self.consecutive_probe_failures >= 3:
+                                print("[!] Synthetic Ingress Watchdog: 3 consecutive probe failures detected. Restarting tunnel...", flush=True)
+                                try:
+                                    self.proc.kill()
+                                    self.proc.wait(timeout=2)
+                                except Exception:
+                                    pass
+                                self.consecutive_probe_failures = 0
+                                time.sleep(2.0)
+
+            watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True, name="cbm_ingress_watchdog")
+            watchdog_thread.start()
 
             while self.running:
                 try:
+                    # Defensive log rotation: cap log size at 5MB
+                    try:
+                        if os.path.exists(self.log_path) and os.path.getsize(self.log_path) > 5 * 1024 * 1024:
+                            with open(self.log_path, "w", encoding="utf-8") as truncate_f:
+                                truncate_f.write("")
+                    except Exception:
+                        pass
+
                     proc_env = os.environ.copy()
                     proc_env["GOMAXPROCS"] = "1"
+                    
+                    # Direct file redirection to eliminate pipe deadlocks
+                    log_file = open(self.log_path, "a", encoding="utf-8")
                     self.proc = subprocess.Popen(
                         cmd,
-                        stdout=subprocess.PIPE,
+                        stdout=log_file,
                         stderr=subprocess.STDOUT,
-                        text=True,
-                        bufsize=1,
                         env=proc_env
                     )
 
-                    for line in iter(self.proc.stdout.readline, ''):
-                        if not self.running:
-                            break
-                        line_clean = line.strip()
-                        if not line_clean:
-                            continue
-                        if "trycloudflare.com" in line_clean:
-                            match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_clean)
-                            if match:
-                                self.public_url = match.group(0)
-                                print("\n" + "=" * 68)
-                                print(f"  [+] Cloudflare Tunnel Active Public Endpoint:")
-                                print(f"      {self.public_url}")
-                                print("=" * 68 + "\n")
-                        elif any(k in line_clean for k in ["Connected to", "Registered tunnel connection", "Starting tunnel", "Connector ID"]):
-                            print(f"[+] Cloudflare Edge: {line_clean}")
-                        elif any(k in line_clean.lower() for k in ["error", "err", "fail", "incorrect usage", "invalid"]):
-                            print(f"[!] Cloudflare Tunnel Notice: {line_clean}")
+                    tail_thread = threading.Thread(target=self._tail_log_file, args=(self.log_path, False), daemon=True, name="cbm_tunnel_tail")
+                    tail_thread.start()
 
                     rc = self.proc.wait()
-                    if self.running and rc != 0:
-                        print(f"[!] cloudflared process exited with code {rc}")
+                    try:
+                        log_file.close()
+                    except Exception:
+                        pass
+
+                    if self.running:
+                        print(f"[!] cloudflared process exited (exit code: {rc})", flush=True)
+                        try:
+                            if os.path.exists(self.log_path):
+                                with open(self.log_path, "r", encoding="utf-8", errors="replace") as lf:
+                                    lines = [l.strip() for l in lf.readlines() if l.strip()]
+                                    tail_lines = lines[-6:]
+                                    for tl in tail_lines:
+                                        if not any(k in tl for k in ["Connected to", "Registered tunnel connection"]):
+                                            print(f"    [cloudflared] {tl}", flush=True)
+                        except Exception:
+                            pass
                 except Exception as e:
-                    print(f"[!] Cloudflare tunnel worker error: {e}")
+                    print(f"[!] Cloudflare tunnel worker error: {e}", flush=True)
 
                 if self.running:
-                    print("[*] Reconnecting Cloudflare tunnel in 5s...")
+                    print("[*] Reconnecting Cloudflare tunnel in 5s...", flush=True)
                     time.sleep(5.0)
 
         t = threading.Thread(target=_supervise, daemon=True, name="cbm_tunnel_supervisor")

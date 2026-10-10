@@ -19,15 +19,24 @@ from bot import record_discord_quarantine, clear_discord_quarantine, COOLDOWN_FI
 from run_automod import get_quarantine_remaining_seconds
 
 
+import tempfile
+
+
 class TestStatusAndQuarantine(unittest.TestCase):
     def setUp(self):
-        self.test_db_path = os.path.join(BASE_DIR, "test_status_data.db")
+        self.test_db_path = os.path.join(tempfile.gettempdir(), "test_status_data.db")
         if os.path.exists(self.test_db_path):
             try:
                 os.remove(self.test_db_path)
             except Exception:
                 pass
         self.db = CBMDatabase(sqlite_path=self.test_db_path)
+        try:
+            with self.db.write_transaction() as (conn, cur):
+                cur.execute("DELETE FROM cbm_service_incidents")
+                cur.execute("DELETE FROM cbm_service_daily_uptime")
+        except Exception:
+            pass
         self.status_engine = CBMStatusEngine(db_instance=self.db)
         if os.path.exists(COOLDOWN_FILE):
             os.remove(COOLDOWN_FILE)
@@ -38,6 +47,12 @@ class TestStatusAndQuarantine(unittest.TestCase):
                 os.remove(COOLDOWN_FILE)
             except Exception:
                 pass
+        try:
+            with self.db.write_transaction() as (conn, cur):
+                cur.execute("DELETE FROM cbm_service_incidents")
+                cur.execute("DELETE FROM cbm_service_daily_uptime")
+        except Exception:
+            pass
         if os.path.exists(self.test_db_path):
             try:
                 os.remove(self.test_db_path)
@@ -144,14 +159,14 @@ class TestStatusAndQuarantine(unittest.TestCase):
     def test_ingress_telemetry_and_dns_probe(self):
         from tunnel_manager import check_domain_dns, CloudflareTunnelManager
 
-        # 1. Primary unmapped domain returns False
-        self.assertFalse(check_domain_dns("cbm.wispbyte.org"))
+        # 1. Unmapped domain returns False
+        self.assertFalse(check_domain_dns("unmapped-test-subdomain.wispbyte.invalid"))
 
         # 2. Known domain returns True
         self.assertTrue(check_domain_dns("cloudflare.com"))
 
         # 3. Ingress telemetry reflects failover state accurately
-        mgr = CloudflareTunnelManager(port=10093, domain="cbm.wispbyte.org")
+        mgr = CloudflareTunnelManager(port=10093, domain="unmapped-test-subdomain.wispbyte.invalid")
         telemetry = mgr.get_ingress_telemetry()
         self.assertFalse(telemetry["primary_resolving"])
         self.assertFalse(telemetry["fallback_active"])

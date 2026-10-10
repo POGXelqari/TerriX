@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CBM Video Trimmer</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#06070a;color:#dce3f0;font-family:system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+.c0{width:100%;max-width:1380px;margin:0 auto;padding:18px 24px;display:flex;flex-direction:column;gap:18px}
+.c1{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;background:#0d1017;border:1px solid #1a2233;border-radius:12px}
+.c2{display:flex;align-items:center;gap:14px}
+.c3{width:36px;height:36px;object-fit:contain;filter:drop-shadow(0 0 8px rgba(0,240,255,.35))}
+.c4{font-size:17px;font-weight:800;letter-spacing:1.5px;color:#fff}
+.c5{display:flex;align-items:center;gap:10px}
+.c6{font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:4px 10px;border-radius:20px;background:#131824;border:1px solid #222d42;color:#7d8ba1;letter-spacing:1px}
+.c6.c-on{background:rgba(0,240,255,.1);border-color:#00f0ff;color:#00f0ff;box-shadow:0 0 12px rgba(0,240,255,.2)}
+.c7{position:relative;width:100%;background:#090c12;border:1px solid #1a2233;border-radius:14px;overflow:hidden;min-height:460px;display:flex;align-items:center;justify-content:center}
+.c8{width:100%;max-height:560px;display:none;background:#000}
+.c9{position:absolute;top:16px;left:16px;font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:6px 12px;background:rgba(6,7,10,.75);border:1px solid rgba(0,240,255,.3);border-radius:6px;color:#00f0ff;backdrop-filter:blur(6px);pointer-events:none;z-index:10;letter-spacing:1px}
+.c10{position:absolute;pointer-events:none;z-index:9;transition:all .15s ease}
+.c11{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;cursor:pointer;border:2px dashed #202b3f;margin:20px;border-radius:12px;background:rgba(13,16,23,.5);transition:border-color .2s}
+.c11:hover{border-color:#00f0ff}
+.c12{width:56px;height:56px;border-radius:50%;background:#131824;border:1px solid #222d42;display:flex;align-items:center;justify-content:center;color:#00f0ff}
+.c13{font-size:15px;font-weight:600;letter-spacing:.5px}
+.c14{font-size:12px;color:#637188}
+.c15{background:#0d1017;border:1px solid #1a2233;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:18px}
+.c16{position:relative;height:56px;background:#080a0f;border:1px solid #1c2436;border-radius:8px;user-select:none;touch-action:none;cursor:pointer}
+.c17{position:absolute;top:0;bottom:0;background:rgba(0,240,255,.12);border-left:2px solid #00f0ff;border-right:2px solid #00f0ff}
+.c18,.c19{position:absolute;top:0;bottom:0;width:14px;background:#00f0ff;cursor:ew-resize;z-index:5;display:flex;align-items:center;justify-content:center}
+.c18{left:0;border-radius:6px 0 0 6px}
+.c19{right:0;border-radius:0 6px 6px 0}
+.c18::after,.c19::after{content:'';width:2px;height:18px;background:#000;border-radius:1px}
+.c20{position:absolute;top:-4px;bottom:-4px;width:2px;background:#ff3366;z-index:6;pointer-events:none}
+.c20::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid #ff3366}
+.c21{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.c22{background:#080a0f;border:1px solid #1a2233;border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.c23{font-size:11px;font-weight:700;color:#637188;letter-spacing:1px}
+.c24{font-family:ui-monospace,Menlo,monospace;font-size:20px;font-weight:700;color:#fff}
+.c25{display:flex;gap:6px}
+.c26{background:#131824;border:1px solid #222d42;color:#dce3f0;font-size:11px;font-weight:600;padding:6px 10px;border-radius:6px;cursor:pointer;transition:all .15s}
+.c26:hover{background:#1b2333;border-color:#00f0ff;color:#00f0ff}
+.c26.c-act{background:#00f0ff;border-color:#00f0ff;color:#000;font-weight:700}
+.c27{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;padding-top:6px}
+.c28{display:flex;align-items:center;gap:8px}
+.c29{display:flex;align-items:center;gap:10px;background:#080a0f;border:1px solid #1a2233;padding:8px 14px;border-radius:10px}
+.c30{font-size:11px;font-weight:700;color:#637188;letter-spacing:1px}
+.c31{accent-color:#00f0ff;width:80px}
+.c32{background:linear-gradient(135deg,#00f0ff,#00a8ff);border:none;color:#000;font-size:14px;font-weight:800;letter-spacing:1px;padding:12px 28px;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:0 0 20px rgba(0,240,255,.25);transition:all .2s}
+.c32:hover{box-shadow:0 0 30px rgba(0,240,255,.45);transform:translateY(-1px)}
+.c33{position:fixed;inset:0;background:rgba(4,5,8,.85);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:999}
+.c34{background:#0d1017;border:1px solid #1a2233;padding:32px;border-radius:16px;width:90%;max-width:440px;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center}
+.c35{width:100%;height:6px;background:#080a0f;border-radius:3px;overflow:hidden}
+.c36{height:100%;width:0%;background:#00f0ff;transition:width .1s}
+.c37{font-family:ui-monospace,Menlo,monospace;font-size:24px;font-weight:800;color:#00f0ff}
+</style>
+</head>
+<body>
+<div class="c0">
+  <div class="c1">
+    <div class="c2">
+      <img src="https://cbm.wispbyte.org/cbm-logo-new.png" class="c3" alt="CBM">
+      <div class="c4">CBM VIDEO TRIMMER</div>
+    </div>
+    <div class="c5">
+      <span class="c6" id="tf">NO FILE</span>
+      <span class="c6" id="ts">STANDBY</span>
+    </div>
+  </div>
+
+  <div class="c7" id="u0">
+    <video class="c8" id="v" playsinline></video>
+    <div class="c9" id="t0">00:00:00:00</div>
+    <img src="https://cbm.wispbyte.org/cbm-logo-new.png" class="c10" id="w" style="display:none" alt="Watermark">
+    <div class="c11" id="u1">
+      <div class="c12">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </div>
+      <div class="c13">SELECT OR DROP MP4 VIDEO</div>
+      <div class="c14">FRAME ACCURATE CANVAS PIPELINE & WATERMARK INJECTION</div>
+    </div>
+  </div>
+
+  <div class="c15">
+    <div class="c16" id="k">
+      <div class="c17" id="z">
+        <div class="c18" id="h1"></div>
+        <div class="c19" id="h2"></div>
+      </div>
+      <div class="c20" id="hp"></div>
+    </div>
+
+    <div class="c21">
+      <div class="c22">
+        <div class="c23">IN POINT</div>
+        <div class="c24" id="t1">00:00.00</div>
+        <div class="c25">
+          <button class="c26" id="s1">-0.1s</button>
+          <button class="c26" id="s2">+0.1s</button>
+          <button class="c26" id="bi">SET IN [I]</button>
+        </div>
+      </div>
+      <div class="c22">
+        <div class="c23">DURATION</div>
+        <div class="c24" id="td">00:00.00</div>
+        <div class="c25">
+          <button class="c26" id="j1">-1 FRAME</button>
+          <button class="c26" id="j2">+1 FRAME</button>
+          <button class="c26" id="bl">LOOP</button>
+        </div>
+      </div>
+      <div class="c22">
+        <div class="c23">OUT POINT</div>
+        <div class="c24" id="t2">00:00.00</div>
+        <div class="c25">
+          <button class="c26" id="e1">-0.1s</button>
+          <button class="c26" id="e2">+0.1s</button>
+          <button class="c26" id="bo">SET OUT [O]</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="c27">
+      <div class="c28">
+        <button class="c26" id="b0">PLAY</button>
+        <div class="c29">
+          <span class="c30">WATERMARK</span>
+          <button class="c26" id="p1">TL</button>
+          <button class="c26" id="p2">TR</button>
+          <button class="c26" id="p3">BL</button>
+          <button class="c26 c-act" id="p4">BR</button>
+          <span class="c30">SCALE</span>
+          <input type="range" class="c31" id="ws" min="0.08" max="0.3" step="0.01" value="0.15">
+          <span class="c30">OPACITY</span>
+          <input type="range" class="c31" id="wo" min="0.2" max="1" step="0.05" value="0.9">
+        </div>
+      </div>
+      <button class="c32" id="bx">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        EXPORT MP4
+      </button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="f" accept="video/mp4,video/*" style="display:none">
+<canvas id="c" style="display:none"></canvas>
+
+<div class="c33" id="m0">
+  <div class="c34">
+    <div class="c23">CBM ENCODER RENDERING</div>
+    <div class="c37" id="mt">0%</div>
+    <div class="c35"><div class="c36" id="mp"></div></div>
+    <button class="c26" id="mc">ABORT</button>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let f = $('#f'), v = $('#v'), c = $('#c'), w = $('#w'), k = $('#k'), z = $('#z'), h1 = $('#h1'), h2 = $('#h2'), hp = $('#hp');
+let t0 = $('#t0'), t1 = $('#t1'), t2 = $('#t2'), td = $('#td'), tf = $('#tf'), ts = $('#ts');
+let b0 = $('#b0'), bi = $('#bi'), bo = $('#bo'), bl = $('#bl'), bx = $('#bx');
+let m0 = $('#m0'), mp = $('#mp'), mt = $('#mt'), mc = $('#mc');
+let ws = $('#ws'), wo = $('#wo'), p1 = $('#p1'), p2 = $('#p2'), p3 = $('#p3'), p4 = $('#p4');
+let s1 = $('#s1'), s2 = $('#s2'), e1 = $('#e1'), e2 = $('#e2'), j1 = $('#j1'), j2 = $('#j2'), u0 = $('#u0'), u1 = $('#u1');
+
+let d = 0, s = 0, e = 0, m = 0, lp = false, wp = 'br', wsc = 0.15, wop = 0.9, rec = null, ab = false;
+let wi = new Image();
+wi.crossOrigin = 'anonymous';
+wi.src = 'https://cbm.wispbyte.org/cbm-logo-new.png';
+
+const f1 = t => {
+  if (isNaN(t) || t < 0) t = 0;
+  let m0 = Math.floor(t / 60), s0 = Math.floor(t % 60), ms = Math.floor((t % 1) * 100);
+  return String(m0).padStart(2, '0') + ':' + String(s0).padStart(2, '0') + '.' + String(ms).padStart(2, '0');
+};
+
+const f2 = t => {
+  if (isNaN(t) || t < 0) t = 0;
+  let h0 = Math.floor(t / 3600), m0 = Math.floor((t % 3600) / 60), s0 = Math.floor(t % 60), fr = Math.floor((t % 1) * 30);
+  return String(h0).padStart(2, '0') + ':' + String(m0).padStart(2, '0') + ':' + String(s0).padStart(2, '0') + ':' + String(fr).padStart(2, '0');
+};
+
+const f3 = () => {
+  if (!d) return;
+  let l1 = (s / d) * 100, l2 = (e / d) * 100, lc = (v.currentTime / d) * 100;
+  z.style.left = l1 + '%';
+  z.style.width = Math.max(0, l2 - l1) + '%';
+  hp.style.left = lc + '%';
+  t0.textContent = f2(v.currentTime);
+  t1.textContent = f1(s);
+  t2.textContent = f1(e);
+  td.textContent = f1(Math.max(0, e - s));
+};
+
+const f4 = () => {
+  w.style.display = 'block';
+  w.style.opacity = wop;
+  let bw = v.clientWidth || 640;
+  w.style.width = Math.max(48, bw * wsc) + 'px';
+  w.style.top = (wp === 'tl' || wp === 'tr') ? '24px' : 'auto';
+  w.style.bottom = (wp === 'bl' || wp === 'br') ? '24px' : 'auto';
+  w.style.left = (wp === 'tl' || wp === 'bl') ? '24px' : 'auto';
+  w.style.right = (wp === 'tr' || wp === 'br') ? '24px' : 'auto';
+};
+
+const f5 = ev => {
+  let r = k.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * d;
+};
+
+const f6 = fl => {
+  if (!fl) return;
+  let u = URL.createObjectURL(fl);
+  v.src = u;
+  tf.textContent = fl.name;
+  ts.textContent = 'READY';
+  ts.classList.add('c-on');
+  u1.style.display = 'none';
+  v.style.display = 'block';
+};
+
+u1.onclick = () => f.click();
+f.onchange = ev => { if (ev.target.files.length) f6(ev.target.files[0]); };
+
+u0.ondragover = ev => { ev.preventDefault(); };
+u0.ondrop = ev => {
+  ev.preventDefault();
+  if (ev.dataTransfer.files.length) f6(ev.dataTransfer.files[0]);
+};
+
+v.onloadedmetadata = () => {
+  d = v.duration;
+  s = 0;
+  e = d;
+  v.currentTime = 0;
+  f3();
+  f4();
+};
+
+window.onresize = () => f4();
+
+v.ontimeupdate = () => {
+  f3();
+  if (lp && v.currentTime >= e) {
+    v.currentTime = s;
+    v.play();
+  }
+};
+
+v.onplay = () => { b0.textContent = 'PAUSE'; };
+v.onpause = () => { b0.textContent = 'PLAY'; };
+
+k.onpointerdown = ev => {
+  if (!d) return;
+  k.setPointerCapture(ev.pointerId);
+  let t = f5(ev), d1 = Math.abs(t - s), d2 = Math.abs(t - e), tol = d * 0.03;
+  if (ev.target === h1 || d1 < tol) m = 1;
+  else if (ev.target === h2 || d2 < tol) m = 2;
+  else {
+    m = 3;
+    v.currentTime = Math.max(0, Math.min(d, t));
+  }
+};
+
+k.onpointermove = ev => {
+  if (!m || !d) return;
+  let t = f5(ev);
+  if (m === 1) {
+    s = Math.max(0, Math.min(t, e - 0.05));
+    v.currentTime = s;
+  } else if (m === 2) {
+    e = Math.min(d, Math.max(t, s + 0.05));
+    v.currentTime = e;
+  } else if (m === 3) {
+    v.currentTime = Math.max(0, Math.min(d, t));
+  }
+  f3();
+};
+
+k.onpointerup = ev => {
+  m = 0;
+  try { k.releasePointerCapture(ev.pointerId); } catch (_) {}
+};
+
+b0.onclick = () => {
+  if (v.paused) {
+    if (v.currentTime >= e) v.currentTime = s;
+    v.play();
+  } else {
+    v.pause();
+  }
+};
+
+bi.onclick = () => { s = Math.min(v.currentTime, e - 0.05); f3(); };
+bo.onclick = () => { e = Math.max(v.currentTime, s + 0.05); f3(); };
+bl.onclick = () => { lp = !lp; bl.classList.toggle('c-act', lp); };
+
+s1.onclick = () => { s = Math.max(0, s - 0.1); v.currentTime = s; f3(); };
+s2.onclick = () => { s = Math.min(e - 0.05, s + 0.1); v.currentTime = s; f3(); };
+e1.onclick = () => { e = Math.max(s + 0.05, e - 0.1); v.currentTime = e; f3(); };
+e2.onclick = () => { e = Math.min(d, e + 0.1); v.currentTime = e; f3(); };
+j1.onclick = () => { v.currentTime = Math.max(0, v.currentTime - 1/30); f3(); };
+j2.onclick = () => { v.currentTime = Math.min(d, v.currentTime + 1/30); f3(); };
+
+ws.oninput = ev => { wsc = parseFloat(ev.target.value); f4(); };
+wo.oninput = ev => { wop = parseFloat(ev.target.value); f4(); };
+
+[p1, p2, p3, p4].forEach((bt, idx) => {
+  bt.onclick = () => {
+    wp = ['tl', 'tr', 'bl', 'br'][idx];
+    [p1, p2, p3, p4].forEach(x => x.classList.remove('c-act'));
+    bt.classList.add('c-act');
+    f4();
+  };
+});
+
+window.onkeydown = ev => {
+  if (ev.target.tagName === 'INPUT') return;
+  if (ev.code === 'Space') { ev.preventDefault(); b0.click(); }
+  else if (ev.key === 'i' || ev.key === 'I') bi.click();
+  else if (ev.key === 'o' || ev.key === 'O') bo.click();
+  else if (ev.key === 'l' || ev.key === 'L') bl.click();
+  else if (ev.key === 'ArrowLeft') j1.click();
+  else if (ev.key === 'ArrowRight') j2.click();
+};
+
+bx.onclick = () => {
+  if (!d || s >= e) return;
+  ab = false;
+  m0.style.display = 'flex';
+  mp.style.width = '0%';
+  mt.textContent = '0%';
+  ts.textContent = 'EXPORTING';
+
+  c.width = v.videoWidth || 1920;
+  c.height = v.videoHeight || 1080;
+  let cx = c.getContext('2d');
+
+  let cs = c.captureStream(30);
+  let vs = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null);
+  if (vs) {
+    let at = vs.getAudioTracks();
+    if (at.length > 0) cs.addTrack(at[0]);
+  }
+
+  let mtp = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=h264', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+  let opt = mtp ? { mimeType: mtp } : {};
+
+  try {
+    rec = new MediaRecorder(cs, opt);
+  } catch (_) {
+    rec = new MediaRecorder(cs);
+  }
+
+  let ch = [];
+  rec.ondataavailable = ev => {
+    if (ev.data && ev.data.size > 0) ch.push(ev.data);
+  };
+
+  rec.onstop = () => {
+    if (ab) {
+      m0.style.display = 'none';
+      ts.textContent = 'READY';
+      v.pause();
+      return;
+    }
+    let blb = new Blob(ch, { type: 'video/mp4' });
+    let u = URL.createObjectURL(blb);
+    let a0 = document.createElement('a');
+    a0.href = u;
+    a0.download = 'CBM-Trimmed-' + Date.now() + '.mp4';
+    document.body.appendChild(a0);
+    a0.click();
+    document.body.removeChild(a0);
+    setTimeout(() => URL.revokeObjectURL(u), 1500);
+    m0.style.display = 'none';
+    ts.textContent = 'READY';
+    v.pause();
+    v.currentTime = s;
+  };
+
+  v.pause();
+  v.currentTime = s;
+
+  let f7 = () => {
+    v.removeEventListener('seeked', f7);
+    rec.start(100);
+    v.play();
+
+    let f8 = () => {
+      if (ab || !rec || rec.state !== 'recording') return;
+      cx.drawImage(v, 0, 0, c.width, c.height);
+
+      if (wi.complete && wi.naturalWidth) {
+        cx.save();
+        cx.globalAlpha = wop;
+        let iw = c.width * wsc, ih = iw * (wi.naturalHeight / wi.naturalWidth), pd = Math.max(16, c.width * 0.02);
+        let px = pd, py = pd;
+        if (wp === 'tr') { px = c.width - iw - pd; py = pd; }
+        else if (wp === 'bl') { px = pd; py = c.height - ih - pd; }
+        else if (wp === 'br') { px = c.width - iw - pd; py = c.height - ih - pd; }
+        cx.drawImage(wi, px, py, iw, ih);
+        cx.restore();
+      }
+
+      let pr = Math.min(100, Math.max(0, ((v.currentTime - s) / (e - s)) * 100));
+      mp.style.width = pr.toFixed(1) + '%';
+      mt.textContent = pr.toFixed(0) + '%';
+
+      if (v.currentTime >= e || v.ended) {
+        v.pause();
+        rec.stop();
+        return;
+      }
+      requestAnimationFrame(f8);
+    };
+    requestAnimationFrame(f8);
+  };
+
+  v.addEventListener('seeked', f7);
+};
+
+mc.onclick = () => {
+  ab = true;
+  if (rec && rec.state === 'recording') rec.stop();
+  m0.style.display = 'none';
+  ts.textContent = 'READY';
+};
+
+// CBM Plus Paywall Verification Handshake
+async function checkAuthAndCbmPlus() {
+  try {
+    const res = await fetch('/api/cbm/subscription/status');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.cbm_plus_active) return;
+    }
+  } catch(e) {}
+  const modal = document.getElementById('cbmPlusModal');
+  if (modal) modal.style.display = 'flex';
+  const expBtn = document.getElementById('eb');
+  if (expBtn) {
+    expBtn.disabled = true;
+    expBtn.style.opacity = '0.4';
+    expBtn.style.cursor = 'not-allowed';
+  }
+}
+window.addEventListener('DOMContentLoaded', checkAuthAndCbmPlus);
+</script>
+
+<div id="cbmPlusModal" style="display:none; position:fixed; inset:0; background:rgba(4,5,8,0.85); backdrop-filter:blur(8px); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:#0d1017; border:1px solid #00f0ff; padding:32px; border-radius:16px; width:90%; max-width:440px; display:flex; flex-direction:column; align-items:center; gap:16px; text-align:center;">
+    <div style="width:52px; height:52px; border-radius:50%; background:rgba(0,240,255,0.1); border:1px solid #00f0ff; display:flex; align-items:center; justify-content:center; color:#00f0ff;">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+    </div>
+    <div style="font-size:18px; font-weight:800; color:#fff; letter-spacing:0.5px;">CBM Plus Subscription Required</div>
+    <div style="font-size:12px; color:#8892aa; line-height:1.5;">Hardware-accelerated video trimming, watermark compositing, and server session export require an active <strong>CBM Plus</strong> subscription (500 Gold/month).</div>
+    <a href="/vault.html" style="width:100%; padding:12px; border-radius:10px; background:linear-gradient(135deg,#00f0ff,#00a8ff); color:#000; font-weight:800; text-decoration:none; font-size:13px; text-transform:uppercase; letter-spacing:1px; display:block;">Upgrade to CBM Plus</a>
+    <a href="/login.html" style="width:100%; padding:10px; border-radius:8px; background:#131824; border:1px solid #222d42; color:#dce3f0; text-decoration:none; font-size:12px; font-family:monospace; display:block;">Sign In with Member Account</a>
+  </div>
+</div>
+</body>
+</html>

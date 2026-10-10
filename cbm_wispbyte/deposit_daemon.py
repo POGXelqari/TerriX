@@ -146,6 +146,21 @@ class CBMDepositDaemon:
                         )
                         new_deposits += 1
                         target_user = sender
+                    elif hasattr(self.db, "find_and_claim_pending_subscription") and self.db.find_and_claim_pending_subscription(sender, amount_cents, tx_id):
+                        # STEP 1c: Matched an active 15-minute CBM Plus Subscription Slip (500.00 Gold)!
+                        # 100% converted to Bank Unencumbered Reserves, CBM Plus active until extended.
+                        print(f"[+] Matched CBM Plus Subscription Slip from '{sender}' -> 100% Central Bank Reserves & CBM Plus Activated!")
+                        self.db.record_processed_tx(
+                            tx_id=tx_id,
+                            timestamp_ms=ts,
+                            sender=sender,
+                            receiver=receiver,
+                            amount_gold=amount_gold,
+                            fee_gold=fee_gold,
+                            credited_account="SUBSCRIPTION"
+                        )
+                        new_deposits += 1
+                        target_user = sender
                     else:
                         # STEP 2: The Golden Infallible Rule:
                         # Pure in-game transactions are DEPOSITS unless Web Intent explicitly declared otherwise!

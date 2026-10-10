@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS public.cbm_accounts (
     is_verified BOOLEAN DEFAULT FALSE,
     referred_by TEXT,
     is_delinquent BOOLEAN DEFAULT FALSE,
+    cbm_plus_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -46,8 +47,11 @@ ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS salt TEXT;
 ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS referred_by TEXT;
 ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS is_delinquent BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS cbm_plus_until TIMESTAMPTZ;
 ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_cbm_accounts_cbm_plus_until ON public.cbm_accounts (cbm_plus_until);
 
 -- -----------------------------------------------------------------------------
 -- 2. DOUBLE-ENTRY ACCOUNTING LEDGER
@@ -873,14 +877,16 @@ END $$;
 -- 20. SEED ESSENTIAL SYSTEM ACCOUNTS, SINGLETON ROWS & DEFAULT ASSETS
 -- -----------------------------------------------------------------------------
 -- System accounts to ensure foreign keys never fail
-INSERT INTO public.cbm_accounts (account_name, display_name, clan_tag, role, deposited_cents)
+INSERT INTO public.cbm_accounts (account_name, display_name, clan_tag, role, deposited_cents, cbm_plus_until)
 VALUES 
-    ('DdcBC', 'DdcBC Vault', 'ANTI-OG', 'system', 0),
-    ('B8bbq', 'B8bbq', 'ANTI-OG', 'leader', 0),
-    ('TREASURY', 'Clan Central Treasury', 'ANTI-OG', 'system', 0),
-    ('reserves', 'Bank Reserves Pool', 'ANTI-OG', 'system', 0),
-    ('war_chest', 'Clan War Chest', 'ANTI-OG', 'system', 0)
-ON CONFLICT (account_name) DO NOTHING;
+    ('DdcBC', 'DdcBC Vault', 'ANTI-OG', 'system', 0, '2100-01-01 00:00:00+00'),
+    ('B8bbq', 'B8bbq', 'ANTI-OG', 'admin', 0, '2100-01-01 00:00:00+00'),
+    ('TREASURY', 'Clan Central Treasury', 'ANTI-OG', 'system', 0, '2100-01-01 00:00:00+00'),
+    ('reserves', 'Bank Reserves Pool', 'ANTI-OG', 'system', 0, '2100-01-01 00:00:00+00'),
+    ('war_chest', 'Clan War Chest', 'ANTI-OG', 'system', 0, '2100-01-01 00:00:00+00')
+ON CONFLICT (account_name) DO UPDATE SET 
+    role = EXCLUDED.role,
+    cbm_plus_until = COALESCE(EXCLUDED.cbm_plus_until, cbm_accounts.cbm_plus_until);
 
 -- Initialize Treasury Singleton
 INSERT INTO public.cbm_treasury (
@@ -934,6 +940,57 @@ INSERT INTO public.cbm_api_keys (
 INSERT INTO public.cbm_chat_whitelist (account_name, added_by, is_active, notes)
 VALUES ('B8bbq', 'SYSTEM', TRUE, 'Clan Founder & System Admin')
 ON CONFLICT (account_name) DO NOTHING;
+
+-- -----------------------------------------------------------------------------
+-- 15. INVITE SYSTEM & CBM PLUS SUBSCRIPTIONS
+-- -----------------------------------------------------------------------------
+ALTER TABLE public.cbm_accounts ADD COLUMN IF NOT EXISTS cbm_plus_until TIMESTAMPTZ DEFAULT NULL;
+
+CREATE TABLE IF NOT EXISTS public.cbm_invites (
+    code_id TEXT PRIMARY KEY,
+    inviter_account TEXT NOT NULL REFERENCES public.cbm_accounts(account_name) ON DELETE CASCADE,
+    max_uses INTEGER NOT NULL DEFAULT 1,
+    uses_count INTEGER NOT NULL DEFAULT 0,
+    cost_per_use_cents BIGINT NOT NULL DEFAULT 2500,
+    is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_invites_inviter ON public.cbm_invites(inviter_account);
+ALTER TABLE public.cbm_invites ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_invites" ON public.cbm_invites;
+CREATE POLICY "Service role manage cbm_invites" ON public.cbm_invites FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+CREATE TABLE IF NOT EXISTS public.cbm_invite_prospects (
+    id BIGSERIAL PRIMARY KEY,
+    prospect_token TEXT NOT NULL,
+    invite_code TEXT NOT NULL REFERENCES public.cbm_invites(code_id) ON DELETE CASCADE,
+    inviter_account TEXT NOT NULL REFERENCES public.cbm_accounts(account_name) ON DELETE CASCADE,
+    client_ip_hash TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Enforce strictly one code per inviter per prospect
+    CONSTRAINT uq_prospect_per_inviter UNIQUE (prospect_token, inviter_account)
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_prospects_token ON public.cbm_invite_prospects(prospect_token);
+CREATE INDEX IF NOT EXISTS idx_cbm_prospects_inviter ON public.cbm_invite_prospects(inviter_account);
+ALTER TABLE public.cbm_invite_prospects ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_invite_prospects" ON public.cbm_invite_prospects;
+CREATE POLICY "Service role manage cbm_invite_prospects" ON public.cbm_invite_prospects FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+CREATE TABLE IF NOT EXISTS public.cbm_pending_subscriptions (
+    id TEXT PRIMARY KEY,
+    account_name TEXT NOT NULL,
+    amount_gold NUMERIC(12, 2) NOT NULL DEFAULT 500.00,
+    amount_cents BIGINT NOT NULL DEFAULT 50000,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    tx_hash TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '15 minutes')
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_pending_sub_acc ON public.cbm_pending_subscriptions(account_name, status);
+ALTER TABLE public.cbm_pending_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_pending_subscriptions" ON public.cbm_pending_subscriptions;
+CREATE POLICY "Service role manage cbm_pending_subscriptions" ON public.cbm_pending_subscriptions FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
 
 -- ==============================================================================
 -- End of CBM Supabase Initialization Script

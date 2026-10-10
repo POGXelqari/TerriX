@@ -35,10 +35,29 @@ def _configure_sqlite_pragmas(conn: sqlite3.Connection):
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous = NORMAL;")
     conn.execute("PRAGMA busy_timeout = 60000;")
-    conn.execute("PRAGMA cache_size = -16384;")
+    conn.execute("PRAGMA cache_size = -4000;")       # 4 MB memory cache max
     conn.execute("PRAGMA temp_store = MEMORY;")
-    conn.execute("PRAGMA wal_autocheckpoint = 500;")
-    conn.execute("PRAGMA mmap_size = 67108864;")
+    conn.execute("PRAGMA wal_autocheckpoint = 100;") # Prevent WAL growth over 10 MB
+    conn.execute("PRAGMA mmap_size = 16777216;")     # 16 MB memory-mapped I/O
+
+
+def is_cbm_plus_active(account_dict: Optional[Dict[str, Any]]) -> bool:
+    """Evaluates whether an account holds an active CBM Plus subscription or root privilege."""
+    if not account_dict:
+        return False
+    if account_dict.get("role") in ("admin", "council", "leader", "system"):
+        return True
+    until = account_dict.get("cbm_plus_until")
+    if not until:
+        return False
+    if isinstance(until, (int, float)):
+        return float(until) > time.time()
+    try:
+        clean = str(until).replace("Z", "+00:00")
+        dt = datetime.datetime.fromisoformat(clean)
+        return dt.timestamp() > time.time()
+    except Exception:
+        return False
 
 
 try:
@@ -100,8 +119,7 @@ class CBMDatabase:
         allow_live_prod = os.environ.get("ALLOW_LIVE_PROD_ACCESS", "").lower() in ("1", "true")
 
         if is_test_env and not allow_live_prod:
-            if use_supabase is None:
-                use_supabase = False
+            use_supabase = False
             # Divert production cbm_data.db to isolated sandbox
             if os.path.basename(target_path) == "cbm_data.db":
                 import tempfile
@@ -154,7 +172,7 @@ class CBMDatabase:
 
     def _async_initial_supabase_sync(self):
         try:
-            self.sync_all_from_supabase(quiet=True)
+            self.sync_all_from_supabase(quiet=True, force=True)
             print("[+] Initial Supabase background hydration completed successfully.")
         except Exception as e:
             print(f"[!] Warning on initial Supabase hydration: {e}")
@@ -270,10 +288,10 @@ class CBMDatabase:
         cur.execute("PRAGMA journal_mode = WAL;")
         cur.execute("PRAGMA synchronous = NORMAL;")
         cur.execute("PRAGMA busy_timeout = 5000;")
-        cur.execute("PRAGMA cache_size = -8192;")
+        cur.execute("PRAGMA cache_size = -4000;")
         cur.execute("PRAGMA temp_store = MEMORY;")
-        cur.execute("PRAGMA wal_autocheckpoint = 250;")
-        cur.execute("PRAGMA mmap_size = 33554432;")
+        cur.execute("PRAGMA wal_autocheckpoint = 100;")
+        cur.execute("PRAGMA mmap_size = 16777216;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_accounts (
                 account_name TEXT PRIMARY KEY,
@@ -298,7 +316,8 @@ class CBMDatabase:
             "primary_territorial_account TEXT",
             "is_verified INTEGER DEFAULT 0",
             "is_delinquent INTEGER DEFAULT 0",
-            "email TEXT"
+            "email TEXT",
+            "cbm_plus_until REAL DEFAULT NULL"
         ]:
             try:
                 cur.execute(f"ALTER TABLE cbm_accounts ADD COLUMN {col}")
@@ -873,6 +892,51 @@ class CBMDatabase:
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_ai_messages_session ON cbm_ai_session_messages(session_id, created_at);")
 
+        # Invite System & CBM Plus Subscription Tables
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_invites (
+                code_id TEXT PRIMARY KEY,
+                inviter_account TEXT NOT NULL,
+                max_uses INTEGER NOT NULL DEFAULT 1,
+                uses_count INTEGER NOT NULL DEFAULT 0,
+                cost_per_use_cents INTEGER NOT NULL DEFAULT 2500,
+                is_revoked INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                FOREIGN KEY(inviter_account) REFERENCES cbm_accounts(account_name) ON DELETE CASCADE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_invites_inviter ON cbm_invites(inviter_account);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_invite_prospects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prospect_token TEXT NOT NULL,
+                invite_code TEXT NOT NULL,
+                inviter_account TEXT NOT NULL,
+                client_ip_hash TEXT,
+                created_at REAL NOT NULL,
+                UNIQUE (prospect_token, inviter_account),
+                FOREIGN KEY(invite_code) REFERENCES cbm_invites(code_id) ON DELETE CASCADE
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_prospects_token ON cbm_invite_prospects(prospect_token);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_prospects_inviter ON cbm_invite_prospects(inviter_account);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_pending_subscriptions (
+                id TEXT PRIMARY KEY,
+                account_name TEXT NOT NULL,
+                amount_gold REAL NOT NULL DEFAULT 500.0,
+                amount_cents INTEGER NOT NULL DEFAULT 50000,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                tx_hash TEXT,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_pending_sub_acc ON cbm_pending_subscriptions(account_name, status);")
+
         # Seed initial high-traffic sponsorship slots
         initial_slots = [
             ("SLOT_HERO", "Clan Vault Header Banner", "Prime billboard directly above real-time clan liquidity telemetry.", 50000, 50000, 1),
@@ -894,11 +958,11 @@ class CBMDatabase:
             if not cur.fetchone():
                 now_acc = time.time()
                 cur.execute("""
-                    INSERT INTO cbm_accounts (account_name, display_name, role, deposited_cents, created_at, updated_at)
-                    VALUES ('B8bbq', 'B8bbq', 'admin', 0, ?, ?)
+                    INSERT INTO cbm_accounts (account_name, display_name, role, deposited_cents, cbm_plus_until, created_at, updated_at)
+                    VALUES ('B8bbq', 'B8bbq', 'admin', 0, 4102444800.0, ?, ?)
                 """, (now_acc, now_acc))
             else:
-                cur.execute("UPDATE cbm_accounts SET role = 'admin' WHERE account_name = 'B8bbq'")
+                cur.execute("UPDATE cbm_accounts SET role = 'admin', cbm_plus_until = 4102444800.0 WHERE account_name = 'B8bbq'")
 
             cur.execute("SELECT 1 FROM cbm_chat_whitelist WHERE account_name = 'B8bbq'")
             if not cur.fetchone():
@@ -1338,7 +1402,7 @@ class CBMDatabase:
         except Exception:
             return 0, None
 
-    def sync_all_from_supabase(self, quiet: bool = False) -> Dict[str, Any]:
+    def sync_all_from_supabase(self, quiet: bool = False, force: bool = False) -> Dict[str, Any]:
         """
         Pulls authoritative remote records from Supabase and hydrates local SQLite.
         Optimized concurrency: Fetches all remote records via HTTP first WITHOUT
@@ -1362,7 +1426,11 @@ class CBMDatabase:
             "snapshots": 0,
             "treasury": False,
             "withdrawals": 0,
-            "api_keys": 0
+            "api_keys": 0,
+            "products": 0,
+            "product_orders": 0,
+            "pending_donations": 0,
+            "chat_whitelist": 0
         }
 
         def _parse_iso(val):
@@ -1377,8 +1445,9 @@ class CBMDatabase:
             except Exception:
                 return time.time()
 
-        # Drain outgoing mutations before pulling remote state
-        self.flush_outbox(batch_size=100)
+        if not force:
+            # Drain outgoing mutations before pulling remote state
+            self.flush_outbox(batch_size=100)
 
         try:
             # 1. Fetch remote data over HTTP without holding any SQLite connection
@@ -1387,54 +1456,61 @@ class CBMDatabase:
             st_loans, loans = self._sb_request('cbm_loans', 'GET', '?select=*')
             st_dons, dons = self._sb_request('cbm_donations', 'GET', '?select=*')
             st_txs, txs = self._sb_request('cbm_processed_txs', 'GET', '?select=*&order=timestamp_ms.desc&limit=500')
-            st_ledger, ledger = self._sb_request('cbm_ledger', 'GET', '?select=*&order=created_at.desc&limit=500')
+            st_ledger, ledger = self._sb_request('cbm_ledger', 'GET', '?select=*&order=created_at.desc&limit=1000')
             st_snaps, snaps = self._sb_request('cbm_vault_snapshots', 'GET', '?select=*&order=timestamp_epoch.desc&limit=1000')
             st_tr, tr = self._sb_request('cbm_treasury', 'GET', '?id=eq.1&select=*')
-            st_wds, wds = self._sb_request('cbm_withdrawals', 'GET', '?select=*&order=created_at.desc&limit=200')
+            st_wds, wds = self._sb_request('cbm_withdrawals', 'GET', '?select=*&order=created_at.desc&limit=500')
             st_keys, keys = self._sb_request('cbm_api_keys', 'GET', '?select=*&order=created_at.desc&limit=200')
             st_votes, votes = self._sb_request('cbm_admin_votes', 'GET', '?select=*&order=created_at.desc&limit=200')
             st_slots, sb_slots = self._sb_request('cbm_sponsorship_slots', 'GET', '?select=*')
             st_ads, sb_ads = self._sb_request('cbm_sponsored_ads', 'GET', '?select=*&status=eq.ACTIVE')
+            st_prods, sb_prods = self._sb_request('cbm_products', 'GET', '?select=*')
+            st_orders, sb_orders = self._sb_request('cbm_product_orders', 'GET', '?select=*&order=created_at.desc&limit=500')
+            st_p_dons, sb_p_dons = self._sb_request('cbm_pending_donations', 'GET', '?select=*')
+            st_wl, sb_wl = self._sb_request('cbm_chat_whitelist', 'GET', '?select=*')
 
             # 2. Persist to SQLite in an isolated write transaction with 60s busy timeout
             with self.write_transaction() as (conn, cur):
-                # Fetch pending outbox mutations to prevent overwriting active local edits
-                cur.execute("SELECT params, payload_json FROM cbm_sync_outbox WHERE table_name = 'cbm_accounts';")
-                outbox_items = cur.fetchall()
                 locked_accounts = set()
-                for p, body_str in outbox_items:
-                    if "account_name=eq." in p:
-                        locked_accounts.add(p.split("account_name=eq.")[1].split("&")[0].strip().lower())
-                    try:
-                        b = json.loads(body_str)
-                        if "account_name" in b:
-                            locked_accounts.add(b["account_name"].strip().lower())
-                    except Exception:
-                        pass
+                if not force:
+                    cur.execute("SELECT params, payload_json FROM cbm_sync_outbox WHERE table_name = 'cbm_accounts';")
+                    outbox_items = cur.fetchall()
+                    for p, body_str in outbox_items:
+                        if "account_name=eq." in p:
+                            locked_accounts.add(p.split("account_name=eq.")[1].split("&")[0].strip().lower())
+                        try:
+                            b = json.loads(body_str)
+                            if "account_name" in b:
+                                locked_accounts.add(b["account_name"].strip().lower())
+                        except Exception:
+                            pass
 
-                # Accounts with monotonic timestamp resolution
+                # Accounts
                 if st_accs == 200 and isinstance(accs, list):
                     for a in accs:
                         acc_name = a.get("account_name", "").strip()
-                        if not acc_name or acc_name.lower() in locked_accounts:
+                        if not acc_name:
+                            continue
+                        if not force and acc_name.lower() in locked_accounts:
                             continue
 
                         remote_updated = _parse_iso(a.get("updated_at"))
 
-                        # Check existing local timestamp
-                        cur.execute("SELECT updated_at, deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_name,))
-                        local_row = cur.fetchone()
-                        if local_row and local_row[0] and local_row[0] > remote_updated:
-                            # Local record is newer; do not overwrite
-                            continue
+                        if not force and acc_name.lower() in locked_accounts:
+                            cur.execute("SELECT updated_at, deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_name,))
+                            local_row = cur.fetchone()
+                            if local_row and local_row[0] and local_row[0] > remote_updated:
+                                continue
+
+                        plus_val = _parse_iso(a.get("cbm_plus_until")) if a.get("cbm_plus_until") else None
 
                         cur.execute("""
                             INSERT INTO cbm_accounts (
                                 account_name, display_name, clan_tag, role, deposited_cents,
                                 total_deposited_cents, total_withdrawn_cents, created_at, updated_at,
                                 avatar_url, pin_hash, salt, is_verified, primary_territorial_account,
-                                password_hash, password_salt
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                password_hash, password_salt, cbm_plus_until
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(account_name) DO UPDATE SET
                                 display_name = excluded.display_name,
                                 clan_tag = excluded.clan_tag,
@@ -1449,6 +1525,7 @@ class CBMDatabase:
                                 primary_territorial_account = excluded.primary_territorial_account,
                                 password_hash = COALESCE(excluded.password_hash, cbm_accounts.password_hash),
                                 password_salt = COALESCE(excluded.password_salt, cbm_accounts.password_salt),
+                                cbm_plus_until = excluded.cbm_plus_until,
                                 updated_at = excluded.updated_at
                         """, (
                             acc_name,
@@ -1466,7 +1543,8 @@ class CBMDatabase:
                             1 if a.get('is_verified') else 0,
                             a.get('primary_territorial_account'),
                             a.get('password_hash'),
-                            a.get('password_salt')
+                            a.get('password_salt'),
+                            plus_val
                         ))
                         self._do_index_account_aliases(a.get('account_name'), a.get('display_name'), a.get('primary_territorial_account'))
                         stats["accounts"] += 1
@@ -1649,7 +1727,7 @@ class CBMDatabase:
                     cur.execute("SELECT last_sync_at FROM cbm_treasury WHERE id = 1")
                     local_t = cur.fetchone()
 
-                    if not (local_t and local_t[0] and local_t[0] > remote_sync_time):
+                    if force or not (local_t and local_t[0] and local_t[0] > remote_sync_time):
                         cur.execute("""
                             UPDATE cbm_treasury
                             SET vault_total_gold_cents = ?,
@@ -1777,14 +1855,14 @@ class CBMDatabase:
                                 updated_at = excluded.updated_at
                         """, (
                             sl.get('slot_id'),
-                            sl.get('name'),
+                            sl.get('name') or sl.get('slot_name'),
                             sl.get('description'),
                             int(sl.get('base_price_cents') or 50000),
                             int(sl.get('current_price_cents') or 50000),
                             int(sl.get('max_active_sponsors') or 1),
-                            sl.get('active_sponsor_account'),
+                            sl.get('active_sponsor_account') or sl.get('current_sponsor_account'),
                             _parse_iso(sl.get('lease_start_ts')) if sl.get('lease_start_ts') else None,
-                            _parse_iso(sl.get('lease_end_ts')) if sl.get('lease_end_ts') else None,
+                            _parse_iso(sl.get('lease_end_ts') or sl.get('leased_until')) if (sl.get('lease_end_ts') or sl.get('leased_until')) else None,
                             1 if sl.get('is_available') else 0,
                             _parse_iso(sl.get('updated_at'))
                         ))
@@ -1833,6 +1911,128 @@ class CBMDatabase:
                             ad.get('status', 'ACTIVE')
                         ))
                     stats["sponsored_ads"] = len(sb_ads)
+
+                # Products
+                if st_prods == 200 and isinstance(sb_prods, list):
+                    for pr in sb_prods:
+                        cur.execute("""
+                            INSERT INTO cbm_products (
+                                product_id, owner_account, name, description, image_url,
+                                price_gold, price_cents, callback_url, webhook_url, status,
+                                sales_count, total_revenue_gold, created_at, updated_at,
+                                requires_client_verification, requirement_meta
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(product_id) DO UPDATE SET
+                                owner_account = excluded.owner_account,
+                                name = excluded.name,
+                                description = excluded.description,
+                                image_url = excluded.image_url,
+                                price_gold = excluded.price_gold,
+                                price_cents = excluded.price_cents,
+                                callback_url = excluded.callback_url,
+                                webhook_url = excluded.webhook_url,
+                                status = excluded.status,
+                                sales_count = excluded.sales_count,
+                                total_revenue_gold = excluded.total_revenue_gold,
+                                updated_at = excluded.updated_at,
+                                requires_client_verification = excluded.requires_client_verification,
+                                requirement_meta = excluded.requirement_meta
+                        """, (
+                            pr.get('product_id'),
+                            pr.get('owner_account'),
+                            pr.get('name'),
+                            pr.get('description'),
+                            pr.get('image_url'),
+                            float(pr.get('price_gold') or 0.0),
+                            int(pr.get('price_cents') or 0),
+                            pr.get('callback_url'),
+                            pr.get('webhook_url'),
+                            pr.get('status', 'ACTIVE'),
+                            int(pr.get('sales_count') or 0),
+                            float(pr.get('total_revenue_gold') or 0.0),
+                            _parse_iso(pr.get('created_at')),
+                            _parse_iso(pr.get('updated_at')),
+                            1 if pr.get('requires_client_verification') else 0,
+                            json.dumps(pr.get('requirement_meta')) if isinstance(pr.get('requirement_meta'), (dict, list)) else pr.get('requirement_meta')
+                        ))
+                    stats["products"] = len(sb_prods)
+
+                # Product Orders
+                if st_orders == 200 and isinstance(sb_orders, list):
+                    for o in sb_orders:
+                        cur.execute("""
+                            INSERT INTO cbm_product_orders (
+                                order_id, product_id, buyer_cbm_username, buyer_territorial_account,
+                                price_gold, price_cents, owner_share_cents, cushion_share_cents,
+                                payment_method, tx_hash, verification_token, status,
+                                expires_at, fulfilled_at, created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(order_id) DO UPDATE SET
+                                status = excluded.status,
+                                fulfilled_at = excluded.fulfilled_at,
+                                tx_hash = excluded.tx_hash,
+                                verification_token = excluded.verification_token
+                        """, (
+                            o.get('order_id'),
+                            o.get('product_id'),
+                            o.get('buyer_cbm_username'),
+                            o.get('buyer_territorial_account'),
+                            float(o.get('price_gold') or 0.0),
+                            int(o.get('price_cents') or 0),
+                            int(o.get('owner_share_cents') or 0),
+                            int(o.get('cushion_share_cents') or 0),
+                            o.get('payment_method'),
+                            o.get('tx_hash'),
+                            o.get('verification_token'),
+                            o.get('status'),
+                            _parse_iso(o.get('expires_at')),
+                            _parse_iso(o.get('fulfilled_at')),
+                            _parse_iso(o.get('created_at'))
+                        ))
+                    stats["product_orders"] = len(sb_orders)
+
+                # Pending Donations
+                if st_p_dons == 200 and isinstance(sb_p_dons, list):
+                    for pd in sb_p_dons:
+                        cur.execute("SELECT 1 FROM cbm_pending_donations WHERE id = ?", (pd.get('id'),))
+                        if not cur.fetchone():
+                            cur.execute("""
+                                INSERT INTO cbm_pending_donations (
+                                    id, account_name, amount_cents, amount_gold, message, status, tx_hash, created_at, expires_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                pd.get('id'),
+                                pd.get('account_name'),
+                                int(pd.get('amount_cents') or 0),
+                                float(pd.get('amount_gold') or 0.0),
+                                pd.get('message', ''),
+                                pd.get('status', 'PENDING'),
+                                pd.get('tx_hash', ''),
+                                _parse_iso(pd.get('created_at')),
+                                _parse_iso(pd.get('expires_at'))
+                            ))
+                    stats["pending_donations"] = len(sb_p_dons)
+
+                # Chat Whitelist
+                if st_wl == 200 and isinstance(sb_wl, list):
+                    for w in sb_wl:
+                        cur.execute("""
+                            INSERT INTO cbm_chat_whitelist (
+                                account_name, added_by, is_active, notes, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(account_name) DO UPDATE SET
+                                is_active = excluded.is_active,
+                                notes = excluded.notes,
+                                updated_at = excluded.updated_at
+                        """, (
+                            w.get('account_name'),
+                            w.get('added_by'),
+                            1 if w.get('is_active') else 0,
+                            w.get('notes'),
+                            _parse_iso(w.get('created_at')),
+                            _parse_iso(w.get('updated_at'))
+                        ))
+                    stats["chat_whitelist"] = len(sb_wl)
 
             if not quiet:
                 print(f"[+] Supabase bi-directional sync completed: {stats}")
@@ -2217,6 +2417,8 @@ class CBMDatabase:
         safe["has_password"] = bool(raw.get("password_hash"))
         safe["primary_territorial_account"] = raw.get("primary_territorial_account")
         safe["is_verified"] = self.is_account_verified(safe.get("account_name", account_name))
+        safe["cbm_plus_until"] = raw.get("cbm_plus_until")
+        safe["cbm_plus_active"] = self.is_cbm_plus_active(raw)
         return safe
 
     def _get_all_account_aliases(self, account: str) -> List[str]:
@@ -3540,13 +3742,23 @@ class CBMDatabase:
             conn = self._get_sqlite_conn()
             cur = conn.cursor()
 
-            system_accounts = "('treasury', 'war_chest', 'bank', 'vault', 'reserves', 'system')"
-
-            cur.execute(f"SELECT count(*) FROM cbm_accounts WHERE LOWER(account_name) NOT IN {system_accounts};")
+            vault_clean = (self.vault_account or "DdcBC").strip().lower()
+            cur.execute("""
+                SELECT count(*) FROM cbm_accounts
+                WHERE role != 'system'
+                  AND LOWER(account_name) NOT IN ('treasury', 'war_chest', 'bank', 'vault', 'reserves', 'system')
+                  AND LOWER(account_name) != ?;
+            """, (vault_clean,))
             row = cur.fetchone()
             total_members = row[0] if row else 0
 
-            cur.execute(f"SELECT count(*) FROM cbm_accounts WHERE LOWER(account_name) NOT IN {system_accounts} AND deposited_cents > 0;")
+            cur.execute("""
+                SELECT count(*) FROM cbm_accounts
+                WHERE role != 'system'
+                  AND LOWER(account_name) NOT IN ('treasury', 'war_chest', 'bank', 'vault', 'reserves', 'system')
+                  AND LOWER(account_name) != ?
+                  AND deposited_cents > 0;
+            """, (vault_clean,))
             row = cur.fetchone()
             active_depositors = row[0] if row else 0
 
@@ -3603,8 +3815,9 @@ class CBMDatabase:
         1. Member liabilities (sum of deposited_cents for non-system accounts)
         2. Unencumbered capital (sum of war chest donations from cbm_donations)
         3. Loan interest penalties (sum of penalty_cents from cbm_loans)
-        4. Vault excess = max(0, vault_total_cents - member_liabilities_cents)
-        5. Bank reserves = vault_excess + unencumbered_capital + loan_penalties
+        4. Bank reserves = max(0, vault_total_cents - member_liabilities_cents)
+        5. Vault excess = bank_reserves
+        6. Vault cushion = max(0, bank_reserves - unencumbered_capital)
         """
         conn = self._get_sqlite_conn()
         cur = conn.cursor()
@@ -3617,7 +3830,8 @@ class CBMDatabase:
 
         cur.execute("SELECT SUM(amount_cents) FROM cbm_donations")
         row_d = cur.fetchone()
-        unencumbered_capital = row_d[0] or 0
+        donations_capital = row_d[0] or 0
+        unencumbered_capital = donations_capital
 
         cur.execute("SELECT SUM(penalty_cents) FROM cbm_loans")
         row_l = cur.fetchone()
@@ -3645,9 +3859,9 @@ class CBMDatabase:
                 if st_l == 200 and isinstance(loans, list) and loans:
                     loan_penalties = sum(ln.get("penalty_cents", 0) for ln in loans)
 
-        vault_excess = max(0, vault_total_cents - total_liab)
-        bank_reserves = vault_excess
-        vault_cushion = max(0, bank_reserves - unencumbered_capital - loan_penalties)
+        bank_reserves = max(0, vault_total_cents - total_liab)
+        vault_excess = bank_reserves
+        vault_cushion = max(0, bank_reserves - unencumbered_capital)
 
         return {
             "vault_total_gold_cents": vault_total_cents,
@@ -3771,7 +3985,7 @@ class CBMDatabase:
                 "audit_status": "VERIFIED_LIVE",
                 "last_sync_at": now_iso
             }
-            print(f"[+] Live Vault Audit: {metrics['vault_total_gold']:.2f} Gold in vault '{vault_account}' (Reserves: {metrics['bank_reserves_gold']:.2f} Gold [Excess: {metrics['vault_excess_gold']:.2f} + WarChest: {metrics['unencumbered_capital_gold']:.2f} + Penalties: {metrics['loan_penalties_gold']:.2f}], Liabilities: {metrics['member_liabilities_gold']:.2f} Gold).")
+            print(f"[+] Live Vault Audit: {metrics['vault_total_gold']:.2f} Gold in vault '{vault_account}' (Reserves: {metrics['bank_reserves_gold']:.2f} Gold [WarChest: {metrics['unencumbered_capital_gold']:.2f} + Cushion: {metrics['vault_cushion_gold']:.2f}], Liabilities: {metrics['member_liabilities_gold']:.2f} Gold).")
             return True, live_gold_cents, audit_info
         except Exception as e:
             print(f"[!] Live vault audit error: {e}")
@@ -8750,4 +8964,654 @@ class CBMDatabase:
             conn.close()
 
         return pruned_count
+
+    # -------------------------------------------------------------------------
+    # Module A: Invite-Only Registration & Multi-Inviter Settlement Engine
+    # -------------------------------------------------------------------------
+
+    def create_invite_code(self, inviter: str, max_uses: int = 1) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Creates a new cryptographically secure invite code.
+        Requires deposited_cents >= max_uses * 2500 (25 Gold per use).
+        Funds are not deducted upfront, but held as sponsor stake until redemption.
+        """
+        clean_inviter = (inviter or "").strip()
+        if not clean_inviter:
+            return False, "Inviter account name is required.", None
+
+        acc = self.get_account(clean_inviter)
+        if not acc:
+            return False, f"Account '{clean_inviter}' not found.", None
+
+        max_uses = max(1, int(max_uses))
+        required_cents = max_uses * 2500
+        deposited_cents = int(acc.get("deposited_cents", 0) or 0)
+        if deposited_cents < required_cents:
+            avail_gold = deposited_cents / 100.0
+            req_gold = required_cents / 100.0
+            return False, f"Insufficient balance to issue invite(s). Required: {req_gold:.2f} Gold, Available: {avail_gold:.2f} Gold.", None
+
+        code_id = f"inv_{secrets.token_urlsafe(12)}"
+        now = time.time()
+
+        with self.write_transaction() as (conn, cur):
+            cur.execute("""
+                INSERT INTO cbm_invites (
+                    code_id, inviter_account, max_uses, uses_count,
+                    cost_per_use_cents, is_revoked, created_at, updated_at
+                ) VALUES (?, ?, ?, 0, 2500, 0, ?, ?)
+            """, (code_id, clean_inviter, max_uses, now, now))
+
+        invite_record = {
+            "code_id": code_id,
+            "inviter_account": clean_inviter,
+            "max_uses": max_uses,
+            "uses_count": 0,
+            "cost_per_use_cents": 2500,
+            "cost_per_use_gold": 25.0,
+            "is_revoked": False,
+            "created_at": now,
+            "updated_at": now
+        }
+
+        self._enqueue_sb_task(
+            "cbm_invites",
+            method="POST",
+            body={
+                "code_id": code_id,
+                "inviter_account": clean_inviter,
+                "max_uses": max_uses,
+                "uses_count": 0,
+                "cost_per_use_cents": 2500,
+                "is_revoked": False,
+                "created_at": self._format_iso(now),
+                "updated_at": self._format_iso(now)
+            }
+        )
+
+        return True, "Invite code generated successfully.", invite_record
+
+    def track_invite_prospect(self, prospect_token: str, invite_code: str, client_ip_hash: Optional[str] = None) -> Tuple[bool, str, str]:
+        """
+        Binds a visitor's prospect token to an active invite code in cbm_invite_prospects.
+        Enforces single-settlement invariant: intra-inviter duplication is strictly prohibited (409 Conflict),
+        while multi-inviter tracking across distinct inviters is permitted.
+        Returns: (success, message, code)
+        """
+        clean_token = (prospect_token or "").strip()
+        clean_code = (invite_code or "").strip()
+        if not clean_token or not clean_code:
+            return False, "prospect_token and invite_code are required.", "bad_request"
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT code_id, inviter_account, max_uses, uses_count, is_revoked
+            FROM cbm_invites
+            WHERE code_id = ?
+        """, (clean_code,))
+        inv = cur.fetchone()
+        if not inv:
+            return False, "Invalid invite code.", "not_found"
+
+        if inv["is_revoked"]:
+            return False, "This invite code has been revoked by the sponsor.", "not_found"
+
+        if inv["uses_count"] >= inv["max_uses"]:
+            return False, "This invite code has reached its maximum redemptions.", "exhausted"
+
+        inviter = inv["inviter_account"]
+        cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (inviter,))
+        acc_row = cur.fetchone()
+        if not acc_row or (acc_row["deposited_cents"] or 0) < 2500:
+            return False, "Invite code sponsor currently lacks sufficient balance (25.00 Gold required).", "insufficient_balance"
+
+        # Check existing prospect binding for this inviter
+        cur.execute("""
+            SELECT invite_code FROM cbm_invite_prospects
+            WHERE prospect_token = ? AND inviter_account = ?
+        """, (clean_token, inviter))
+        existing_binding = cur.fetchone()
+        if existing_binding:
+            if existing_binding["invite_code"] == clean_code:
+                return True, "Invite code attached to prospect session.", "ok"
+            else:
+                return False, "You have already linked an invitation from this user. Only one code per inviter is valid.", "duplicate_inviter_code"
+
+        now = time.time()
+        with self.write_transaction() as (w_conn, w_cur):
+            w_cur.execute("""
+                INSERT INTO cbm_invite_prospects (
+                    prospect_token, invite_code, inviter_account, client_ip_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (clean_token, clean_code, inviter, client_ip_hash, now))
+
+        self._enqueue_sb_task(
+            "cbm_invite_prospects",
+            method="POST",
+            body={
+                "prospect_token": clean_token,
+                "invite_code": clean_code,
+                "inviter_account": inviter,
+                "client_ip_hash": client_ip_hash,
+                "created_at": self._format_iso(now)
+            }
+        )
+
+        return True, "Invite code attached to prospect session.", "ok"
+
+    def get_prospect_inviters(self, prospect_token: str) -> List[Dict[str, Any]]:
+        """
+        Returns all valid, active, funded invitations linked to this prospect token.
+        """
+        clean_token = (prospect_token or "").strip()
+        if not clean_token:
+            return []
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT p.invite_code, p.inviter_account, i.max_uses, i.uses_count, i.cost_per_use_cents, a.deposited_cents
+            FROM cbm_invite_prospects p
+            JOIN cbm_invites i ON p.invite_code = i.code_id
+            JOIN cbm_accounts a ON i.inviter_account = a.account_name
+            WHERE p.prospect_token = ?
+              AND i.is_revoked = 0
+              AND i.uses_count < i.max_uses
+              AND a.deposited_cents >= i.cost_per_use_cents
+            ORDER BY p.id ASC
+        """, (clean_token,))
+        return [dict(r) for r in cur.fetchall()]
+
+    def revoke_invite_code(self, code_id: str, inviter: str) -> Tuple[bool, str]:
+        """Revokes an unused invite code and releases allocation."""
+        clean_code = (code_id or "").strip()
+        clean_inviter = (inviter or "").strip()
+        now = time.time()
+
+        with self.write_transaction() as (conn, cur):
+            cur.execute("""
+                UPDATE cbm_invites
+                SET is_revoked = 1, updated_at = ?
+                WHERE code_id = ? AND inviter_account = ?
+            """, (now, clean_code, clean_inviter))
+            if cur.rowcount == 0:
+                return False, "Invite code not found or unauthorized."
+
+        self._enqueue_sb_task(
+            "cbm_invites",
+            method="PATCH",
+            params=f"?code_id=eq.{clean_code}",
+            body={"is_revoked": True, "updated_at": self._format_iso(now)}
+        )
+        return True, "Invite code revoked successfully."
+
+    def list_invites(self, inviter: str) -> List[Dict[str, Any]]:
+        """Lists all active and redeemed invite codes generated by an account."""
+        clean_inviter = (inviter or "").strip()
+        if not clean_inviter:
+            return []
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT code_id, inviter_account, max_uses, uses_count, cost_per_use_cents, is_revoked, created_at, updated_at
+            FROM cbm_invites
+            WHERE inviter_account = ?
+            ORDER BY created_at DESC
+        """, (clean_inviter,))
+        res = []
+        for r in cur.fetchall():
+            d = dict(r)
+            d["cost_per_use_gold"] = d["cost_per_use_cents"] / 100.0
+            d["is_revoked"] = bool(d["is_revoked"])
+            res.append(d)
+        return res
+
+    def settle_invite_registration(self, prospect_token: str, new_user: str) -> Tuple[bool, str, int]:
+        """
+        Executes atomic multi-inviter settlement upon successful account registration:
+        - Deducts 25 Gold (2,500 cents) from each qualifying inviter who referred this prospect.
+        - Adds 100% of deducted amounts directly to unencumbered central bank reserves.
+        - Increments invite redemption counters and appends double-entry ledger entries.
+        """
+        clean_token = (prospect_token or "").strip()
+        clean_user = (new_user or "").strip()
+        if not clean_token or not clean_user:
+            return False, "prospect_token and new_user required.", 0
+
+        valid_invites = self.get_prospect_inviters(clean_token)
+        if not valid_invites:
+            return False, "No valid funded invitation found for prospect.", 0
+
+        seen_inviters = set()
+        unique_settlements = []
+        for item in valid_invites:
+            inv = item["inviter_account"]
+            if inv not in seen_inviters and inv.lower() != clean_user.lower():
+                seen_inviters.add(inv)
+                unique_settlements.append(item)
+
+        if not unique_settlements:
+            return False, "No valid distinct inviters found.", 0
+
+        now = time.time()
+        total_settled_cents = 0
+
+        with self.write_transaction() as (conn, cur):
+            for item in unique_settlements:
+                code_id = item["invite_code"]
+                inviter = item["inviter_account"]
+                cost_cents = int(item["cost_per_use_cents"])
+
+                # Deduct cost from inviter
+                cur.execute("""
+                    UPDATE cbm_accounts
+                    SET deposited_cents = deposited_cents - ?, updated_at = ?
+                    WHERE account_name = ? AND deposited_cents >= ?
+                """, (cost_cents, now, inviter, cost_cents))
+                if cur.rowcount == 0:
+                    continue
+
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (inviter,))
+                bal_after = cur.fetchone()[0]
+
+                # Increment uses_count
+                cur.execute("""
+                    UPDATE cbm_invites
+                    SET uses_count = uses_count + 1, updated_at = ?
+                    WHERE code_id = ?
+                """, (now, code_id))
+
+                # Inject 100% into Central Bank Unencumbered Reserves
+                cur.execute("""
+                    UPDATE cbm_treasury
+                    SET bank_reserves_cents = bank_reserves_cents + ?,
+                        unencumbered_capital_cents = unencumbered_capital_cents + ?,
+                        last_sync_at = ?
+                    WHERE id = 1
+                """, (cost_cents, cost_cents, now))
+
+                # Append double-entry ledger entry
+                tx_hash = f"inv_settle_{code_id}_{int(now)}_{secrets.token_hex(3)}"
+                notes = f"Invite Reserve Inflow: Sponsored registration of '{clean_user}' via {code_id}"
+                cur.execute("""
+                    INSERT INTO cbm_ledger (
+                        account_name, entry_type, amount_cents, balance_after_cents,
+                        tx_hash, notes, created_at
+                    ) VALUES (?, 'INVITE_RESERVE_INFLOW', ?, ?, ?, ?, ?)
+                """, (inviter, -cost_cents, bal_after, tx_hash, notes, now))
+
+                total_settled_cents += cost_cents
+
+                # Outbox replication
+                self._enqueue_sb_task(
+                    "cbm_accounts",
+                    method="PATCH",
+                    params=f"?account_name=eq.{inviter}",
+                    body={"deposited_cents": bal_after, "updated_at": self._format_iso(now)}
+                )
+                self._enqueue_sb_task(
+                    "cbm_invites",
+                    method="PATCH",
+                    params=f"?code_id=eq.{code_id}",
+                    body={"uses_count": item["uses_count"] + 1, "updated_at": self._format_iso(now)}
+                )
+                self._enqueue_sb_task(
+                    "cbm_ledger",
+                    method="POST",
+                    body={
+                        "account_name": inviter,
+                        "entry_type": "INVITE_RESERVE_INFLOW",
+                        "amount_cents": -cost_cents,
+                        "balance_after_cents": bal_after,
+                        "tx_hash": tx_hash,
+                        "notes": notes,
+                        "created_at": self._format_iso(now)
+                    }
+                )
+
+        if total_settled_cents == 0:
+            return False, "All sponsors had insufficient funds at execution.", 0
+
+        self.recompute_treasury()
+        return True, f"Settled {total_settled_cents // 100} Gold across {len(seen_inviters)} sponsor(s).", total_settled_cents
+
+    # -------------------------------------------------------------------------
+    # Module B: CBM Plus Subscription Engine & Paywall Enforcement
+    # -------------------------------------------------------------------------
+
+    def is_cbm_plus_active(self, account_dict: Optional[Dict[str, Any]]) -> bool:
+        """Evaluates whether an account holds an active CBM Plus subscription or root privilege."""
+        if not account_dict:
+            return False
+        acc_name = (account_dict.get("account_name") or "").strip().lower()
+        terri_name = (account_dict.get("primary_territorial_account") or "").strip().lower()
+        if acc_name in ("b8bbq", "admin") or terri_name == "b8bbq":
+            return True
+        if account_dict.get("role") in ("admin", "council", "leader", "system"):
+            return True
+        until = account_dict.get("cbm_plus_until")
+        if not until:
+            return False
+        if isinstance(until, (int, float)):
+            return float(until) > time.time()
+        try:
+            clean = str(until).replace("Z", "+00:00")
+            dt = datetime.datetime.fromisoformat(clean)
+            return dt.timestamp() > time.time()
+        except Exception:
+            return False
+
+    def check_cbm_plus(self, account_name: str) -> bool:
+        """Returns True if the specified account has an active CBM Plus subscription."""
+        clean = (account_name or "").strip()
+        if not clean:
+            return False
+        acc = self.get_account(clean)
+        return self.is_cbm_plus_active(acc)
+
+    def activate_cbm_plus(self, account_name: str, months: int = 1, tx_hash: Optional[str] = None) -> Tuple[bool, str, float]:
+        """Extends or activates CBM Plus subscription duration for the given account."""
+        clean = (account_name or "").strip()
+        if not clean:
+            return False, "account_name required.", 0.0
+
+        now = time.time()
+        months = max(1, int(months))
+        duration_sec = months * 30 * 86400.0
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("SELECT cbm_plus_until FROM cbm_accounts WHERE account_name = ?", (clean,))
+        row = cur.fetchone()
+        if not row:
+            return False, f"Account '{clean}' not found.", 0.0
+
+        current_until = row["cbm_plus_until"] or 0.0
+        base_time = max(now, float(current_until))
+        new_until = base_time + duration_sec
+
+        with self.write_transaction() as (w_conn, w_cur):
+            w_cur.execute("""
+                UPDATE cbm_accounts
+                SET cbm_plus_until = ?, updated_at = ?
+                WHERE account_name = ?
+            """, (new_until, now, clean))
+
+        self._enqueue_sb_task(
+            "cbm_accounts",
+            method="PATCH",
+            params=f"?account_name=eq.{clean}",
+            body={
+                "cbm_plus_until": self._format_iso(new_until),
+                "updated_at": self._format_iso(now)
+            }
+        )
+
+        return True, f"CBM Plus active until {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(new_until))}", new_until
+
+    def subscribe_cbm_plus_from_balance(self, account_name: str, months: int = 1) -> Tuple[bool, str, Optional[float]]:
+        """Deducts 500 Gold (50,000 cents) per month directly from balance to activate CBM Plus (free for B8bbq/admins)."""
+        clean = (account_name or "").strip()
+        if not clean:
+            return False, "account_name required.", None
+
+        now = time.time()
+        if clean.lower() in ("b8bbq", "admin"):
+            lifetime_until = 4102444800.0  # Year 2100 lifetime timestamp
+            with self.write_transaction() as (conn, cur):
+                cur.execute("""
+                    UPDATE cbm_accounts
+                    SET cbm_plus_until = ?, updated_at = ?
+                    WHERE account_name = ?
+                """, (lifetime_until, now, clean))
+            return True, "CBM Administrator account possesses lifetime CBM Plus privileges without payment.", lifetime_until
+
+        months = max(1, int(months))
+        cost_cents = months * 50000
+        tx_hash = f"sub_bal_{clean}_{int(now)}_{secrets.token_hex(3)}"
+        notes = f"CBM Plus Subscription: {months} month(s) (500G/mo converted to Bank Reserves)"
+
+        with self.write_transaction() as (conn, cur):
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = deposited_cents - ?, updated_at = ?
+                WHERE account_name = ? AND deposited_cents >= ?
+            """, (cost_cents, now, clean, cost_cents))
+            if cur.rowcount == 0:
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (clean,))
+                r = cur.fetchone()
+                avail = (r[0] / 100.0) if r else 0.0
+                return False, f"Insufficient balance. Required: {cost_cents / 100.0:.2f} Gold, Available: {avail:.2f} Gold.", None
+
+            cur.execute("SELECT deposited_cents, cbm_plus_until FROM cbm_accounts WHERE account_name = ?", (clean,))
+            acc_row = cur.fetchone()
+            bal_after = acc_row[0]
+            current_until = acc_row[1] or 0.0
+
+            base_time = max(now, float(current_until))
+            new_until = base_time + (months * 30 * 86400.0)
+
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET cbm_plus_until = ?, updated_at = ?
+                WHERE account_name = ?
+            """, (new_until, now, clean))
+
+            cur.execute("""
+                UPDATE cbm_treasury
+                SET bank_reserves_cents = bank_reserves_cents + ?,
+                    unencumbered_capital_cents = unencumbered_capital_cents + ?,
+                    last_sync_at = ?
+                WHERE id = 1
+            """, (cost_cents, cost_cents, now))
+
+            cur.execute("""
+                INSERT INTO cbm_ledger (
+                    account_name, entry_type, amount_cents, balance_after_cents,
+                    tx_hash, notes, created_at
+                ) VALUES (?, 'SUBSCRIPTION_CBM_PLUS', ?, ?, ?, ?, ?)
+            """, (clean, -cost_cents, bal_after, tx_hash, notes, now))
+
+        self._enqueue_sb_task(
+            "cbm_accounts",
+            method="PATCH",
+            params=f"?account_name=eq.{clean}",
+            body={
+                "deposited_cents": bal_after,
+                "cbm_plus_until": self._format_iso(new_until),
+                "updated_at": self._format_iso(now)
+            }
+        )
+        self._enqueue_sb_task(
+            "cbm_ledger",
+            method="POST",
+            body={
+                "account_name": clean,
+                "entry_type": "SUBSCRIPTION_CBM_PLUS",
+                "amount_cents": -cost_cents,
+                "balance_after_cents": bal_after,
+                "tx_hash": tx_hash,
+                "notes": notes,
+                "created_at": self._format_iso(now)
+            }
+        )
+
+        self.recompute_treasury()
+        return True, f"CBM Plus activated until {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(new_until))}", new_until
+
+    def create_pending_subscription(self, account_name: str, amount_gold: float = 500.0) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Generates a 15-minute in-game transfer intent slip for CBM Plus subscription."""
+        clean = (account_name or "").strip()
+        acc = self.get_account(clean)
+        if not acc:
+            return False, f"Account '{clean}' not found.", None
+
+        slip_id = f"sub_{secrets.token_hex(8)}"
+        now = time.time()
+        expires_at = now + 900.0
+        gold_val = float(amount_gold or 500.0)
+        cents_val = int(round(gold_val * 100))
+
+        with self.write_transaction() as (conn, cur):
+            cur.execute("""
+                INSERT INTO cbm_pending_subscriptions (
+                    id, account_name, amount_gold, amount_cents, status, created_at, expires_at
+                ) VALUES (?, ?, ?, ?, 'PENDING', ?, ?)
+            """, (slip_id, clean, gold_val, cents_val, now, expires_at))
+
+        slip = {
+            "id": slip_id,
+            "account_name": clean,
+            "amount_gold": gold_val,
+            "amount_cents": cents_val,
+            "status": "PENDING",
+            "created_at": now,
+            "expires_at": expires_at
+        }
+
+        self._enqueue_sb_task(
+            "cbm_pending_subscriptions",
+            method="POST",
+            body={
+                "id": slip_id,
+                "account_name": clean,
+                "amount_gold": gold_val,
+                "amount_cents": cents_val,
+                "status": "PENDING",
+                "created_at": self._format_iso(now),
+                "expires_at": self._format_iso(expires_at)
+            }
+        )
+
+        return True, "Intent slip generated successfully.", slip
+
+    def fulfill_pending_subscription(self, slip_id: str, tx_hash: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Fulfills an in-game subscription intent slip and credits CBM Plus."""
+        clean_id = (slip_id or "").strip()
+        now = time.time()
+
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM cbm_pending_subscriptions WHERE id = ? AND status = 'PENDING'", (clean_id,))
+        row = cur.fetchone()
+        if not row:
+            return False, "Pending subscription not found or already fulfilled.", None
+
+        account_name = row["account_name"]
+        amount_cents = row["amount_cents"]
+
+        with self.write_transaction() as (w_conn, w_cur):
+            w_cur.execute("""
+                UPDATE cbm_pending_subscriptions
+                SET status = 'FULFILLED', tx_hash = ?
+                WHERE id = ? AND status = 'PENDING'
+            """, (tx_hash, clean_id))
+            if w_cur.rowcount == 0:
+                return False, "Failed to update subscription status.", None
+
+            w_cur.execute("""
+                UPDATE cbm_treasury
+                SET vault_total_gold_cents = vault_total_gold_cents + ?,
+                    bank_reserves_cents = bank_reserves_cents + ?,
+                    unencumbered_capital_cents = unencumbered_capital_cents + ?,
+                    last_sync_at = ?
+                WHERE id = 1
+            """, (amount_cents, amount_cents, amount_cents, now))
+
+        self.activate_cbm_plus(account_name, months=1, tx_hash=tx_hash)
+        self.recompute_treasury()
+
+        self._enqueue_sb_task(
+            "cbm_pending_subscriptions",
+            method="PATCH",
+            params=f"?id=eq.{clean_id}",
+            body={"status": "FULFILLED", "tx_hash": tx_hash}
+        )
+
+        fulfilled = dict(row)
+        fulfilled["status"] = "FULFILLED"
+        fulfilled["tx_hash"] = tx_hash
+        return True, "Subscription fulfilled successfully.", fulfilled
+
+    def find_and_claim_pending_subscription(self, sender: str, amount_cents: int, tx_id: str) -> Optional[Dict[str, Any]]:
+        """Matches an inbound in-game transfer against active subscription intent slips."""
+        if amount_cents < 50000:
+            return None
+
+        clean_sender = (sender or "").strip()
+        candidates = self._generate_name_candidates(clean_sender)
+        now = time.time()
+
+        with self.write_transaction() as (conn, cur):
+            placeholders = ",".join("?" for _ in candidates)
+            cur.execute(f"""
+                SELECT id, account_name, amount_cents, amount_gold
+                FROM cbm_pending_subscriptions
+                WHERE account_name IN ({placeholders}) COLLATE NOCASE
+                  AND status = 'PENDING'
+                  AND expires_at >= ?
+                ORDER BY created_at ASC
+                LIMIT 1
+            """, (*candidates, now))
+            row = cur.fetchone()
+            if not row:
+                return None
+
+            slip_id = row[0]
+            slip_account = row[1]
+            slip_cents = row[2]
+
+            cur.execute("""
+                UPDATE cbm_pending_subscriptions
+                SET status = 'FULFILLED', tx_hash = ?
+                WHERE id = ? AND status = 'PENDING'
+            """, (tx_id, slip_id))
+            if cur.rowcount == 0:
+                return None
+
+            cur.execute("""
+                UPDATE cbm_treasury
+                SET vault_total_gold_cents = vault_total_gold_cents + ?,
+                    bank_reserves_cents = bank_reserves_cents + ?,
+                    unencumbered_capital_cents = unencumbered_capital_cents + ?,
+                    last_sync_at = ?
+                WHERE id = 1
+            """, (slip_cents, slip_cents, slip_cents, now))
+
+            cur.execute("SELECT cbm_plus_until FROM cbm_accounts WHERE account_name = ?", (slip_account,))
+            acc_row = cur.fetchone()
+            current_until = acc_row[0] if acc_row and acc_row[0] else 0.0
+            base_time = max(now, float(current_until))
+            new_until = base_time + (30 * 86400.0)
+
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET cbm_plus_until = ?, updated_at = ?
+                WHERE account_name = ?
+            """, (new_until, now, slip_account))
+
+        self.recompute_treasury()
+
+        self._enqueue_sb_task(
+            "cbm_pending_subscriptions",
+            method="PATCH",
+            params=f"?id=eq.{slip_id}",
+            body={"status": "FULFILLED", "tx_hash": tx_id}
+        )
+        self._enqueue_sb_task(
+            "cbm_accounts",
+            method="PATCH",
+            params=f"?account_name=eq.{slip_account}",
+            body={"cbm_plus_until": self._format_iso(new_until), "updated_at": self._format_iso(now)}
+        )
+
+        return {
+            "id": slip_id,
+            "account_name": slip_account,
+            "amount_cents": slip_cents,
+            "tx_hash": tx_id,
+            "cbm_plus_until": new_until
+        }
+
 

@@ -414,6 +414,13 @@
             <input type="password" id="regPinConfirm" class="form-input" placeholder="Repeat PIN" inputmode="numeric" maxlength="8" pattern="[0-9]{4,8}" autocomplete="new-password" required oninput="checkPinMatch()">
             <p class="form-hint" id="pinMatchHint">Must match Quick Access PIN</p>
           </div>
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label for="regInviteCode">Sponsor / Invite Code <span style="color: var(--paypal-yellow); font-size: 0.8rem; font-weight: normal;">(25 Gold Entry Fee Sponsored)</span></label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="regInviteCode" class="form-input" placeholder="e.g. inv_a1b2c3d4" autocomplete="off" onblur="validateInviteCodeManual()">
+            <button type="button" class="btn-nav" style="padding: 0 16px; cursor: pointer; white-space: nowrap; border-radius: var(--radius-sm);" onclick="validateInviteCodeManual()">Verify</button>
+          </div>
+          <p class="form-hint" id="inviteCodeHint">A valid sponsor code covers your 25 Gold registration settlement fee.</p>
         </div>
 
         <button type="submit" id="submitBtn" class="btn-submit">
@@ -571,6 +578,8 @@
       }
 
       const refCode = new URLSearchParams(window.location.search).get('ref') || '';
+      const prospectToken = localStorage.getItem('cbm_prospect_token') || '';
+      const inviteCode = (new URLSearchParams(window.location.search).get('invite') || new URLSearchParams(window.location.search).get('code') || localStorage.getItem('cbm_last_invite_code') || '').trim();
 
       const payload = {
         username: username,
@@ -578,7 +587,9 @@
         avatar_url: currentAvatarData,
         primary_territorial_account: terriAcc,
         pin: pin,
-        referral_code: refCode || undefined
+        referral_code: refCode || undefined,
+        prospect_token: prospectToken || undefined,
+        invite_code: inviteCode || undefined
       };
 
       const btn = document.getElementById('submitBtn');
@@ -598,6 +609,9 @@
 
         const data = await res.json();
         if (!res.ok) {
+          if (data.error === 'uninvited') {
+            throw new Error('Registration is invite-only. A valid sponsor invitation code is required.');
+          }
           throw new Error(data.message || 'Registration failed.');
         }
 
@@ -627,14 +641,103 @@
   </script>
 
   <script>
-    // Show referral invite banner if ?ref= is present in the URL
-    (function() {
-      const ref = new URLSearchParams(window.location.search).get('ref');
-      if (ref) {
+    async function validateInviteCodeManual() {
+      const input = document.getElementById('regInviteCode');
+      const hint = document.getElementById('inviteCodeHint');
+      const code = (input?.value || '').trim();
+      if (!code) {
+        if (hint) {
+          hint.textContent = 'A valid sponsor code covers your 25 Gold registration settlement fee.';
+          hint.style.color = 'var(--text-dim)';
+        }
+        return;
+      }
+
+      let prospectToken = localStorage.getItem('cbm_prospect_token') || '';
+      try {
+        const resp = await fetch('/api/cbm/invites/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ invite_code: code, prospect_token: prospectToken || undefined })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.prospect_token) {
+          localStorage.setItem('cbm_prospect_token', data.prospect_token);
+          localStorage.setItem('cbm_last_invite_code', code);
+          if (hint) {
+            hint.textContent = '✓ Verified Sponsor Code! 25 Gold entry fee will be sponsored.';
+            hint.style.color = '#00cf92';
+          }
+          const banner = document.getElementById('referralBanner');
+          const nameEl = document.getElementById('referralBannerName');
+          if (banner) banner.style.display = 'flex';
+          if (nameEl) nameEl.textContent = code;
+        } else if (resp.status === 409) {
+          if (hint) {
+            hint.textContent = '✗ ' + (data.message || 'Duplicate invite: Each inviter may only sponsor once per prospect.');
+            hint.style.color = '#ff858d';
+          }
+          showAlert(data.message || 'Each inviter may only settle once per prospect.', true);
+        } else {
+          if (hint) {
+            hint.textContent = '✗ ' + (data.message || 'Invalid or revoked invite code.');
+            hint.style.color = '#ff858d';
+          }
+        }
+      } catch (err) {
+        console.warn('Invite validation error:', err);
+      }
+    }
+
+    // Invite Tracking & Attribution Persistence
+    (async function initInviteTracking() {
+      const params = new URLSearchParams(window.location.search);
+      const inviteCode = (params.get('invite') || params.get('code') || '').trim();
+      const ref = (params.get('ref') || '').trim();
+      let prospectToken = localStorage.getItem('cbm_prospect_token') || '';
+
+      const codeInput = document.getElementById('regInviteCode');
+      const activeCode = inviteCode || localStorage.getItem('cbm_last_invite_code') || '';
+      if (codeInput && activeCode) {
+        codeInput.value = activeCode;
+      }
+
+      if (inviteCode) {
+        try {
+          const resp = await fetch('/api/cbm/invites/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ invite_code: inviteCode, prospect_token: prospectToken || undefined })
+          });
+          const data = await resp.json();
+          if (resp.ok && data.prospect_token) {
+            prospectToken = data.prospect_token;
+            localStorage.setItem('cbm_prospect_token', prospectToken);
+            localStorage.setItem('cbm_last_invite_code', inviteCode);
+            const hint = document.getElementById('inviteCodeHint');
+            if (hint) {
+              hint.textContent = '✓ Verified Sponsor Code! 25 Gold entry fee will be sponsored.';
+              hint.style.color = '#00cf92';
+            }
+          } else if (resp.status === 409) {
+            showAlert(data.message || 'You have already linked an invitation from this user.', true);
+            const hint = document.getElementById('inviteCodeHint');
+            if (hint) {
+              hint.textContent = '✗ ' + (data.message || 'Each inviter may only sponsor once per prospect.');
+              hint.style.color = '#ff858d';
+            }
+          }
+        } catch (e) {
+          console.warn('Invite tracking network error:', e);
+        }
+      }
+
+      const displaySponsor = ref || activeCode;
+      if (displaySponsor) {
         const banner = document.getElementById('referralBanner');
         const nameEl = document.getElementById('referralBannerName');
         if (banner) banner.style.display = 'flex';
-        if (nameEl) nameEl.textContent = ref;
+        if (nameEl) nameEl.textContent = displaySponsor;
       }
     })();
   </script>

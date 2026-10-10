@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.exe
+*.apk
+*.idsig
 build/
 dist/
 node_modules/

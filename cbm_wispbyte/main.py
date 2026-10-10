@@ -283,6 +283,7 @@ def load_static_cache():
         ("sw.js", "application/javascript; charset=utf-8"),
         ("pwa-installer.js", "application/javascript; charset=utf-8"),
         ("manifest.webmanifest", "application/manifest+json; charset=utf-8"),
+        ("download.html", "text/html; charset=utf-8"),
     ]
     for fname, ctype in assets:
         fpath = os.path.join(base_dir, fname)
@@ -707,6 +708,21 @@ def is_cors_bypassed_endpoint(path: str) -> bool:
         "/manifest.webmanifest",
         "/manifest.json",
         "/pwa-installer.js",
+        "/download",
+        "/download.html",
+        "/downloads",
+        "/download/desktop",
+        "/download/windows",
+        "/download/ClanBankManager.exe",
+        "/ClanBankManager.exe",
+        "/api/cbm/download/desktop",
+        "/download/mobile",
+        "/download/android",
+        "/download/ClanBankManager-release.apk",
+        "/ClanBankManager-release.apk",
+        "/api/cbm/download/mobile",
+        "/api/cbm/download/meta",
+        "/api/v1/download/meta",
     ) or p.startswith("/assets/"):
         return True
     return False
@@ -891,6 +907,44 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             print(f"[!] Error sending file {file_path}: {e}")
+
+    def _stream_binary_file(self, file_path: str, content_type: str = "application/octet-stream", download_filename: Optional[str] = None, sha256_hash: Optional[str] = None):
+        """Streams binary distribution files in 64 KB chunks to minimize memory footprint and prevent OOM on large payloads."""
+        if not os.path.isfile(file_path):
+            return self._send_json(404, {
+                "status": "error",
+                "error": "not_found",
+                "message": f"Release artifact '{download_filename or os.path.basename(file_path)}' is currently unavailable on distribution server."
+            })
+        try:
+            file_size = os.path.getsize(file_path)
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            if download_filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
+            self.send_header("Content-Length", str(file_size))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Cache-Control", "public, max-age=3600")
+            if sha256_hash:
+                self.send_header("X-Checksum-SHA256", sha256_hash)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self._apply_security_headers()
+            self.end_headers()
+
+            with open(file_path, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            try:
+                self.wfile.flush()
+            except Exception:
+                pass
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass
+        except Exception as e:
+            print(f"[!] Error streaming binary file {file_path}: {e}")
 
     def _enforce_domain_origin_policy(self) -> Tuple[bool, Optional[str]]:
         """
@@ -2374,6 +2428,120 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         # Discord Bot SDK Download
         elif path in ("/api/cbm/dev/sdk/download", "/cbm_discord_sdk.py", "/sdk/discord", "/download/discord-sdk"):
             return self._send_cached_asset("cbm_discord_sdk.py", download_filename="cbm_discord_sdk.py")
+
+        # Official CBM Software Downloads & Binaries
+        elif path in ("/download", "/download.html", "/downloads", "/get"):
+            return self._send_cached_asset("download.html")
+
+        elif path in ("/api/cbm/download/meta", "/api/v1/download/meta"):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            exe_path = os.path.join(base_dir, "ClanBankManager.exe")
+            apk_path = os.path.join(base_dir, "ClanBankManager-release.apk")
+            return self._send_json(200, {
+                "status": "ok",
+                "version": "1.0.0",
+                "releases": {
+                    "desktop": {
+                        "platform": "windows",
+                        "arch": "x86_64",
+                        "filename": "ClanBankManager.exe",
+                        "size_bytes": os.path.getsize(exe_path) if os.path.isfile(exe_path) else 18856211,
+                        "sha256": "a54ea337ade42760a2770ac2bed7b416c3ba6dcefc1b4f5aff986f3db2fac898",
+                        "download_url": "/download/desktop",
+                        "app_origin": "org.wispbyte.cbm.desktop"
+                    },
+                    "mobile": {
+                        "platform": "android",
+                        "filename": "ClanBankManager-release.apk",
+                        "size_bytes": os.path.getsize(apk_path) if os.path.isfile(apk_path) else 2957664,
+                        "sha256": "b6b0fc840405f0795b29c385ed93ac776459da4937f7c297cb0b2574a37ad38c",
+                        "download_url": "/download/mobile",
+                        "app_origin": "org.wispbyte.cbm.android"
+                    },
+                    "web": {
+                        "platform": "pwa",
+                        "manifest": "/manifest.webmanifest",
+                        "service_worker": "/sw.js",
+                        "app_origin": "cbm.wispbyte.org"
+                    }
+                },
+                "rate_limit_policy": {
+                    "rate_limit": "1 request per minute",
+                    "abuse_threshold": "5 retries = 24-hour IP ban"
+                }
+            })
+
+        elif path in (
+            "/download/desktop",
+            "/download/windows",
+            "/download/ClanBankManager.exe",
+            "/api/cbm/download/desktop",
+            "/ClanBankManager.exe"
+        ):
+            client_ip = self._get_client_ip()
+            is_allowed, cooldown_or_ban, is_banned = rate_limiter.check_download_rate_limit(client_ip)
+            if not is_allowed:
+                if is_banned:
+                    return self._send_json(403, {
+                        "status": "error",
+                        "error": "ip_banned",
+                        "message": "Security lockout: 5 or more download retry attempts detected while rate-limited. Your IP address has been banned for 24 hours.",
+                        "ban_remaining_seconds": cooldown_or_ban
+                    }, headers={"Retry-After": str(cooldown_or_ban)})
+                else:
+                    return self._send_json(429, {
+                        "status": "error",
+                        "error": "rate_limited",
+                        "message": "Download rate limit exceeded (1 request per minute). Please wait before retrying.",
+                        "retry_after_seconds": cooldown_or_ban
+                    }, headers={"Retry-After": str(cooldown_or_ban)})
+
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            exe_path = os.path.join(base_dir, "ClanBankManager.exe")
+            if not os.path.isfile(exe_path):
+                alt = os.path.join(os.path.dirname(base_dir), "cbm-desktop", "dist", "ClanBankManager.exe")
+                if os.path.isfile(alt):
+                    exe_path = alt
+            return self._stream_binary_file(
+                exe_path,
+                content_type="application/vnd.microsoft.portable-executable",
+                download_filename="ClanBankManager.exe",
+                sha256_hash="a54ea337ade42760a2770ac2bed7b416c3ba6dcefc1b4f5aff986f3db2fac898"
+            )
+
+        elif path in (
+            "/download/mobile",
+            "/download/android",
+            "/download/ClanBankManager-release.apk",
+            "/api/cbm/download/mobile",
+            "/ClanBankManager-release.apk"
+        ):
+            client_ip = self._get_client_ip()
+            is_allowed, cooldown_or_ban, is_banned = rate_limiter.check_download_rate_limit(client_ip)
+            if not is_allowed:
+                if is_banned:
+                    return self._send_json(403, {
+                        "status": "error",
+                        "error": "ip_banned",
+                        "message": "Security lockout: 5 or more download retry attempts detected while rate-limited. Your IP address has been banned for 24 hours.",
+                        "ban_remaining_seconds": cooldown_or_ban
+                    }, headers={"Retry-After": str(cooldown_or_ban)})
+                else:
+                    return self._send_json(429, {
+                        "status": "error",
+                        "error": "rate_limited",
+                        "message": "Download rate limit exceeded (1 request per minute). Please wait before retrying.",
+                        "retry_after_seconds": cooldown_or_ban
+                    }, headers={"Retry-After": str(cooldown_or_ban)})
+
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            apk_path = os.path.join(base_dir, "ClanBankManager-release.apk")
+            return self._stream_binary_file(
+                apk_path,
+                content_type="application/vnd.android.package-archive",
+                download_filename="ClanBankManager-release.apk",
+                sha256_hash="b6b0fc840405f0795b29c385ed93ac776459da4937f7c297cb0b2574a37ad38c"
+            )
 
         # 2. Web Portal Interface (/ or /cbm or /cbm.html or /bank or /index.html)
         elif path in ("", "/", "/cbm", "/cbm.html", "/bank", "/index.html"):

@@ -18,6 +18,12 @@ class CBMRateLimiter:
         self._ip_requests: Dict[str, List[float]] = {}
         # Account auth failure tracking: account_name (lowercased) -> list of failure timestamps
         self._account_failures: Dict[str, List[float]] = {}
+        # Binary download rate limiting: ip -> list of download timestamps (max 1 per min)
+        self._download_requests: Dict[str, List[float]] = {}
+        # Download violations / retries: ip -> list of retry timestamps while throttled
+        self._download_violations: Dict[str, List[float]] = {}
+        # 24-hour IP ban tracking: ip -> unban timestamp
+        self._banned_ips: Dict[str, float] = {}
         # Last prune timestamp
         self._last_prune = time.time()
 
@@ -27,6 +33,12 @@ class CBMRateLimiter:
         self.SENSITIVE_IP_RATE_LIMIT = 30   # 30 requests per minute
         self.GENERAL_IP_RATE_LIMIT = 120    # 120 requests per minute
         self.WINDOW_SECONDS = 60.0          # 1 minute sliding window
+
+        # Binary Distribution Security Constants
+        self.DOWNLOAD_RATE_LIMIT = 1           # 1 request per minute
+        self.DOWNLOAD_WINDOW_SECONDS = 60.0    # 60s cooldown
+        self.DOWNLOAD_MAX_RETRIES = 5          # 5+ retries while throttled = 24-hour ban
+        self.IP_BAN_DURATION_SECONDS = 86400.0 # 24 hours (86,400s)
 
     def _prune_stale_entries(self, now: float):
         """Prunes timestamps older than maximum retention window to prevent memory accumulation."""
@@ -155,6 +167,70 @@ class CBMRateLimiter:
         with self._lock:
             if acc_key in self._account_failures:
                 del self._account_failures[acc_key]
+
+    def check_download_rate_limit(self, ip: str) -> Tuple[bool, int, bool]:
+        """
+        Enforces binary distribution download rate limiting:
+        - Maximum 1 download request per minute per IP.
+        - 5+ retries while throttled results in an immediate 24-hour IP ban.
+        Returns: (is_allowed: bool, retry_or_ban_seconds: int, is_banned: bool)
+        """
+        if not ip:
+            return True, 0, False
+
+        now = time.time()
+        with self._lock:
+            # 1. Check existing IP ban
+            if ip in self._banned_ips:
+                ban_expiry = self._banned_ips[ip]
+                if now < ban_expiry:
+                    remaining_ban = max(1, int(ban_expiry - now))
+                    return False, remaining_ban, True
+                else:
+                    del self._banned_ips[ip]
+                    if ip in self._download_violations:
+                        del self._download_violations[ip]
+
+            # 2. Check sliding window (1 download per 60.0s)
+            requests = self._download_requests.setdefault(ip, [])
+            cutoff = now - self.DOWNLOAD_WINDOW_SECONDS
+            requests = [t for t in requests if t >= cutoff]
+            self._download_requests[ip] = requests
+
+            if len(requests) >= self.DOWNLOAD_RATE_LIMIT:
+                # Violation: user hit download while in cooldown
+                violations = self._download_violations.setdefault(ip, [])
+                v_cutoff = now - 3600.0  # retain violations within 1 hour
+                violations = [t for t in violations if t >= v_cutoff]
+                violations.append(now)
+                self._download_violations[ip] = violations
+
+                # Check if 5+ retries reached
+                if len(violations) >= self.DOWNLOAD_MAX_RETRIES:
+                    ban_until = now + self.IP_BAN_DURATION_SECONDS
+                    self._banned_ips[ip] = ban_until
+                    return False, int(self.IP_BAN_DURATION_SECONDS), True
+
+                oldest = requests[0]
+                retry_after = max(1, int(oldest + self.DOWNLOAD_WINDOW_SECONDS - now))
+                return False, retry_after, False
+
+            # Allowed
+            requests.append(now)
+            return True, 0, False
+
+    def is_ip_banned(self, ip: str) -> Tuple[bool, int]:
+        """Checks if an IP is currently banned. Returns (is_banned, remaining_seconds)."""
+        if not ip:
+            return False, 0
+        now = time.time()
+        with self._lock:
+            if ip in self._banned_ips:
+                ban_expiry = self._banned_ips[ip]
+                if now < ban_expiry:
+                    return True, max(1, int(ban_expiry - now))
+                del self._banned_ips[ip]
+            return False, 0
 
 
 # Global rate limiter instance

@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Download Clan Bank Manager — Official Desktop & Mobile Apps</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#080d16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CBM">
+  <link rel="apple-touch-icon" href="/cbm-logo-new.png">
+  <style>
+    :root {
+      /* PayPal Dark Mode Design Tokens */
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --border-subtle: rgba(255, 255, 255, 0.05);
+
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-blue-dim: rgba(0, 112, 224, 0.15);
+
+      --paypal-yellow: #ffc439;
+      --paypal-yellow-hover: #e0ac2b;
+      --paypal-yellow-dim: rgba(255, 196, 57, 0.15);
+
+      --success: #00cf92;
+      --success-dim: rgba(0, 207, 146, 0.15);
+      --danger: #ea3943;
+      --danger-dim: rgba(234, 57, 67, 0.15);
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --maxw: 1200px;
+
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    /* Header & Navigation Bar */
+    header.hud {
+      background: rgba(8, 13, 22, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .hud-inner {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-sm);
+      object-fit: contain;
+    }
+
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: #fff;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--paypal-yellow);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: var(--radius-pill);
+      transition: all 0.15s ease;
+    }
+
+    .nav-link:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .nav-link.active {
+      color: #fff;
+      background: var(--paypal-blue);
+    }
+
+    /* Hero Section */
+    .hero {
+      max-width: var(--maxw);
+      margin: 48px auto 32px;
+      padding: 0 24px;
+      text-align: center;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: var(--radius-pill);
+      background: var(--paypal-blue-dim);
+      border: 1px solid rgba(0, 112, 224, 0.3);
+      font-size: 12px;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-bottom: 20px;
+    }
+
+    .hero-title {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 16px;
+      background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-desc {
+      font-size: 17px;
+      color: var(--text-dim);
+      max-width: 680px;
+      margin: 0 auto 28px;
+    }
+
+    .security-banner {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: var(--radius-pill);
+      padding: 8px 20px;
+      font-size: 12px;
+      color: #fcd34d;
+      font-weight: 600;
+    }
+
+    /* Download Matrix Grid */
+    .download-grid {
+      max-width: var(--maxw);
+      margin: 20px auto 60px;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    @media (max-width: 980px) {
+      .download-grid {
+        grid-template-columns: 1fr;
+      }
+      .hero-title {
+        font-size: 32px;
+      }
+      .nav-links {
+        display: none;
+      }
+    }
+
+    .download-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 32px 28px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .download-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--border-bright);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .download-card.highlight {
+      border-color: rgba(0, 112, 224, 0.4);
+      background: linear-gradient(180deg, #0f182b 0%, #0e1626 100%);
+    }
+
+    .card-badge {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .badge-windows {
+      background: rgba(0, 112, 224, 0.15);
+      color: #38bdf8;
+      border: 1px solid rgba(0, 112, 224, 0.3);
+    }
+
+    .badge-android {
+      background: rgba(0, 207, 146, 0.15);
+      color: #00cf92;
+      border: 1px solid rgba(0, 207, 146, 0.3);
+    }
+
+    .badge-pwa {
+      background: rgba(255, 196, 57, 0.15);
+      color: var(--paypal-yellow);
+      border: 1px solid rgba(255, 196, 57, 0.3);
+    }
+
+    .card-icon-wrap {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-md);
+      background: var(--panel);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .card-sub {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-bottom: 24px;
+      line-height: 1.4;
+    }
+
+    .spec-table {
+      margin-bottom: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .spec-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .spec-label {
+      color: var(--text-muted);
+    }
+
+    .spec-val {
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .checksum-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .checksum-text {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .btn-copy {
+      background: none;
+      border: none;
+      color: #38bdf8;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .btn-copy:hover {
+      background: rgba(56, 189, 248, 0.1);
+    }
+
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 14px 20px;
+      border-radius: var(--radius-pill);
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      margin-top: auto;
+      border: none;
+    }
+
+    .btn-download.primary {
+      background: var(--paypal-blue);
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(0, 112, 224, 0.3);
+    }
+
+    .btn-download.primary:hover {
+      background: var(--paypal-blue-hover);
+      transform: translateY(-1px);
+    }
+
+    .btn-download.secondary {
+      background: var(--panel-2);
+      color: #fff;
+      border: 1px solid var(--border-bright);
+    }
+
+    .btn-download.secondary:hover {
+      background: var(--panel-hover);
+    }
+
+    /* Verification & Checksum Terminal Box */
+    .verify-section {
+      max-width: var(--maxw);
+      margin: 0 auto 60px;
+      padding: 0 24px;
+    }
+
+    .terminal-card {
+      background: #05080f;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .terminal-title {
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .code-block {
+      background: #080d16;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #38bdf8;
+      overflow-x: auto;
+      margin-bottom: 14px;
+    }
+
+    /* Toast Notification */
+    #downloadToast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--panel-2);
+      border: 1px solid var(--border-bright);
+      color: #fff;
+      padding: 14px 22px;
+      border-radius: var(--radius-md);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      font-size: 13px;
+      font-weight: 600;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      z-index: 1000;
+    }
+
+    footer.game-footer {
+      max-width: var(--maxw);
+      margin: auto auto 32px;
+      color: var(--text-muted);
+      font-size: 12px;
+      padding: 0 24px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation Bar -->
+  <header class="hud">
+    <div class="hud-inner">
+      <a href="/cbm.html" class="brand">
+        <img src="/cbm-logo-new.png" alt="CBM Logo" class="brand-icon">
+        <div class="brand-text">
+          <span class="brand-title">Clan Bank Manager</span>
+          <span class="brand-subtitle">Official Software Downloads</span>
+        </div>
+      </a>
+      <nav class="nav-links">
+        <a href="/cbm.html" class="nav-link">Portal</a>
+        <a href="/vault.html" class="nav-link">Vault</a>
+        <a href="/donations.html" class="nav-link">War Chest</a>
+        <a href="/election.html" class="nav-link">Election</a>
+        <a href="/developer.html" class="nav-link">Developer</a>
+        <a href="/download.html" class="nav-link active">Downloads</a>
+      </nav>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button id="pwaInstallBtn" class="nav-link" style="display: none; background: rgba(0,112,224,0.2); border: 1px solid rgba(0,112,224,0.4); color: #fff; cursor: pointer;">
+          📲 Install App
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span>🛡️</span> Verified Official Releases · Production v1.0.0
+    </div>
+    <h1 class="hero-title">Official Clan Bank Manager Clients</h1>
+    <p class="hero-desc">
+      Native desktop, mobile, and standalone web runtimes built for high-concurrency, low-latency banking telemetry.
+    </p>
+    <div class="security-banner">
+      <span>⚡</span> Download Rate Limit: 1 request/min per IP · 5+ abuse retries triggers automatic 24-hour IP quarantine
+    </div>
+  </section>
+
+  <!-- Download Matrix Grid -->
+  <main class="download-grid">
+
+    <!-- Card 1: Windows Desktop -->
+    <div class="download-card highlight">
+      <span class="card-badge badge-windows">Windows x64</span>
+      <div class="card-icon-wrap">💻</div>
+      <h2 class="card-title">CBM for Windows</h2>
+      <p class="card-sub">
+        Standalone portable executable powered by Microsoft Edge WebView2 hardware acceleration.
+      </p>
+
+      <div class="spec-table">
+        <div class="spec-row">
+          <span class="spec-label">Version</span>
+          <span class="spec-val">v1.0.0 Stable</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">Architecture</span>
+          <span class="spec-val">x86_64 (64-bit)</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">File Size</span>
+          <span class="spec-val">17.98 MB</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">Package</span>
+          <span class="spec-val">ClanBankManager.exe</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">App Origin</span>
+          <span class="spec-val" style="color: #38bdf8;">org.wispbyte.cbm.desktop</span>
+        </div>
+      </div>
+
+      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">SHA-256 Checksum:</div>
+      <div class="checksum-box">
+        <span class="checksum-text" id="winShaText">a54ea337ade42760a2770ac2bed7b416c3ba6dcefc1b4f5aff986f3db2fac898</span>
+        <button class="btn-copy" onclick="copyChecksum('a54ea337ade42760a2770ac2bed7b416c3ba6dcefc1b4f5aff986f3db2fac898')">Copy</button>
+      </div>
+
+      <a href="/download/desktop" class="btn-download primary" onclick="trackDownload('desktop', event)">
+        <span>⬇️</span> Download for Windows (.exe)
+      </a>
+    </div>
+
+    <!-- Card 2: Android Mobile -->
+    <div class="download-card">
+      <span class="card-badge badge-android">Android APK</span>
+      <div class="card-icon-wrap">📱</div>
+      <h2 class="card-title">CBM for Android</h2>
+      <p class="card-sub">
+        Cryptographically signed release package compiled via Google Colab with native deep linking.
+      </p>
+
+      <div class="spec-table">
+        <div class="spec-row">
+          <span class="spec-label">Version</span>
+          <span class="spec-val">v1.0.0 Stable</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">Compatibility</span>
+          <span class="spec-val">Android 7.0+ (API 24-34)</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">File Size</span>
+          <span class="spec-val">2.82 MB</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">Package</span>
+          <span class="spec-val">ClanBankManager-release.apk</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">App Origin</span>
+          <span class="spec-val" style="color: #00cf92;">org.wispbyte.cbm.android</span>
+        </div>
+      </div>
+
+      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">SHA-256 Checksum:</div>
+      <div class="checksum-box">
+        <span class="checksum-text" id="apkShaText">b6b0fc840405f0795b29c385ed93ac776459da4937f7c297cb0b2574a37ad38c</span>
+        <button class="btn-copy" onclick="copyChecksum('b6b0fc840405f0795b29c385ed93ac776459da4937f7c297cb0b2574a37ad38c')">Copy</button>
+      </div>
+
+      <a href="/download/mobile" class="btn-download primary" onclick="trackDownload('mobile', event)">
+        <span>⬇️</span> Download for Android (.apk)
+      </a>
+    </div>
+
+    <!-- Card 3: Web Progressive Web App -->
+    <div class="download-card">
+      <span class="card-badge badge-pwa">Web PWA</span>
+      <div class="card-icon-wrap">🌐</div>
+      <h2 class="card-title">Progressive Web App</h2>
+      <p class="card-sub">
+        Zero installation footprint. Runs directly in Chrome, Safari, Edge, or Firefox with offline telemetry caching.
+      </p>
+
+      <div class="spec-table">
+        <div class="spec-row">
+          <span class="spec-label">Platform</span>
+          <span class="spec-val">Cross-Platform Web</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">Offline Caching</span>
+          <span class="spec-val">Service Worker v1</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">Installation</span>
+          <span class="spec-val">Home Screen Shortcut</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">Download Size</span>
+          <span class="spec-val">0 MB (Zero Install)</span>
+        </div>
+        <div class="spec-row">
+          <span class="spec-label">App Origin</span>
+          <span class="spec-val" style="color: #ffc439;">cbm.wispbyte.org</span>
+        </div>
+      </div>
+
+      <div class="checksum-box" style="justify-content: center; text-align: center;">
+        <span class="checksum-text" style="color: var(--text-dim);">Auto-updates seamlessly in background</span>
+      </div>
+
+      <button id="pwaHeroBtn" class="btn-download secondary" onclick="triggerPwaPrompt()">
+        <span>📲</span> Install Web App
+      </button>
+    </div>
+
+  </main>
+
+  <!-- Cryptographic Verification Guide -->
+  <section class="verify-section">
+    <div class="terminal-card">
+      <div class="terminal-header">
+        <div class="terminal-title">
+          <span>🔒</span> Cryptographic Checksum Verification
+        </div>
+        <span style="font-size: 12px; color: var(--text-muted);">Ensure file integrity before execution</span>
+      </div>
+
+      <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 12px;">
+        To verify your downloaded executable on <strong>Windows PowerShell</strong>:
+      </p>
+      <div class="code-block">
+        Get-FileHash ClanBankManager.exe -Algorithm SHA256
+      </div>
+
+      <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 12px;">
+        To verify your downloaded package on <strong>Android / Termux / Linux</strong>:
+      </p>
+      <div class="code-block">
+        sha256sum ClanBankManager-release.apk
+      </div>
+    </div>
+  </section>
+
+  <!-- Toast Notification -->
+  <div id="downloadToast">
+    <span id="toastIcon">ℹ️</span>
+    <span id="toastMessage">Preparing download...</span>
+  </div>
+
+  <footer class="game-footer">
+    Clan Bank Manager &copy; 2026 Wispbyte. Official Distribution Infrastructure.
+  </footer>
+
+  <script src="/pwa-installer.js" defer></script>
+  <script>
+    let downloadCooldownTimer = null;
+    let cooldownSecondsLeft = 0;
+
+    function copyChecksum(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast("Checksum copied to clipboard!", "success");
+      });
+    }
+
+    function showToast(msg, type = "info") {
+      const toast = document.getElementById("downloadToast");
+      const icon = document.getElementById("toastIcon");
+      const text = document.getElementById("toastMessage");
+      icon.innerText = type === "error" ? "⚠️" : type === "success" ? "✅" : "⏳";
+      text.innerText = msg;
+      toast.style.display = "flex";
+      setTimeout(() => { toast.style.display = "none"; }, 5000);
+    }
+
+    async function trackDownload(type, e) {
+      if (e) e.preventDefault();
+      const url = type === 'desktop' ? '/download/desktop' : '/download/mobile';
+      const btn = e ? e.currentTarget : null;
+
+      if (cooldownSecondsLeft > 0) {
+        showToast(`Download cooldown active: ${cooldownSecondsLeft}s remaining. Warning: 5+ retries while throttled will trigger an automatic 24-hour IP ban!`, "error");
+        return;
+      }
+
+      showToast("Requesting official binary stream from distribution server...", "info");
+
+      try {
+        const resp = await fetch(url);
+        if (resp.status === 429) {
+          const data = await resp.json().catch(() => ({}));
+          const retrySecs = data.retry_after_seconds || parseInt(resp.headers.get("Retry-After") || "60", 10);
+          startCooldown(retrySecs, btn, type);
+          showToast(`Rate limit reached (1 download/min). Retry in ${retrySecs}s. Caution: Repeated attempts trigger a 24-hour IP ban!`, "error");
+          return;
+        } else if (resp.status === 403) {
+          const data = await resp.json().catch(() => ({}));
+          const rem = data.ban_remaining_seconds || 86400;
+          const hours = (rem / 3600).toFixed(1);
+          showToast(`Security Lockout: Your IP address has been banned for 24 hours (${hours}h remaining) due to excessive retry violations.`, "error");
+          return;
+        } else if (resp.ok) {
+          showToast("Streaming binary release package...", "info");
+          const blob = await resp.blob();
+          const filename = type === 'desktop' ? 'ClanBankManager.exe' : 'ClanBankManager-release.apk';
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+
+          startCooldown(60, btn, type);
+          showToast("Download started! 60-second rate-limit cooldown is active.", "success");
+        } else {
+          showToast("Download request returned status: " + resp.status, "error");
+        }
+      } catch (err) {
+        // Fall back to direct navigation if fetch is interrupted
+        window.location.href = url;
+      }
+    }
+
+    function startCooldown(seconds, btn, type) {
+      cooldownSecondsLeft = seconds;
+      const originalText = btn ? btn.innerHTML : '';
+      if (downloadCooldownTimer) clearInterval(downloadCooldownTimer);
+
+      downloadCooldownTimer = setInterval(() => {
+        cooldownSecondsLeft--;
+        if (btn) {
+          btn.innerHTML = `<span>⏳</span> Cooldown (${cooldownSecondsLeft}s)`;
+          btn.style.opacity = '0.65';
+          btn.style.pointerEvents = cooldownSecondsLeft > 0 ? 'none' : 'auto';
+        }
+        if (cooldownSecondsLeft <= 0) {
+          clearInterval(downloadCooldownTimer);
+          if (btn && originalText) {
+            btn.innerHTML = originalText;
+            btn.style.opacity = '1';
+            btn.style.pointerEvents = 'auto';
+          }
+        }
+      }, 1000);
+    }
+
+    function triggerPwaPrompt() {
+      const btn = document.getElementById("pwaInstallBtn");
+      if (btn && btn.style.display !== "none") {
+        btn.click();
+      } else {
+        showToast("To install on iOS: Tap Share -> 'Add to Home Screen'. On Desktop: Use browser address bar icon.", "info");
+      }
+    }
+  </script>
+</body>
+</html>

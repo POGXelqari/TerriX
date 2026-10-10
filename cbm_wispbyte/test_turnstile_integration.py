@@ -214,6 +214,15 @@ def test_http_endpoint_turnstile_gates():
             assert "window.turnstile.reset()" in content
         print("[+] Frontend templates (register.html, login.html) embed valid Turnstile widgets with lifecycle reset!")
 
+        # G. Test Service Worker Bypass for Turnstile
+        sw_path = os.path.join(cbm_dir, "sw.js")
+        with open(sw_path, "r", encoding="utf-8") as f:
+            sw_code = f.read()
+        assert "cbm-core-v2" in sw_code, "Service Worker cache name must be bumped to cbm-core-v2"
+        assert "u.origin !== self.location.origin" in sw_code, "Service Worker must bypass cross-origin requests"
+        assert "isHtmlNavigation" in sw_code or "text/html" in sw_code, "Service Worker must only fallback to HTML for document navigations"
+        print("[+] Service Worker sw.js bypasses cross-origin Turnstile requests & prevents HTML MIME collision!")
+
         print("[+] All Cloudflare Turnstile Integration Tests Passed Successfully!")
 
     finally:

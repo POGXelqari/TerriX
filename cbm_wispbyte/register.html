@@ -755,6 +755,12 @@
         if (banner) banner.style.display = 'flex';
         if (nameEl) nameEl.textContent = displaySponsor;
       }
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then((reg) => {
+          if (reg) reg.update().catch(() => {});
+        }).catch(() => {});
+      }
     })();
   </script>
 

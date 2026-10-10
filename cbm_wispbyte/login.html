@@ -498,6 +498,11 @@
       if (saved) {
         document.getElementById('username').value = saved;
       }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then((reg) => {
+          if (reg) reg.update().catch(() => {});
+        }).catch(() => {});
+      }
     });
   </script>
 </body>

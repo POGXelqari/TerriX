@@ -37,6 +37,39 @@ def get_quarantine_remaining_seconds() -> float:
         return 0.0
 
 
+import base64
+
+
+def get_bot_python_executable() -> str:
+    """Finds the Python interpreter that has discord.py installed."""
+    try:
+        res = subprocess.run([sys.executable, "-c", "import discord"], capture_output=True, timeout=3)
+        if res.returncode == 0:
+            return sys.executable
+    except Exception:
+        pass
+
+    candidates = []
+    if sys.platform == "win32":
+        candidates = [
+            r"C:\Users\a2b\AppData\Local\Programs\Python\Python312\python.exe",
+            "python3",
+            "python"
+        ]
+    else:
+        candidates = ["python3", "python"]
+
+    for cand in candidates:
+        try:
+            res = subprocess.run([cand, "-c", "import discord"], capture_output=True, timeout=3)
+            if res.returncode == 0:
+                return cand
+        except Exception:
+            pass
+
+    return sys.executable
+
+
 def check_configuration():
     print("[*] Validating CBM AutoMod runtime environment...")
     token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
@@ -47,8 +80,30 @@ def check_configuration():
     errors = []
     if not token:
         errors.append("DISCORD_BOT_TOKEN is not set.")
+
+    # Derive application ID from bot token if missing
+    if not app_id and token:
+        try:
+            part = token.split(".")[0]
+            part += "=" * ((4 - len(part) % 4) % 4)
+            app_id = base64.b64decode(part).decode("utf-8")
+            os.environ["DISCORD_APPLICATION_ID"] = app_id
+        except Exception:
+            pass
+
     if not app_id:
-        errors.append("DISCORD_APPLICATION_ID is not set.")
+        print("[!] Warning: DISCORD_APPLICATION_ID is not configured (will be populated on Gateway connect).")
+
+    py_bin = get_bot_python_executable()
+    try:
+        res = subprocess.run([py_bin, "-c", "import discord; print(discord.__version__)"], capture_output=True, text=True, timeout=3)
+        if res.returncode == 0:
+            print(f"[+] Discord.py Engine: v{res.stdout.strip()} ({py_bin})")
+        else:
+            errors.append(f"discord.py is not installed in the target interpreter ({py_bin}).")
+    except Exception as e:
+        errors.append(f"Failed verifying discord.py runtime: {e}")
+
     if not nim_key:
         print("[!] Warning: NVIDIA_API_KEY is not set. Bot operates on Layer 1 heuristic fallback.")
 
@@ -67,7 +122,8 @@ def check_configuration():
             print(f"[x] Error: {err}")
         return False
 
-    print(f"[OK] Application ID: {app_id}")
+    if app_id:
+        print(f"[OK] Application ID: {app_id}")
     print(f"[OK] Token configured (length: {len(token)})")
     return True
 
@@ -107,6 +163,8 @@ def run_bot(direct: bool = False):
 
     print("[+] Launching CBM AutoMod Daemon (Stealth Moderation Supervisor)...")
 
+    py_bin = get_bot_python_executable()
+
     while True:
         # Check if we are currently in 25-hour quarantine
         rem_sec = get_quarantine_remaining_seconds()
@@ -118,7 +176,8 @@ def run_bot(direct: bool = False):
                 print(f"    Activating egress proxy routing during quarantine to keep Discord AutoMod operational...")
                 proc_env = os.environ.copy()
                 proc_env["DISCORD_PROXY_URL"] = quarantine_proxy
-                cmd = [sys.executable, "-O", bot_script]
+                proc_env["PYTHONUNBUFFERED"] = "1"
+                cmd = [py_bin, "-O", bot_script]
                 current_proc = subprocess.Popen(cmd, env=proc_env)
                 exit_code = current_proc.wait()
                 if exit_code == 0:
@@ -148,8 +207,10 @@ def run_bot(direct: bool = False):
             print("[+] 25-Hour Quarantine period expired. Attempting clean reconnection...")
 
         # Spawn bot process directly on shared server IP
-        cmd = [sys.executable, "-O", bot_script]
-        current_proc = subprocess.Popen(cmd)
+        proc_env = os.environ.copy()
+        proc_env["PYTHONUNBUFFERED"] = "1"
+        cmd = [py_bin, "-O", bot_script]
+        current_proc = subprocess.Popen(cmd, env=proc_env)
         exit_code = current_proc.wait()
 
         if exit_code == 0:

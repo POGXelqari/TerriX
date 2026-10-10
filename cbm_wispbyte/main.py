@@ -18,6 +18,7 @@ import sys
 import io
 import time
 import signal
+import subprocess
 import threading
 import json
 import gzip
@@ -7019,6 +7020,159 @@ def run_http_server():
     print(f"    - Subdomain:  http://{WISPBYTE_SUBDOMAIN}/")
     server.serve_forever()
 
+
+_AUTOMOD_PROCESS = None
+
+
+def _is_pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            h_proc = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not h_proc:
+                return False
+            exit_code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(h_proc, ctypes.byref(exit_code))
+            kernel32.CloseHandle(h_proc)
+            return exit_code.value == STILL_ACTIVE
+        except Exception:
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+
+def _terminate_pid_tree(pid: int):
+    if pid <= 0:
+        return
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=5)
+        except Exception:
+            pass
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+
+
+def _resolve_automod_python_bin() -> str:
+    try:
+        res = subprocess.run([sys.executable, "-c", "import discord"], capture_output=True, timeout=3)
+        if res.returncode == 0:
+            return sys.executable
+    except Exception:
+        pass
+
+    candidates = []
+    if sys.platform == "win32":
+        candidates = [
+            r"C:\Users\a2b\AppData\Local\Programs\Python\Python312\python.exe",
+            "python3",
+            "python"
+        ]
+    else:
+        candidates = ["python3", "python"]
+
+    for cand in candidates:
+        try:
+            res = subprocess.run([cand, "-c", "import discord"], capture_output=True, timeout=3)
+            if res.returncode == 0:
+                return cand
+        except Exception:
+            pass
+    return sys.executable
+
+
+def start_automod_daemon() -> bool:
+    """Initializes the AutoMod Discord Bot as a background daemon if DISCORD_BOT_TOKEN is configured."""
+    global _AUTOMOD_PROCESS
+    token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+    if not token:
+        return False
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    pid_file = os.path.join(base_dir, "automod.pid")
+    run_script = os.path.join(base_dir, "run_automod.py")
+
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, "r", encoding="utf-8") as f:
+                existing_pid = int(f.read().strip())
+            if _is_pid_alive(existing_pid):
+                print(f"[+] Active AutoMod Discord Bot detected (PID {existing_pid}). Retaining instance.")
+                return True
+        except Exception:
+            pass
+
+    if not os.path.exists(run_script):
+        return False
+
+    py_bin = _resolve_automod_python_bin()
+    try:
+        log_path = os.path.join(base_dir, "automod.log")
+        log_out = open(log_path, "a", encoding="utf-8")
+        proc_env = os.environ.copy()
+        proc_env["PYTHONUNBUFFERED"] = "1"
+        proc = subprocess.Popen(
+            [py_bin, "-O", run_script],
+            cwd=base_dir,
+            stdout=log_out,
+            stderr=subprocess.STDOUT,
+            env=proc_env
+        )
+        _AUTOMOD_PROCESS = proc
+        try:
+            with open(pid_file, "w", encoding="utf-8") as f:
+                f.write(str(proc.pid))
+        except Exception:
+            pass
+        print(f"[+] AutoMod Discord Bot daemon initialized (PID {proc.pid}).")
+        return True
+    except Exception as e:
+        print(f"[!] Warning initializing AutoMod Discord Bot daemon: {e}")
+        return False
+
+
+def stop_automod_daemon():
+    """Cleanly terminates the AutoMod Discord Bot process tree."""
+    global _AUTOMOD_PROCESS
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    pid_file = os.path.join(base_dir, "automod.pid")
+
+    if _AUTOMOD_PROCESS and _AUTOMOD_PROCESS.poll() is None:
+        try:
+            _AUTOMOD_PROCESS.terminate()
+            try:
+                _AUTOMOD_PROCESS.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                _AUTOMOD_PROCESS.kill()
+        except Exception:
+            pass
+        _AUTOMOD_PROCESS = None
+
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, "r", encoding="utf-8") as f:
+                bot_pid = int(f.read().strip())
+            _terminate_pid_tree(bot_pid)
+        except Exception:
+            pass
+        try:
+            os.remove(pid_file)
+        except Exception:
+            pass
+
+
 def main():
     # Tune thread stack size to 256 KB to stay well within 512 MB memory boundary
     try:
@@ -7061,7 +7215,10 @@ def main():
     # 4. Start Active Synthetic Telemetry Prober
     status_engine.start_active_prober(interval_seconds=30.0)
 
-    # 5. Setup graceful signal handling
+    # 5. Start AutoMod Discord Bot Daemon (if token configured and not already running)
+    start_automod_daemon()
+
+    # 6. Setup graceful signal handling
     def handle_signal(sig, frame):
         print("\n[!] Received shutdown signal. Stopping CBM server, daemon, and tunnel...")
         status_engine.stop_active_prober()
@@ -7073,17 +7230,7 @@ def main():
         deposit_daemon.stop()
         if tunnel_mgr:
             tunnel_mgr.stop()
-        # Clean up background AutoMod Discord Bot daemon if running
-        try:
-            pid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automod.pid")
-            if os.path.exists(pid_file):
-                with open(pid_file, "r") as f:
-                    bot_pid = int(f.read().strip())
-                os.kill(bot_pid, signal.SIGTERM)
-                if os.path.exists(pid_file):
-                    os.remove(pid_file)
-        except Exception:
-            pass
+        stop_automod_daemon()
         sys.exit(0)
 
 

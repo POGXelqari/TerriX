@@ -19,10 +19,18 @@ import datetime
 from typing import Optional, List
 
 try:
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    pass
+
+try:
     import discord
     from discord import app_commands
     from discord.ext import commands
+    _DISCORD_AVAILABLE = True
 except ImportError:
+    _DISCORD_AVAILABLE = False
     class _DummyIntents:
         @classmethod
         def default(cls): return cls()
@@ -63,6 +71,7 @@ except ImportError:
         @staticmethod
         def default_permissions(*args, **kwargs): return lambda fn: fn
     discord = _DummyDiscord
+    discord._is_dummy = True
     commands = _DummyCommands
     app_commands = _DummyAppCommands
 from dotenv import load_dotenv
@@ -195,16 +204,25 @@ def clear_discord_quarantine():
             pass
 
 
+_HAS_SYNCED_COMMANDS = False
+
+
 @bot.event
 async def on_ready():
+    global _HAS_SYNCED_COMMANDS
     clear_discord_quarantine()
-    print(f"[+] Authenticated as {bot.user.name} ({bot.user.id})")
-    print(f"[+] Display Name: {bot.user.display_name}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"[+] Synchronized {len(synced)} application command(s) globally.")
-    except Exception as e:
-        print(f"[!] Warning syncing commands: {e}")
+    user_name = getattr(bot.user, "name", "CBM AutoMod")
+    user_id = getattr(bot.user, "id", "Unknown")
+    disp_name = getattr(bot.user, "display_name", user_name)
+    print(f"[+] Authenticated as {user_name} ({user_id})", flush=True)
+    print(f"[+] Display Name: {disp_name}", flush=True)
+    if not _HAS_SYNCED_COMMANDS:
+        try:
+            synced = await bot.tree.sync()
+            _HAS_SYNCED_COMMANDS = True
+            print(f"[+] Synchronized {len(synced)} application command(s) globally.", flush=True)
+        except Exception as e:
+            print(f"[!] Warning syncing commands: {e}", flush=True)
 
 
 @bot.tree.command(name="setup", description="Configure CBM AutoMod stealth log channel and ignore list.")
@@ -380,8 +398,12 @@ async def on_message(message: discord.Message):
 
 
 def main():
+    if getattr(discord, "_is_dummy", False):
+        print("[!] Fatal: discord.py package is not installed in the active Python environment.", file=sys.stderr, flush=True)
+        sys.exit(1)
+
     if not DISCORD_BOT_TOKEN:
-        print("[!] DISCORD_BOT_TOKEN is not configured.")
+        print("[!] DISCORD_BOT_TOKEN is not configured.", flush=True)
         sys.exit(1)
 
     try:
@@ -397,10 +419,10 @@ def main():
             # Exit code 42 signals to the supervisor that a 25-hour quarantine was initiated
             sys.exit(42)
         else:
-            print(f"[!] Discord HTTP Exception ({http_err.status}): {http_err}")
+            print(f"[!] Discord HTTP Exception ({http_err.status}): {http_err}", flush=True)
             sys.exit(1)
     except Exception as e:
-        print(f"[!] Fatal AutoMod runtime error: {e}")
+        print(f"[!] Fatal AutoMod runtime error: {e}", flush=True)
         sys.exit(1)
 
 

@@ -6,6 +6,7 @@
   <title>Sign In – Clan Bank Manager (CBM)</title>
   <link rel="icon" type="image/png" href="/cbm-logo.png">
   <meta name="theme-color" content="#080d16">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     :root {
       --bg: #080d16;
@@ -364,6 +365,11 @@
           </div>
         </div>
 
+        <!-- Cloudflare Turnstile Bot Protection Widget -->
+        <div class="turnstile-wrap" style="display: flex; justify-content: center; margin: 16px 0;">
+          <div id="turnstileWidget" class="cf-turnstile" data-sitekey="0x4AAAAAAFTHDMRiQrSwWPa0" data-action="login" data-theme="dark"></div>
+        </div>
+
         <button type="submit" id="submitBtn" class="btn-submit">
           <span id="btnText">Sign In</span>
           <span id="btnSpinner" class="spinner" style="display:none;"></span>
@@ -431,6 +437,13 @@
         payload.pin = pin;
       }
 
+      const turnstileToken = (window.turnstile ? window.turnstile.getResponse() : '') || (document.querySelector('[name="cf-turnstile-response"]')?.value || '');
+      if (!turnstileToken) {
+        showAlert('Please complete the Cloudflare security verification challenge before signing in.');
+        return;
+      }
+      payload["cf-turnstile-response"] = turnstileToken;
+
       const btn = document.getElementById('submitBtn');
       const txt = document.getElementById('btnText');
       const spn = document.getElementById('btnSpinner');
@@ -470,6 +483,9 @@
 
       } catch (err) {
         showAlert(err.message || 'Network error occurred. Please try again.');
+        if (window.turnstile) {
+          try { window.turnstile.reset(); } catch (_) {}
+        }
       } finally {
         btn.disabled = false;
         txt.textContent = 'Sign In';

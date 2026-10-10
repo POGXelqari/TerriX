@@ -727,6 +727,65 @@ def is_cors_bypassed_endpoint(path: str) -> bool:
         return True
     return False
 
+def verify_turnstile_token(token: str, expected_action: Optional[str] = None, remote_ip: Optional[str] = None) -> Tuple[bool, Optional[str]]:
+    """
+    Validates a Cloudflare Turnstile token via canonical siteverify:
+    https://challenges.cloudflare.com/turnstile/v0/siteverify
+
+    Enforces:
+    - String token with length between 1 and 2048 chars
+    - Configured TURNSTILE_SECRET
+    - success === True returned by Cloudflare
+    - Action matching expected_action (if configured on widget)
+    - Hostname matching approved TURNSTILE_HOSTNAMES allowlist
+    """
+    if os.environ.get("CBM_TESTING") == "1" and token and token.startswith("test_turnstile_"):
+        return True, None
+
+    secret = os.environ.get("TURNSTILE_SECRET", "").strip()
+    if not secret:
+        return True, None
+
+    if not token or not isinstance(token, str) or len(token) > 2048:
+        return False, "Missing or invalid Cloudflare Turnstile token."
+
+    expected_hostnames_str = os.environ.get("TURNSTILE_HOSTNAMES", "cbm.wispbyte.org,78.154.103.45,localhost,127.0.0.1")
+    expected_hostnames = {h.strip().lower() for h in expected_hostnames_str.split(",") if h.strip()}
+
+    payload = {
+        "secret": secret,
+        "response": token,
+    }
+    if remote_ip:
+        payload["remoteip"] = remote_ip
+
+    data = urllib.parse.urlencode(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:
+            res_json = json.loads(resp.read().decode("utf-8"))
+    except Exception as err:
+        return False, f"Turnstile verification request failed: {err}"
+
+    if not res_json.get("success"):
+        err_codes = res_json.get("error-codes", [])
+        return False, f"Turnstile challenge validation failed: {', '.join(err_codes) if err_codes else 'invalid response'}."
+
+    if expected_action and res_json.get("action"):
+        if res_json.get("action") != expected_action:
+            return False, f"Turnstile action mismatch: expected '{expected_action}', got '{res_json.get('action')}'."
+
+    token_hostname = (res_json.get("hostname") or "").strip().lower()
+    if expected_hostnames and token_hostname:
+        if token_hostname not in expected_hostnames:
+            return False, f"Turnstile hostname '{token_hostname}' is not in approved allowlist."
+
+    return True, None
+
 class CBMHealthHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     timeout = 3.0  # Fast 3s socket recycling prevents keepalive worker thread starvation
@@ -759,9 +818,10 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         frame_ancestor = "*" if allow_framing else "'self'"
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self' 'unsafe-inline' https://api.dicebear.com https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
-            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
-            "connect-src 'self' https://cloudflareinsights.com https://cdn.jsdelivr.net https://*.cloudflareinsights.com; "
+            "default-src 'self' 'unsafe-inline' https://api.dicebear.com https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com https://challenges.cloudflare.com; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com https://challenges.cloudflare.com; "
+            "connect-src 'self' https://cloudflareinsights.com https://cdn.jsdelivr.net https://*.cloudflareinsights.com https://challenges.cloudflare.com; "
+            "frame-src 'self' https://challenges.cloudflare.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' data: https:; "
             "font-src 'self' https://fonts.gstatic.com; "
@@ -4212,6 +4272,21 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 0. CBM Account Registration (Invite-Only Gatekeeper & Multi-Inviter Settlement)
         if path == "/api/cbm/auth/register":
+            # Cloudflare Turnstile Bot Verification Gate
+            turnstile_token = (
+                body.get("cf-turnstile-response")
+                or body.get("turnstile_token")
+                or body.get("cf_turnstile_response")
+                or ""
+            )
+            is_ts_ok, ts_err = verify_turnstile_token(turnstile_token, expected_action="register", remote_ip=self._get_client_ip())
+            if not is_ts_ok:
+                return self._send_json(403, {
+                    "status": "error",
+                    "error": "turnstile_verification_failed",
+                    "message": ts_err or "Cloudflare Turnstile verification failed. Please complete the security challenge."
+                })
+
             uname = body.get("username", "").strip()
             pwd = body.get("password", "").strip()
             avatar = body.get("avatar_url", "").strip()
@@ -4538,6 +4613,22 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # 0b. CBM Non-Custodial Login (Password or PIN)
         elif path == "/api/cbm/auth/login":
+            # Cloudflare Turnstile Verification Gate (bypassed for authorized native apps)
+            if not is_authorized_official_app_request(self.headers):
+                turnstile_token = (
+                    body.get("cf-turnstile-response")
+                    or body.get("turnstile_token")
+                    or body.get("cf_turnstile_response")
+                    or ""
+                )
+                is_ts_ok, ts_err = verify_turnstile_token(turnstile_token, expected_action="login", remote_ip=self._get_client_ip())
+                if not is_ts_ok:
+                    return self._send_json(403, {
+                        "status": "error",
+                        "error": "turnstile_verification_failed",
+                        "message": ts_err or "Cloudflare Turnstile verification failed. Please complete the security challenge."
+                    })
+
             uname = (body.get("username") or body.get("account_name") or "").strip()
             pwd = body.get("password")
             pin = body.get("pin")

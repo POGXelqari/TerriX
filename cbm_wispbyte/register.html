@@ -6,6 +6,7 @@
   <title>Create CBM Account – Clan Bank Manager</title>
   <link rel="icon" type="image/png" href="/cbm-logo.png">
   <meta name="theme-color" content="#080d16">
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
     :root {
       --bg: #080d16;
@@ -423,6 +424,11 @@
           <p class="form-hint" id="inviteCodeHint">A valid sponsor code covers your 25 Gold registration settlement fee.</p>
         </div>
 
+        <!-- Cloudflare Turnstile Bot Protection Widget -->
+        <div class="turnstile-wrap" style="display: flex; justify-content: center; margin: 16px 0;">
+          <div id="turnstileWidget" class="cf-turnstile" data-sitekey="0x4AAAAAAFTHDMRiQrSwWPa0" data-action="register" data-theme="dark"></div>
+        </div>
+
         <button type="submit" id="submitBtn" class="btn-submit">
           <span id="btnText">Complete Registration</span>
           <span id="btnSpinner" class="spinner" style="display:none;"></span>
@@ -581,6 +587,12 @@
       const prospectToken = localStorage.getItem('cbm_prospect_token') || '';
       const inviteCode = (new URLSearchParams(window.location.search).get('invite') || new URLSearchParams(window.location.search).get('code') || localStorage.getItem('cbm_last_invite_code') || '').trim();
 
+      const turnstileToken = (window.turnstile ? window.turnstile.getResponse() : '') || (document.querySelector('[name="cf-turnstile-response"]')?.value || '');
+      if (!turnstileToken) {
+        showAlert('Please complete the Cloudflare security verification challenge before registering.');
+        return;
+      }
+
       const payload = {
         username: username,
         password: password,
@@ -589,7 +601,8 @@
         pin: pin,
         referral_code: refCode || undefined,
         prospect_token: prospectToken || undefined,
-        invite_code: inviteCode || undefined
+        invite_code: inviteCode || undefined,
+        "cf-turnstile-response": turnstileToken
       };
 
       const btn = document.getElementById('submitBtn');
@@ -632,6 +645,9 @@
 
       } catch (err) {
         showAlert(err.message || 'Network error occurred. Please try again.');
+        if (window.turnstile) {
+          try { window.turnstile.reset(); } catch (_) {}
+        }
       } finally {
         btn.disabled = false;
         txt.textContent = 'Complete Registration';

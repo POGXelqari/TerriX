@@ -35,8 +35,9 @@ OFFICIAL_TOKEN = "cbm_live_2063e984d4e66cbd90cc1fcc33e54a1199d5a978"
 class TestTerriXOfficialClientKey(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Ensure B8bbq owner account exists
+        # Ensure B8bbq owner account exists with sufficient credits
         db.register_or_get_account("B8bbq", display_name="B8bbq Clan Founder")
+        db.credit_deposit("B8bbq", 10000, "tx_seed_b8bbq_official")
         cls.server = HTTPServer(("127.0.0.1", 0), CBMHealthHandler)
         cls.port = cls.server.server_port
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)

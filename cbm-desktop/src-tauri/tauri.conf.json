@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/schema.json",
+  "productName": "ClanBankManager",
+  "version": "1.0.0",
+  "identifier": "org.wispbyte.cbm.desktop",
+  "build": {
+    "frontendDist": "https://cbm.wispbyte.org/cbm.html"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "Clan Bank Manager",
+        "width": 1280,
+        "height": 840,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "theme": "Dark",
+        "backgroundColor": "#080d16"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' https://cbm.wispbyte.org 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: https:;"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  }
+}

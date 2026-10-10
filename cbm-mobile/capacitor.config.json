@@ -1,0 +1,28 @@
+{
+  "appId": "org.wispbyte.cbm",
+  "appName": "Clan Bank Manager",
+  "webDir": "www",
+  "server": {
+    "url": "https://cbm.wispbyte.org/cbm.html",
+    "cleartext": false,
+    "androidScheme": "https",
+    "allowNavigation": ["cbm.wispbyte.org", "*.wispbyte.org"]
+  },
+  "android": {
+    "buildOptions": {
+      "keystorePath": "release-key.jks",
+      "keystoreAlias": "cbm"
+    },
+    "backgroundColor": "#080d16",
+    "allowMixedContent": false,
+    "captureInput": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#080d16",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP"
+    }
+  }
+}

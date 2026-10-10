@@ -6,7 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Clan Bank Manager (CBM) — Territorial.io</title>
   <link rel="icon" type="image/png" href="/cbm-logo.png">
-  <meta name="theme-color" content="#000000">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#080d16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CBM">
+  <link rel="apple-touch-icon" href="/cbm-logo-new.png">
   <style>
     :root {
       /* PayPal Dark Mode Design Tokens */
@@ -1385,7 +1390,10 @@
         </div>
 
         <!-- Session / Auth Controls Slot -->
-        <div id="authActionsSlot">
+        <div id="authActionsSlot" style="display: flex; align-items: center; gap: 8px;">
+          <button id="pwaInstallBtn" type="button" style="display: none; align-items: center; gap: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; color: #fff; background: rgba(0, 112, 224, 0.2); border: 1px solid rgba(0, 112, 224, 0.4); border-radius: var(--radius-pill); cursor: pointer; transition: background 0.15s ease;" onmouseover="this.style.background='rgba(0,112,224,0.35)'" onmouseout="this.style.background='rgba(0,112,224,0.2)'">
+            <span>📲</span> Install App
+          </button>
           <div class="session-hud-chip" id="headerSessionChip" onclick="switchTab('account')">
             <img id="headerUserAvatar" class="session-avatar"
               src="https://api.dicebear.com/7.x/identicon/svg?seed=cbm-guest" alt="User">
@@ -5133,6 +5141,8 @@
     });
   </script>
 
+  <!-- CBM Progressive Web App (PWA) Client Controller -->
+  <script src="/pwa-installer.js" defer></script>
 </body>
 
 </html>

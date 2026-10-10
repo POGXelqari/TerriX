@@ -2,6 +2,7 @@ import unittest
 import urllib.request
 import urllib.error
 import json
+import time
 import threading
 import socket
 from http.server import HTTPServer
@@ -271,7 +272,7 @@ class TestLiveCORSServer(unittest.TestCase):
             role="leader",
         )
         db.activate_cbm_plus(acc, months=1)
-        db.credit_deposit(acc, 10000, "tx_test_cors_setup_123")
+        db.credit_deposit(acc, 10000, f"tx_test_cors_setup_{time.time()}")
         ok, secret_token, key_meta = db.create_api_key(
             owner_account=acc,
             app_name="CORS Test Key",

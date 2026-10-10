@@ -1,0 +1,12 @@
+{
+  "name": "cbm-desktop",
+  "version": "1.0.0",
+  "description": "Clan Bank Manager Desktop Client",
+  "scripts": {
+    "tauri": "tauri",
+    "build:exe": "python build_windows_exe.py"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

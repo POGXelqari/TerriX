@@ -1,0 +1,16 @@
+{
+  "name": "cbm-mobile",
+  "version": "1.0.0",
+  "description": "Clan Bank Manager Mobile Client (Android Native APK)",
+  "scripts": {
+    "sync": "cap sync android",
+    "open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/android": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  }
+}

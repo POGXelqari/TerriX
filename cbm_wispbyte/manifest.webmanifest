@@ -1,0 +1,51 @@
+{
+  "name": "Clan Bank Manager",
+  "short_name": "CBM",
+  "id": "/cbm.html",
+  "start_url": "/cbm.html",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#080d16",
+  "theme_color": "#080d16",
+  "description": "Clan Bank Manager treasury portal, vault telemetry, and non-custodial gaming ledger.",
+  "icons": [
+    {
+      "src": "/cbm-logo-new.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/cbm-logo-new.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/cbm-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Vault Telemetry",
+      "url": "/vault.html",
+      "icons": [{"src": "/cbm-logo-new.png", "sizes": "96x96"}]
+    },
+    {
+      "name": "War Chest",
+      "url": "/donations.html",
+      "icons": [{"src": "/cbm-logo-new.png", "sizes": "96x96"}]
+    },
+    {
+      "name": "Admin Election",
+      "url": "/election.html",
+      "icons": [{"src": "/cbm-logo-new.png", "sizes": "96x96"}]
+    }
+  ],
+  "categories": ["finance", "games", "utilities"]
+}

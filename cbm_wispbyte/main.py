@@ -280,6 +280,9 @@ def load_static_cache():
         ("painsel-pointing-left.png", "image/png"),
         ("trimcraft.html", "text/html; charset=utf-8"),
         ("vidtrim.html", "text/html; charset=utf-8"),
+        ("sw.js", "application/javascript; charset=utf-8"),
+        ("pwa-installer.js", "application/javascript; charset=utf-8"),
+        ("manifest.webmanifest", "application/manifest+json; charset=utf-8"),
     ]
     for fname, ctype in assets:
         fpath = os.path.join(base_dir, fname)
@@ -552,8 +555,44 @@ AUTHORIZED_FIRST_PARTY_ORIGINS = {
     "http://localhost:10093",
     "http://127.0.0.1:10093",
     "http://localhost:3000",
-    "http://localhost:8080"
+    "http://localhost:8080",
+    # Official Native App Origins (Tauri Windows Desktop & Capacitor Android)
+    "tauri://localhost",
+    "https://tauri.localhost",
+    "http://tauri.localhost",
+    "capacitor://localhost",
+    "https://localhost",
+    "http://localhost",
+    "ionic://localhost",
+    "android-app://org.wispbyte.cbm",
 }
+
+AUTHORIZED_OFFICIAL_APP_IDENTIFIERS = {
+    "org.wispbyte.cbm",
+    "org.wispbyte.cbm.desktop",
+    "org.wispbyte.cbm.android"
+}
+
+def is_authorized_official_app_request(headers) -> bool:
+    """
+    Evaluates whether an incoming HTTP request originates from an Official CBM Native App
+    (Tauri Windows Desktop, Capacitor Android, or Native Edge WebView2).
+    """
+    if not headers:
+        return False
+
+    app_id = (headers.get("X-CBM-App-Origin") or headers.get("X-CBM-App-Identifier") or "").strip().lower()
+    if app_id in AUTHORIZED_OFFICIAL_APP_IDENTIFIERS:
+        return True
+
+    # Check User-Agent signatures for official clients
+    ua = (headers.get("User-Agent") or "").strip()
+    if any(sig in ua for sig in ("ClanBankManager/", "CBM-Native/", "Capacitor/")):
+        sec_fetch_site = (headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if sec_fetch_site != "cross-site":
+            return True
+
+    return False
 
 def is_authorized_first_party_origin(origin: str) -> bool:
     if not origin:
@@ -563,6 +602,11 @@ def is_authorized_first_party_origin(origin: str) -> bool:
         return True
     try:
         parsed = urllib.parse.urlparse(clean)
+        scheme = parsed.scheme.lower()
+        if scheme in ("tauri", "capacitor", "ionic", "android-app"):
+            return True
+        if parsed.netloc.lower() in ("tauri.localhost", "capacitor.localhost"):
+            return True
         host = parsed.hostname or ""
         if host in ("localhost", "127.0.0.1", "78.154.103.45"):
             return True
@@ -658,6 +702,11 @@ def is_cors_bypassed_endpoint(path: str) -> bool:
         "/top-donors-icon.png",
         "/developer-platform-icon.png",
         "/painsel-pointing-left.png",
+        "/sw.js",
+        "/service-worker.js",
+        "/manifest.webmanifest",
+        "/manifest.json",
+        "/pwa-installer.js",
     ) or p.startswith("/assets/"):
         return True
     return False
@@ -845,13 +894,18 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
     def _enforce_domain_origin_policy(self) -> Tuple[bool, Optional[str]]:
         """
-        Enforces Domain Origin Policy on internal first-party endpoints (/api/cbm/*, /api/auth/*).
-        Rejects cross-origin requests from unauthorized origins with 403 Forbidden.
+        Enforces Domain & App Origin Policy on internal first-party endpoints (/api/cbm/*, /api/auth/*).
+        Allows verified first-party web domains and official native apps (Tauri Windows, Capacitor Android).
+        Rejects cross-origin requests from unauthorized third-party origins with 403 Forbidden.
         """
+        # 1. Official Native App Origin & Header Bypass (Tauri, Capacitor, Edge WebView2)
+        if is_authorized_official_app_request(self.headers):
+            return True, None
+
         origin = self.headers.get("Origin", "").strip()
         if origin:
             if not is_authorized_first_party_origin(origin):
-                return False, f"Cross-origin request from '{origin}' blocked by Domain Origin Policy."
+                return False, f"Cross-origin request from '{origin}' blocked by Domain & App Origin Policy."
             return True, None
 
         # Check Sec-Fetch-Site on state-changing requests
@@ -910,14 +964,15 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-API-Key, X-CBM-PIN, X-CBM-Session, X-CBM-Environment, X-Requested-With, Idempotency-Key")
                 self.send_header("Access-Control-Max-Age", "86400")
             else:
-                # Zone B: Internal First-Party Endpoints (meant solely for cbm.wispbyte.org)
-                if origin and origin != "null" and is_authorized_first_party_origin(origin):
+                # Zone B: Internal First-Party Endpoints (meant for cbm.wispbyte.org & Official Native Apps)
+                is_official = is_authorized_official_app_request(self.headers)
+                if origin and origin != "null" and (is_authorized_first_party_origin(origin) or is_official):
                     self.send_header("Access-Control-Allow-Origin", origin)
                     self.send_header("Access-Control-Allow-Credentials", "true")
                     self.send_header("Vary", "Origin")
 
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-                self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-Session, X-CBM-PIN, X-Requested-With, X-CBM-Environment")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-Session, X-CBM-PIN, X-Requested-With, X-CBM-Environment, X-CBM-App-Origin, X-CBM-App-Identifier, X-CBM-Native-Client")
 
             if headers:
                 for hk, hv in headers.items():
@@ -2162,7 +2217,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         # Internal endpoints (/api/cbm/*, /api/auth/*, etc.)
         origin = self.headers.get("Origin", "").strip()
-        if origin and not is_authorized_first_party_origin(origin):
+        is_official = is_authorized_official_app_request(self.headers)
+        if origin and not is_authorized_first_party_origin(origin) and not is_official:
             self.send_response(403)
             self.send_header("Content-Type", "application/json")
             self._apply_security_headers()
@@ -2175,12 +2231,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        if origin and is_authorized_first_party_origin(origin):
+        if origin and (is_authorized_first_party_origin(origin) or is_official):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Access-Control-Allow-Credentials", "true")
             self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-Session, X-CBM-PIN, X-Requested-With, X-CBM-Environment")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CBM-Session, X-CBM-PIN, X-Requested-With, X-CBM-Environment, X-CBM-App-Origin, X-CBM-App-Identifier, X-CBM-Native-Client")
         self.send_header("Access-Control-Max-Age", "86400")
         self._apply_security_headers()
         self.end_headers()
@@ -2399,6 +2455,62 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         elif path in ("/painsel-pointing-left.png", "/assets/painsel-pointing-left.png"):
             return self._send_cached_asset("painsel-pointing-left.png")
+
+        # 2d. Progressive Web App (PWA) & Service Worker Subsystem
+        elif path in ("/sw.js", "/service-worker.js"):
+            sw_path = os.path.join(base_dir, "sw.js")
+            if os.path.exists(sw_path):
+                with open(sw_path, "rb") as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Service-Worker-Allowed", "/")
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self._apply_security_headers()
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            return self._send_json(404, {"error": "sw_not_found"})
+
+        elif path in ("/manifest.webmanifest", "/manifest.json"):
+            m_path = os.path.join(base_dir, "manifest.webmanifest")
+            if os.path.exists(m_path):
+                with open(m_path, "rb") as f:
+                    content = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/manifest+json; charset=utf-8")
+                self.send_header("Cache-Control", "public, max-age=3600")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self._apply_security_headers()
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            return self._send_json(404, {"error": "manifest_not_found"})
+
+        elif path == "/pwa-installer.js":
+            return self._send_cached_asset("pwa-installer.js")
+
+        elif path == "/.well-known/assetlinks.json":
+            assetlinks = [{
+                "relation": ["delegate_permission/common.handle_all_urls"],
+                "target": {
+                    "namespace": "android_app",
+                    "package_name": "org.wispbyte.cbm",
+                    "sha256_cert_fingerprints": [
+                        os.environ.get("ANDROID_RELEASE_SHA256", "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00")
+                    ]
+                }
+            }]
+            body = json.dumps(assetlinks).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self._apply_security_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         # 3. Health check probe
         elif path == "/health":

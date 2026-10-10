@@ -51,3 +51,8 @@ scratch/
 # Large single-session HTML dumps
 conversation_viewer_*.html
 
+# Legacy prototype client outputs
+client/TerriX_App/
+client/TerriX_Setup/
+
+

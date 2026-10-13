@@ -241,10 +241,11 @@ class CBMDepositDaemon:
                 # Periodically record telemetry snapshot for 7-day vault graphs (every 5 cycles ~ 2.5 min or on deposit)
                 if (count > 0 or self._poll_count % 5 == 0) and hasattr(self.db, "record_vault_snapshot"):
                     try:
-                        t = self.db.get_treasury()
-                        m = self.db._calculate_treasury_metrics(t.get("vault_total_gold_cents", 0))
+                        t = self.db.get_treasury() or {}
+                        vault_cents = t.get("vault_total_gold_cents", 0)
+                        m = self.db._calculate_treasury_metrics(vault_cents) if hasattr(self.db, "_calculate_treasury_metrics") else {}
                         self.db.record_vault_snapshot(
-                            vault_total_gold=t.get("vault_total_gold_cents", 0) / 100.0,
+                            vault_total_gold=vault_cents / 100.0,
                             unencumbered_reserves_gold=m.get("bank_reserves_gold", 0.0),
                             member_liabilities_gold=t.get("member_liabilities_cents", 0) / 100.0,
                             tx_count=count
@@ -263,13 +264,11 @@ class CBMDepositDaemon:
         """Prunes historical vault snapshots older than max_age_days to preserve disk space."""
         try:
             cutoff = time.time() - (max_age_days * 86400.0)
-            conn = self.db._get_sqlite_conn()
-            cur = conn.cursor()
-            cur.execute("DELETE FROM cbm_vault_snapshots WHERE timestamp_epoch < ?", (cutoff,))
-            pruned = cur.rowcount
-            if pruned > 0:
-                conn.commit()
-                print(f"[+] Pruned {pruned} historical telemetry snapshot(s) older than {max_age_days} days.")
+            with self.db.write_transaction() as (conn, cur):
+                cur.execute("DELETE FROM cbm_vault_snapshots WHERE timestamp_epoch < ?", (cutoff,))
+                pruned = cur.rowcount
+                if pruned > 0:
+                    print(f"[+] Pruned {pruned} historical telemetry snapshot(s) older than {max_age_days} days.")
         except Exception as e:
             print(f"[!] Snapshot pruning notice: {e}")
 

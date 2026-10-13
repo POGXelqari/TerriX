@@ -609,21 +609,27 @@ class CBMStatusEngine:
         today = datetime.datetime.now(datetime.timezone.utc).date()
         history = []
 
-        conn = self.db._get_sqlite_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT day_date, uptime_percent, status, incident_count 
-            FROM cbm_service_daily_uptime 
-            WHERE service_id = ?
-        """, (service_id,))
-        records = {
-            r[0]: {
-                "uptime": float(r[1]) if r[1] is not None else None,
-                "status": r[2],
-                "incidents": int(r[3])
+        try:
+            conn = self.db._get_sqlite_conn()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT day_date, uptime_percent, status, incident_count 
+                FROM cbm_service_daily_uptime 
+                WHERE service_id = ?
+            """, (service_id,))
+            records = {
+                r[0]: {
+                    "uptime": float(r[1]) if r[1] is not None else None,
+                    "status": r[2],
+                    "incidents": int(r[3])
+                }
+                for r in cur.fetchall()
             }
-            for r in cur.fetchall()
-        }
+        except sqlite3.OperationalError:
+            self._init_tables()
+            records = {}
+        except Exception:
+            records = {}
 
         live_state = self.get_service_live_status(service_id)
 
@@ -681,21 +687,28 @@ class CBMStatusEngine:
         active_banner = None
 
         # Fetch active incidents from database
-        conn = self.db._get_sqlite_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT incident_id, service_id, title, severity, status, message, created_at
-            FROM cbm_service_incidents
-            WHERE resolved_at IS NULL
-            ORDER BY created_at DESC
-        """)
-        active_incidents = [
-            {
-                "id": r[0], "service_id": r[1], "title": r[2],
-                "severity": r[3], "status": r[4], "message": r[5], "created_at": r[6]
-            }
-            for r in cur.fetchall()
-        ]
+        try:
+            conn = self.db._get_sqlite_conn()
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT incident_id, service_id, title, severity, status, message, created_at
+                FROM cbm_service_incidents
+                WHERE resolved_at IS NULL
+                ORDER BY created_at DESC
+            """)
+            active_incidents = [
+                {
+                    "id": r[0], "service_id": r[1], "title": r[2],
+                    "severity": r[3], "status": r[4], "message": r[5], "created_at": r[6]
+                }
+                for r in cur.fetchall()
+            ]
+        except sqlite3.OperationalError:
+            self._init_tables()
+            active_incidents = []
+        except Exception as inc_err:
+            print(f"[!] Warning fetching active incidents: {inc_err}")
+            active_incidents = []
 
         core_services = {"web_portal", "vault_daemon", "lending_engine", "credit_billing"}
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = "cbm-core-v2";
+const CACHE_NAME = "cbm-core-v3";
 const ASSETS = [
   "/cbm.html",
   "/vault.html",
@@ -18,10 +18,23 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (e) => {
+  self.skipWaiting();
   e.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((c) => c.addAll(ASSETS))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((c) => {
+      return Promise.all(
+        ASSETS.map((url) =>
+          fetch(url)
+            .then((res) => {
+              if (res.ok) {
+                return c.put(url, res);
+              }
+            })
+            .catch((err) => {
+              console.warn("[SW] Pre-cache notice for " + url, err);
+            })
+        )
+      );
+    })
   );
 });
 
@@ -44,14 +57,29 @@ self.addEventListener("fetch", (e) => {
   // Ignore Cloudflare challenge/analytics paths if ever routed through domain
   if (u.pathname.startsWith("/cdn-cgi/") || u.pathname.startsWith("/turnstile/")) return;
 
-  // Real-time API endpoints and dynamic auth portals: network-first with cache fallback
-  const isAuthOrApi = u.pathname.startsWith("/api/") ||
+  // Real-time API endpoints: ALWAYS fetch live from network, NEVER cache in ServiceWorker Cache.
+  // Prevents stale donation slips, stale balances, and stale auth states.
+  if (u.pathname.startsWith("/api/")) {
+    e.respondWith(
+      fetch(e.request).catch(() => {
+        return new Response(JSON.stringify({ status: "error", message: "Network unavailable. Please reconnect." }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" }
+        });
+      })
+    );
+    return;
+  }
+
+  // Dynamic interactive portals (donations, authentication): network-first with cache fallback
+  const isDynamicPortal =
+    u.pathname === "/donations.html" ||
     u.pathname === "/login.html" ||
     u.pathname === "/register.html" ||
     u.pathname === "/login" ||
     u.pathname === "/register";
 
-  if (isAuthOrApi) {
+  if (isDynamicPortal) {
     e.respondWith(
       fetch(e.request).then((res) => {
         if (res && res.status === 200 && res.type === "basic") {

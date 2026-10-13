@@ -31,14 +31,26 @@ _DB_WRITE_LOCK = threading.RLock()
 _PENDING_IMPRESSIONS: Dict[str, int] = {}
 _PENDING_IMPRESSIONS_LOCK = threading.Lock()
 
+def _row_to_dict(row, cur=None) -> Dict[str, Any]:
+    if not row:
+        return {}
+    if isinstance(row, sqlite3.Row) or hasattr(row, "keys"):
+        return dict(row)
+    if cur and hasattr(cur, "description") and cur.description:
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, row))
+    return {}
+
+
 def _configure_sqlite_pragmas(conn: sqlite3.Connection):
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous = NORMAL;")
     conn.execute("PRAGMA busy_timeout = 60000;")
     conn.execute("PRAGMA cache_size = -4000;")       # 4 MB memory cache max
     conn.execute("PRAGMA temp_store = MEMORY;")
-    conn.execute("PRAGMA wal_autocheckpoint = 100;") # Prevent WAL growth over 10 MB
-    conn.execute("PRAGMA mmap_size = 16777216;")     # 16 MB memory-mapped I/O
+    conn.execute("PRAGMA wal_autocheckpoint = 1000;") # Safe checkpoint threshold
+    conn.execute("PRAGMA mmap_size = 0;")            # Disable mmap to eliminate container page corruption
+    conn.execute("PRAGMA foreign_keys = ON;")
 
 
 def is_cbm_plus_active(account_dict: Optional[Dict[str, Any]]) -> bool:
@@ -150,6 +162,7 @@ class CBMDatabase:
             self._http_pool = None
 
         self._local = threading.local()
+        self._db_epoch = 1
         self._last_snapshot_at = 0.0
         self._missing_accounts_cache: Dict[str, float] = {}
         self._missing_accounts_lock = threading.Lock()
@@ -245,6 +258,8 @@ class CBMDatabase:
                     except Exception as sidecar_err:
                         print(f"[!] Could not remove {sidecar}: {sidecar_err}")
 
+            self._db_epoch = getattr(self, "_db_epoch", 1) + 1
+
     def _init_sqlite(self):
         """Initializes local SQLite schema with high-concurrency WAL mode, indexes, and corruption self-healing."""
         try:
@@ -287,11 +302,12 @@ class CBMDatabase:
         cur = conn.cursor()
         cur.execute("PRAGMA journal_mode = WAL;")
         cur.execute("PRAGMA synchronous = NORMAL;")
-        cur.execute("PRAGMA busy_timeout = 5000;")
+        cur.execute("PRAGMA busy_timeout = 60000;")
         cur.execute("PRAGMA cache_size = -4000;")
         cur.execute("PRAGMA temp_store = MEMORY;")
-        cur.execute("PRAGMA wal_autocheckpoint = 100;")
-        cur.execute("PRAGMA mmap_size = 16777216;")
+        cur.execute("PRAGMA wal_autocheckpoint = 1000;")
+        cur.execute("PRAGMA mmap_size = 0;")
+        cur.execute("PRAGMA foreign_keys = ON;")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_accounts (
                 account_name TEXT PRIMARY KEY,
@@ -937,6 +953,35 @@ class CBMDatabase:
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_pending_sub_acc ON cbm_pending_subscriptions(account_name, status);")
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_service_incidents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                incident_id TEXT UNIQUE NOT NULL,
+                service_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                severity TEXT NOT NULL DEFAULT 'minor',
+                status TEXT NOT NULL DEFAULT 'investigating',
+                message TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                resolved_at REAL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_service_daily_uptime (
+                service_id TEXT NOT NULL,
+                day_date TEXT NOT NULL,
+                uptime_percent REAL,
+                status TEXT NOT NULL DEFAULT 'operational',
+                incident_count INTEGER DEFAULT 0,
+                total_probes INTEGER DEFAULT 0,
+                successful_probes INTEGER DEFAULT 0,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY(service_id, day_date)
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_incidents_service ON cbm_service_incidents(service_id, created_at DESC);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_uptime_service_date ON cbm_service_daily_uptime(service_id, day_date);")
+
         # Seed initial high-traffic sponsorship slots
         initial_slots = [
             ("SLOT_HERO", "Clan Vault Header Banner", "Prime billboard directly above real-time clan liquidity telemetry.", 50000, 50000, 1),
@@ -1111,7 +1156,9 @@ class CBMDatabase:
         so SELECT statements never hold lingering lock states.
         """
         conn = getattr(self._local, "conn", None)
-        if conn is not None:
+        conn_epoch = getattr(self._local, "db_epoch", 0)
+        current_epoch = getattr(self, "_db_epoch", 1)
+        if conn is not None and conn_epoch == current_epoch:
             try:
                 conn.execute("SELECT 1;")
                 conn.row_factory = sqlite3.Row if row_factory else None
@@ -1123,11 +1170,19 @@ class CBMDatabase:
                 conn = None
             except Exception:
                 conn = None
+        elif conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            conn = None
+            self._local.conn = None
 
         try:
             conn = self.get_write_connection(timeout=60.0)
             conn.row_factory = sqlite3.Row if row_factory else None
             self._local.conn = conn
+            self._local.db_epoch = getattr(self, "_db_epoch", 1)
             return conn
         except sqlite3.DatabaseError as db_err:
             if any(k in str(db_err).lower() for k in ("malformed", "corrupt", "disk image")):
@@ -1136,6 +1191,7 @@ class CBMDatabase:
                 conn = self.get_write_connection(timeout=60.0)
                 conn.row_factory = sqlite3.Row if row_factory else None
                 self._local.conn = conn
+                self._local.db_epoch = getattr(self, "_db_epoch", 1)
                 return conn
             raise
 
@@ -1156,6 +1212,7 @@ class CBMDatabase:
         """
         with _DB_WRITE_LOCK:
             conn = self.get_write_connection(timeout=timeout)
+            conn.row_factory = sqlite3.Row
             cur = conn.cursor()
             for attempt in range(5):
                 try:
@@ -2907,7 +2964,21 @@ class CBMDatabase:
             }
             self._enqueue_sb_task("cbm_accounts", method="POST", body=payload, upsert=True)
 
-        return self.get_account(account_name)
+        acc = self.get_account(account_name)
+        if acc:
+            return acc
+        return {
+            "account_name": account_name,
+            "display_name": display_name or account_name,
+            "clan_tag": clan_tag,
+            "role": role,
+            "deposited_cents": 0,
+            "total_deposited_cents": 0,
+            "total_withdrawn_cents": 0,
+            "is_delinquent": 0,
+            "created_at": now,
+            "updated_at": now
+        }
 
     def update_account_profile(self, account_name: str, display_name: str, avatar_url: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
         """
@@ -3584,6 +3655,16 @@ class CBMDatabase:
         Surplus deposit is added to available balance.
         """
         acc = self.register_or_get_account(account_name)
+        if not acc:
+            acc = {
+                "account_name": account_name,
+                "display_name": account_name,
+                "clan_tag": "ANTI-OG",
+                "role": "member",
+                "deposited_cents": 0,
+                "total_deposited_cents": 0,
+                "total_withdrawn_cents": 0
+            }
 
         # Deduplication check: Never double-credit a transaction that has already been recorded in the ledger
         if tx_hash:
@@ -4727,7 +4808,7 @@ class CBMDatabase:
                 if not row:
                     return None
 
-                slip = dict(row)
+                slip = _row_to_dict(row, cur)
                 slip_id = slip["id"]
                 slip_amount = slip["amount_cents"]
                 variance_cents = amount_cents - slip_amount
@@ -4771,7 +4852,7 @@ class CBMDatabase:
         row = cur.fetchone()
         if not row:
             return None
-        slip = dict(row)
+        slip = _row_to_dict(row, cur)
         now = time.time()
         slip["remaining_seconds"] = max(0, int(slip.get("expires_at", 0) - now))
         return slip

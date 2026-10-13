@@ -52,7 +52,7 @@ class CloudflareTunnelManager:
         self.token = token or os.environ.get("CLOUDFLARE_TUNNEL_TOKEN", "").strip()
         raw_domain = domain or os.environ.get("WISPBYTE_SUBDOMAIN", "cbm.wispbyte.org")
         self.domain = raw_domain.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0].strip()
-        self.protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "quic").strip()
+        self.protocol = os.getenv("CLOUDFLARE_TUNNEL_PROTOCOL", "http2").strip()
         self.metrics_port = int(os.getenv("CLOUDFLARE_METRICS_PORT", 20241))
         self.fallback_metrics_port = int(os.getenv("CLOUDFLARE_FALLBACK_METRICS_PORT", 20242))
         self.log_path = os.path.join(BASE_DIR, "cloudflared.log")

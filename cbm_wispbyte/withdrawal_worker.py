@@ -100,18 +100,13 @@ class CBMWithdrawalWorker:
             return False, "Withdrawal execution unavailable: Vault credentials not configured on withdrawal worker."
 
         # Record withdrawal queue item in SQLite (fee_cents = 0 charged to user; 1 cent absorbed by bank)
-        conn_sq = self._get_db_conn(timeout=30.0)
-        try:
-            cur = conn_sq.cursor()
-            now_ts = time.time()
+        now_ts = time.time()
+        with self.db.write_transaction(timeout=30.0) as (conn_sq, cur):
             cur.execute("""
                 INSERT INTO cbm_withdrawals (account_name, target_account, amount_gold, fee_cents, status, created_at)
                 VALUES (?, ?, ?, 0, 'PENDING', ?)
             """, (account_name, target_account, amount_gold, now_ts))
             w_id = cur.lastrowid
-            conn_sq.commit()
-        finally:
-            conn_sq.close()
 
         if self.db.use_supabase:
             try:
@@ -147,24 +142,20 @@ class CBMWithdrawalWorker:
         if not self.client or not self.vault_password:
             return False, {"error": "Vault credentials not configured on withdrawal worker."}
 
-        conn_sq = self._get_db_conn(timeout=30.0)
-        conn_sq.row_factory = sqlite3.Row
-        try:
-            cur = conn_sq.cursor()
+        # 1. Atomic Balance Reservation: Decrement member balance inside write transaction
+        now_ts = time.time()
+        with self.db.write_transaction(timeout=30.0) as (conn_sq, cur):
             cur.execute("SELECT * FROM cbm_withdrawals WHERE id = ? AND status = 'PENDING'", (withdrawal_id,))
             row = cur.fetchone()
             if not row:
                 return False, {"error": "Withdrawal request not found or already processed."}
 
-            req = dict(row)
+            req = dict(row) if isinstance(row, sqlite3.Row) else dict(zip([d[0] for d in cur.description], row))
             account_name = req["account_name"]
             target_account = req["target_account"]
             amount_gold = req["amount_gold"]
             amount_cents = amount_gold * 100
 
-            # 1. Atomic Balance Reservation: Decrement member balance immediately in SQLite
-            # If available balance < amount_cents, rowcount is 0, rejecting race conditions and double-spends.
-            now_ts = time.time()
             cur.execute("""
                 UPDATE cbm_accounts
                 SET deposited_cents = deposited_cents - ?, updated_at = ?
@@ -172,17 +163,16 @@ class CBMWithdrawalWorker:
             """, (amount_cents, now_ts, account_name, amount_cents))
             if cur.rowcount == 0:
                 cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
-                conn_sq.commit()
                 return False, {"error": "Insufficient member balance or concurrent transaction in progress."}
 
-            conn_sq.commit()
+        # 2. Call Territorial.io API outside of DB lock
+        try:
+            api_res = self.client.send_gold(target_account, amount_gold)
+        except Exception as net_ex:
+            api_res = {"status": "error", "message": f"Network exception: {net_ex}"}
 
-            # 2. Call Territorial.io API
-            try:
-                api_res = self.client.send_gold(target_account, amount_gold)
-            except Exception as net_ex:
-                api_res = {"status": "error", "message": f"Network exception: {net_ex}"}
-
+        # 3. Finalize or Rollback inside write transaction
+        with self.db.write_transaction(timeout=30.0) as (conn_sq, cur):
             if api_res.get("status") != "ok":
                 err_msg = api_res.get("message") or api_res.get("status") or str(api_res)
                 # Payout rejected or failed: Rollback the atomic reservation!
@@ -193,7 +183,6 @@ class CBMWithdrawalWorker:
                     WHERE account_name = ?
                 """, (amount_cents, rollback_ts, account_name))
                 cur.execute("UPDATE cbm_withdrawals SET status = 'FAILED' WHERE id = ?", (withdrawal_id,))
-                conn_sq.commit()
                 if self.db.use_supabase:
                     try:
                         self.db._sb_request(
@@ -206,7 +195,6 @@ class CBMWithdrawalWorker:
                         print(f"[!] Supabase status update notice: {sb_err}")
                 return False, {"error": f"Territorial.io API rejected transfer: {err_msg}"}
 
-            # 3. Payout Succeeded: Finalize total_withdrawn_cents, ledger, and withdrawal status
             cur.execute("SELECT deposited_cents, total_withdrawn_cents FROM cbm_accounts WHERE account_name = ?", (account_name,))
             acc_row = cur.fetchone()
             new_balance = acc_row["deposited_cents"] if acc_row else 0
@@ -225,9 +213,6 @@ class CBMWithdrawalWorker:
             """, (account_name, -amount_cents, new_balance, tx_hash, f"Withdrawal of {amount_gold} Gold to {target_account} (Game fee covered by Clan Bank)", now_ts))
 
             cur.execute("UPDATE cbm_withdrawals SET status = 'EXECUTED', executed_at = ?, tx_id = ? WHERE id = ?", (now_ts, tx_hash, withdrawal_id))
-            conn_sq.commit()
-        finally:
-            conn_sq.close()
 
         # Supabase dual-write
         if self.db.use_supabase:
@@ -285,34 +270,26 @@ class CBMWithdrawalWorker:
             try:
                 st, sb_rows = self.db._sb_request("cbm_withdrawals", "GET", "?status=eq.PENDING&order=created_at.asc&limit=10")
                 if st == 200 and isinstance(sb_rows, list) and sb_rows:
-                    conn_sq = self._get_db_conn(timeout=30.0)
-                    cur = conn_sq.cursor()
-                    for r in sb_rows:
-                        acc = r.get("account_name")
-                        tgt = r.get("target_account") or acc
-                        amt = int(r.get("amount_gold") or 0)
-                        cur.execute("SELECT id FROM cbm_withdrawals WHERE account_name = ? AND amount_gold = ? AND status = 'PENDING'", (acc, amt))
-                        if not cur.fetchone():
-                            cur.execute("""
-                                INSERT INTO cbm_withdrawals (account_name, target_account, amount_gold, fee_cents, status, created_at)
-                                VALUES (?, ?, ?, 0, 'PENDING', ?)
-                            """, (acc, tgt, amt, time.time()))
-                    conn_sq.commit()
-                    conn_sq.close()
+                    with self.db.write_transaction(timeout=30.0) as (conn_sq, cur):
+                        for r in sb_rows:
+                            acc = r.get("account_name")
+                            tgt = r.get("target_account") or acc
+                            amt = int(r.get("amount_gold") or 0)
+                            cur.execute("SELECT id FROM cbm_withdrawals WHERE account_name = ? AND amount_gold = ? AND status = 'PENDING'", (acc, amt))
+                            if not cur.fetchone():
+                                cur.execute("""
+                                    INSERT INTO cbm_withdrawals (account_name, target_account, amount_gold, fee_cents, status, created_at)
+                                    VALUES (?, ?, ?, 0, 'PENDING', ?)
+                                """, (acc, tgt, amt, time.time()))
             except Exception as e:
                 print(f"[!] Error fetching remote pending withdrawals: {e}")
 
-        conn_sq = self._get_db_conn(timeout=30.0)
-        conn_sq.row_factory = sqlite3.Row
-        cur = conn_sq.cursor()
         now = time.time()
-        # Expire stale requests older than 12 hours (43200s)
-        cur.execute("UPDATE cbm_withdrawals SET status = 'EXPIRED' WHERE status = 'PENDING' AND (? - created_at) > 43200", (now,))
-        conn_sq.commit()
-
-        cur.execute("SELECT id, account_name, amount_gold, created_at FROM cbm_withdrawals WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT ?", (max_batch,))
-        pending = [dict(r) for r in cur.fetchall()]
-        conn_sq.close()
+        with self.db.write_transaction(timeout=30.0) as (conn_sq, cur):
+            # Expire stale requests older than 12 hours (43200s)
+            cur.execute("UPDATE cbm_withdrawals SET status = 'EXPIRED' WHERE status = 'PENDING' AND (? - created_at) > 43200", (now,))
+            cur.execute("SELECT id, account_name, amount_gold, created_at FROM cbm_withdrawals WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT ?", (max_batch,))
+            pending = [dict(r) if isinstance(r, sqlite3.Row) else dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()]
 
         processed_count = 0
         for req in pending:

@@ -1,9 +1,9 @@
 {
   "version": "0.6.29.1",
-  "lastUpdated": "2026-10-19T02:34:07.413Z",
+  "lastUpdated": "2026-10-19T11:40:25.215Z",
   "changes": [
     "Patches for the recent game updates (Merged PR #32 by QZxV4)"
   ],
   "isSignificant": false,
-  "upstream_hash": "798f0d22ea89069335fe3c85d4b2925c4fc067e25423e4d2bbe7aa2619851ffb"
+  "upstream_hash": "fd7d214837549b92bf3f6a5c2f5fb49154ca41742aaecd37c61893e06fe7c091"
 }

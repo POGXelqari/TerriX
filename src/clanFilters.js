@@ -12,8 +12,13 @@ export const leaderboardFilter = new (function() {
     this.hoveringOverTabs = false;
     this.scrollToTop = () => {};
     this.repaintLeaderboard = () => {};
-    this.setUpdateFlag = () => {};
-    this.parseClanFromPlayerName = () => { console.warn("parse function not set"); };
+    this.parseClanFromPlayerName = (username) => {
+        if (!username || typeof username !== "string") return null;
+        const uJ = username.indexOf("[");
+        if (uJ < 0) return null;
+        const uK = username.indexOf("]");
+        return (uK - uJ > 1 && uK - uJ <= 8) ? username.substring(uJ + 1, uK).toUpperCase().trim() : null;
+    };
 
     this.selectedTab = 0;
     this.tabHovering = -1;

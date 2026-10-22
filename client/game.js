@@ -7662,7 +7662,7 @@ function aJm() {
   this.aD1 = new aDO(), this.yu = new aBc(), this.vM = new aAa();
 }
 function sY() {
-  aIv.ta(), bn.setTransform(fu, 0, 0, fu, 0, 0), bn.imageSmoothingEnabled = fu < 3, bn.drawImage(gW.u0, gd.g7(), gd.g8()), sI.fQ.bm(), bn.drawImage(xx, gd.g7(), gd.g8()), window.__TERRIX_HOOK_RENDER__ && window.__TERRIX_HOOK_RENDER__(bn, xx, im, gd.g7(), gd.g8()), aIv.bm(), bQ.bm(), gN.bm(), (c.gG ? (bK.bm(), nr) : (e.bm(), bi.bm(), nl.bm(), nr.bm(), yI.bm(), at.bm(), gd.bm(), a3B.bm(), bK.bm(), ag.bm(), a1F.bm(), nK.bm(), sK.bm(), sF.bm(), nw.bm(), sE)).bm(), dx.bm();
+  aIv.ta(), bn.setTransform(fu, 0, 0, fu, 0, 0), bn.imageSmoothingEnabled = fu < 3, bn.drawImage(gW.u0, gd.g7(), gd.g8()), sI.fQ.bm(), bn.drawImage(xx, gd.g7(), gd.g8()), window.__TERRIX_HOOK_RENDER__ && window.__TERRIX_HOOK_RENDER__(bn, xx, fu, gd.g7(), gd.g8()), aIv.bm(), bQ.bm(), gN.bm(), (c.gG ? (bK.bm(), nr) : (e.bm(), bi.bm(), nl.bm(), nr.bm(), yI.bm(), at.bm(), gd.bm(), a3B.bm(), bK.bm(), ag.bm(), a1F.bm(), nK.bm(), sK.bm(), sF.bm(), nw.bm(), sE)).bm(), dx.bm();
 }
 function a2D(a2, aS, aY) {
   a2.clearRect(0, 0, aS, aY), a2.fillStyle = v.x, a2.fillRect(0, 0, aS, aY);

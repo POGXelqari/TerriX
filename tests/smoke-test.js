@@ -71,8 +71,15 @@ async function runSmokeTest() {
             throw new Error(`[SmokeTest] Dictionary Integrity Failure: ${dictHealth.reason}`);
         }
 
-        // 3. Confirm Canvas Engine Instantiation
+        // 3. Confirm Canvas Engine Instantiation and execute render loop cycles
         await page.waitForSelector('#canvasA', { timeout: 5000 });
+        await page.evaluate(() => new Promise(resolve => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    setTimeout(resolve, 500);
+                });
+            });
+        }));
 
         // Filter known non-breaking sandbox warnings
         const criticalErrors = runtimeErrors.filter(err => 

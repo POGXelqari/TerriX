@@ -45,13 +45,34 @@ export function patchGameAst(sourceCode) {
                 const oxCall = args[1];
                 const oyCall = args[2];
 
-                // Construct: (window.__TERRIX_HOOK_RENDER__ && window.__TERRIX_HOOK_RENDER__(ws, a0O, im, ox, oy))
+                // Dynamically resolve zoom identifier from wsIdent.setTransform(zoom, ...) in enclosing function
+                let zoomArg = t.nullLiteral();
+                const fnParent = path.getFunctionParent();
+                if (fnParent) {
+                    fnParent.traverse({
+                        CallExpression(innerPath) {
+                            if (zoomArg.type !== "NullLiteral") return;
+                            const innerNode = innerPath.node;
+                            if (
+                                t.isMemberExpression(innerNode.callee) &&
+                                t.isIdentifier(innerNode.callee.object, { name: wsIdent.name }) &&
+                                t.isIdentifier(innerNode.callee.property, { name: "setTransform" }) &&
+                                innerNode.arguments.length >= 1 &&
+                                t.isIdentifier(innerNode.arguments[0])
+                            ) {
+                                zoomArg = t.cloneNode(innerNode.arguments[0]);
+                            }
+                        }
+                    });
+                }
+
+                // Construct: (window.__TERRIX_HOOK_RENDER__ && window.__TERRIX_HOOK_RENDER__(ws, a0O, zoom, ox, oy))
                 const hookExpr = t.logicalExpression(
                     "&&",
                     t.memberExpression(t.identifier("window"), t.identifier("__TERRIX_HOOK_RENDER__")),
                     t.callExpression(
                         t.memberExpression(t.identifier("window"), t.identifier("__TERRIX_HOOK_RENDER__")),
-                        [wsIdent, a0OIdent, t.identifier("im"), oxCall, oyCall]
+                        [wsIdent, a0OIdent, zoomArg, oxCall, oyCall]
                     )
                 );
 

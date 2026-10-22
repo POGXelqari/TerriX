@@ -1,4 +1,4 @@
-const CACHE_NAME = "cbm-core-v3";
+const CACHE_NAME = "cbm-core-v4";
 const ASSETS = [
   "/cbm.html",
   "/vault.html",
@@ -51,8 +51,18 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
 
   // Never intercept cross-origin requests (e.g. Cloudflare Turnstile, CDNs, external webfonts).
-  // Native browser fetches execute directly against document CSP without worker mediation.
   if (u.origin !== self.location.origin) return;
+
+  // Security bypass: Never intercept, cache, or serve backend code, secrets, databases, or logs
+  if (
+    /\.(py|env|key|db|sql|sh|log|git|sqlite|bak|ini|conf)($|\?)/i.test(u.pathname) ||
+    u.pathname.includes(".env") ||
+    u.pathname.includes(".key") ||
+    u.pathname.includes("main.py") ||
+    u.pathname.startsWith("/download/")
+  ) {
+    return;
+  }
 
   // Ignore Cloudflare challenge/analytics paths if ever routed through domain
   if (u.pathname.startsWith("/cdn-cgi/") || u.pathname.startsWith("/turnstile/")) return;

@@ -1,6 +1,7 @@
 import { definePatch } from "../modUtils.js";
 
-export default definePatch(({ replaceCode }) => {
+export default definePatch((modUtils) => {
+    const { replaceCode, matchOne } = modUtils;
 
     replaceCode(`function assignHumanNames() {
         var humanCount = playerCounts.gHumans;
@@ -22,33 +23,14 @@ export default definePatch(({ replaceCode }) => {
             return;
         }
         for (i = 0; i < humanCount; i++) { displayNames[i] = rawNames[i] = __fx.nameFilter.filter(playerNamesData[i]); }
-    }`)
+    }`);
 
-    replaceCode(`lobbyPlayers.createEntry = function (playerId, playerUsername, rankValue, levelValue, badgeValue, eloValue, colorValue, goldValue, ipHashValue) {
-        return {
-            playerId: playerId,
-            playerUsername: playerUsername,
-            rankValue: rankValue,
-            levelValue: levelValue,
-            badgeValue: badgeValue,
-            eloValue: eloValue,
-            colorValue: colorValue,
-            goldValue: goldValue,
-            ipHashValue: ipHashValue
-        };
-    }`, `lobbyPlayers.createEntry = function (playerId, playerUsername, rankValue, levelValue, badgeValue, eloValue, colorValue, goldValue, ipHashValue) {
-        return {
-            playerId: playerId,
-            playerUsername: __fx.nameFilter.filter(playerUsername),
-            rankValue: rankValue,
-            levelValue: levelValue,
-            badgeValue: badgeValue,
-            eloValue: eloValue,
-            colorValue: colorValue,
-            goldValue: goldValue,
-            ipHashValue: ipHashValue
-        };
-    }`)
+    // Lobby player createEntry: injects nameFilter before entry object construction
+    const createEntryPattern = /(\bthis\.\w+=function\(\w+,(\w+)(?:,[^,)]+){6,}\)\{)(return\{)/g;
+    matchOne(createEntryPattern);
+    modUtils.replace(createEntryPattern, (_match, prefix, username, ret) => {
+        return `${prefix}${username}=__fx.nameFilter.filter(${username});${ret}`;
+    });
 
     replaceCode(`function assignPresetNames() {
         var totalCount = playerCounts.gMaxPlayers;
@@ -62,5 +44,5 @@ export default definePatch(({ replaceCode }) => {
         var rawNames = playerData.rawPlayerNames;
         var playerNamesData = gameState.data.playerNamesData;
         for (var i = playerCounts.gHumans; i < totalCount; i++) { displayNames[i] = rawNames[i] = __fx.nameFilter.filter(playerNamesData[i]); }
-    }`)
-})
+    }`);
+});

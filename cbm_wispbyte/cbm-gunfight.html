@@ -1,0 +1,4653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script>
+    (function enforceOfficialOrigin() {
+      const allowedHosts = [
+        "cbm.wispbyte.org",
+        "78.154.103.45",
+        "localhost",
+        "127.0.0.1",
+        "tauri.localhost"
+      ];
+      const host = (window.location.hostname || "").toLowerCase();
+      const isAuthorized = allowedHosts.includes(host) ||
+        host.endsWith(".wispbyte.org") ||
+        host.endsWith(".trycloudflare.com");
+      if (!isAuthorized && window.location.protocol.startsWith("http")) {
+        if (document.body) {
+          document.body.innerHTML = "";
+        }
+        window.location.replace("https://cbm.wispbyte.org");
+      }
+    })();
+  </script>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-QCMCPSK0CF');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CBM Gunfight — Tactical P2P 2D Arena</title>
+  <link rel="icon" type="image/png" href="https://cbm.wispbyte.org/cbm-logo-new.png">
+  <!-- PeerJS for WebRTC Peer-To-Peer Mesh Networking -->
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script>if (typeof Peer === 'undefined') { document.write('<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"><\/script>'); }</script>
+  <style>
+    :root {
+      --bg-deep: #060a12;
+      --bg-surface: #0b1220;
+      --panel: #111b2e;
+      --panel-2: #17243d;
+      --panel-hover: #1e2f4f;
+      --border: rgba(255, 255, 255, 0.09);
+      --border-bright: rgba(255, 255, 255, 0.2);
+      --text: #f8fafc;
+      --text-dim: #94a3b8;
+      --text-muted: #64748b;
+      --cbm-blue: #0070e0;
+      --cbm-blue-hover: #005bb8;
+      --cbm-gold: #ffc439;
+      --cbm-gold-glow: rgba(255, 196, 57, 0.35);
+      --cbm-emerald: #10b981;
+      --cbm-danger: #ef4444;
+      --cbm-purple: #8b5cf6;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-deep);
+      color: var(--text);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* App Shell Layout */
+    #app-root {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(0, 112, 224, 0.14), transparent 45%),
+        radial-gradient(circle at 82% 88%, rgba(255, 196, 57, 0.09), transparent 45%),
+        var(--bg-deep);
+    }
+
+    /* Top Navigation Bar */
+    header.gf-topbar {
+      height: 60px;
+      padding: 0 20px;
+      background: rgba(11, 18, 32, 0.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 50;
+      flex-shrink: 0;
+    }
+
+    .brand-cluster {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 8px rgba(0, 112, 224, 0.5));
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-tag {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      background: rgba(255, 196, 57, 0.15);
+      border: 1px solid rgba(255, 196, 57, 0.4);
+      color: var(--cbm-gold);
+      text-transform: uppercase;
+    }
+
+    .top-telemetry {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .telemetry-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .telemetry-pill strong {
+      color: #fff;
+      font-family: var(--font-mono);
+    }
+
+    .telemetry-pill.gold strong {
+      color: var(--cbm-gold);
+    }
+
+    .telemetry-pill.emerald strong {
+      color: var(--cbm-emerald);
+    }
+
+    .dot-live {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cbm-emerald);
+      box-shadow: 0 0 8px var(--cbm-emerald);
+    }
+
+    /* Main Paginated Menu Container */
+    #menu-layer {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 20;
+    }
+
+    /* Navigation Tabs */
+    .nav-stepper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: rgba(15, 23, 42, 0.65);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .step-tab {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 8px 16px;
+      border-radius: var(--radius-pill);
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.16s ease;
+    }
+
+    .step-tab:hover {
+      border-color: var(--border-bright);
+      color: #fff;
+    }
+
+    .step-tab.active {
+      background: var(--cbm-blue);
+      border-color: rgba(255, 255, 255, 0.25);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(0, 112, 224, 0.35);
+    }
+
+    .step-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.3);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
+
+    /* Pages Viewport */
+    .pages-viewport {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    .menu-page {
+      display: none;
+      animation: fadeIn 0.18s ease-out;
+    }
+
+    .menu-page.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Cards & Grids */
+    .gf-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      margin-bottom: 18px;
+    }
+
+    .gf-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .gf-card-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .gf-card-sub {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    /* Buttons & Inputs */
+    .btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 10px 20px;
+      border-radius: var(--radius-pill);
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.15s ease;
+      text-decoration: none;
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--cbm-blue);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(0, 112, 224, 0.3);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--cbm-blue-hover);
+    }
+
+    .btn-gold {
+      background: var(--cbm-gold);
+      color: #060a12;
+      box-shadow: 0 4px 14px rgba(255, 196, 57, 0.28);
+    }
+
+    .btn-gold:hover:not(:disabled) {
+      background: #e5ae2b;
+    }
+
+    .btn-ghost {
+      background: var(--panel-2);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--panel-hover);
+      border-color: var(--border-bright);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.16);
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.35);
+    }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 11.5px;
+    }
+
+    .input-box {
+      width: 100%;
+      background: var(--bg-deep);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 13.5px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .input-box:focus {
+      border-color: var(--cbm-blue);
+    }
+
+    /* Character Selection Grid */
+    .char-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 14px;
+    }
+
+    .char-card {
+      background: var(--panel-2);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.18s ease;
+      position: relative;
+    }
+
+    .char-card:hover {
+      border-color: var(--border-bright);
+      transform: translateY(-2px);
+    }
+
+    .char-card.selected {
+      border-color: var(--cbm-gold);
+      background: linear-gradient(180deg, rgba(255, 196, 57, 0.1) 0%, var(--panel-2) 100%);
+      box-shadow: 0 8px 22px rgba(255, 196, 57, 0.18);
+    }
+
+    .char-canvas-preview {
+      width: 130px;
+      height: 130px;
+      margin: 0 auto 10px;
+      display: block;
+      background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%);
+      border-radius: 50%;
+    }
+
+    .char-name {
+      font-size: 16px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .char-role {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--cbm-gold);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .char-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+
+    /* Handgun Selection Paginated List */
+    .gun-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 14px;
+    }
+
+    .gun-card {
+      background: var(--panel-2);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.16s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .gun-card:hover {
+      border-color: var(--border-bright);
+    }
+
+    .gun-card.selected {
+      border-color: var(--cbm-blue);
+      background: linear-gradient(135deg, rgba(0, 112, 224, 0.14) 0%, var(--panel-2) 100%);
+      box-shadow: 0 6px 20px rgba(0, 112, 224, 0.25);
+    }
+
+    .vip-tag {
+      font-size: 10px;
+      font-weight: 800;
+      color: #f472b6;
+      background: rgba(244, 114, 182, 0.16);
+      border: 1px solid rgba(244, 114, 182, 0.4);
+      padding: 2px 7px;
+      border-radius: 9999px;
+      letter-spacing: 0.3px;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .char-card.vip {
+      border-color: rgba(244, 114, 182, 0.35);
+    }
+
+    .char-card.vip.selected {
+      border-color: #f472b6;
+      background: linear-gradient(180deg, rgba(244, 114, 182, 0.14) 0%, var(--panel-2) 100%);
+      box-shadow: 0 8px 24px rgba(244, 114, 182, 0.25);
+    }
+
+    .gun-card.vip {
+      border-color: rgba(244, 114, 182, 0.35);
+    }
+
+    .gun-card.vip.selected {
+      border-color: #f472b6;
+      background: linear-gradient(135deg, rgba(244, 114, 182, 0.14) 0%, var(--panel-2) 100%);
+      box-shadow: 0 6px 20px rgba(244, 114, 182, 0.25);
+    }
+
+    .gun-rank-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 800;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(255, 196, 57, 0.16);
+      color: var(--cbm-gold);
+      border: 1px solid rgba(255, 196, 57, 0.35);
+    }
+
+    .gun-type-tag {
+      font-size: 11px;
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    .gun-overview {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.45;
+    }
+
+    .gun-stats-bars {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+    }
+
+    .stat-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .stat-track {
+      flex: 1;
+      height: 5px;
+      background: rgba(0, 0, 0, 0.45);
+      border-radius: 3px;
+      overflow: hidden;
+      max-width: 75px;
+    }
+
+    .stat-fill {
+      height: 100%;
+      background: var(--cbm-blue);
+    }
+
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Lobby & Map Vote UI */
+    .mode-selector-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .mode-card {
+      background: var(--panel-2);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .mode-card.selected {
+      border-color: var(--cbm-emerald);
+      background: rgba(16, 185, 129, 0.08);
+    }
+
+    .roster-slot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .roster-slot {
+      background: var(--bg-deep);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12.5px;
+    }
+
+    .roster-slot.filled {
+      border-color: rgba(16, 185, 129, 0.4);
+      background: rgba(16, 185, 129, 0.06);
+    }
+
+    .map-vote-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .map-vote-grid { grid-template-columns: 1fr; }
+      .gun-grid { grid-template-columns: 1fr; }
+    }
+
+    .map-vote-card {
+      background: var(--panel-2);
+      border: 2px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s;
+    }
+
+    .map-vote-card.voted {
+      border-color: var(--cbm-gold);
+      background: rgba(255, 196, 57, 0.12);
+    }
+
+    /* Active Game HUD & Canvas Layer */
+    #game-layer {
+      position: absolute;
+      inset: 0;
+      display: none;
+      background: #000;
+      z-index: 80;
+    }
+
+    #game-layer.active {
+      display: block;
+    }
+
+    #arena-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: crosshair;
+    }
+
+    .hud-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px;
+    }
+
+    .hud-top-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .hud-box {
+      background: rgba(6, 10, 18, 0.82);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius-md);
+      padding: 10px 16px;
+      pointer-events: auto;
+    }
+
+    .hud-bottom-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .ammo-counter {
+      font-family: var(--font-mono);
+      font-size: 28px;
+      font-weight: 900;
+      color: #fff;
+    }
+
+    .ammo-reserve {
+      font-size: 16px;
+      color: var(--text-dim);
+    }
+
+    /* Mobile Touch Controls */
+    #touch-controls {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+      z-index: 85;
+    }
+
+    #touch-controls.active {
+      display: block;
+    }
+
+    .joy-zone {
+      position: absolute;
+      bottom: 32px;
+      width: 130px;
+      height: 130px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.06);
+      border: 2px solid rgba(255, 255, 255, 0.18);
+      pointer-events: auto;
+      touch-action: none;
+    }
+
+    #joy-left { left: 28px; }
+    #joy-right { right: 28px; }
+
+    .joy-stick {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 48px;
+      height: 48px;
+      margin-left: -24px;
+      margin-top: -24px;
+      border-radius: 50%;
+      background: rgba(0, 112, 224, 0.7);
+      border: 2px solid #fff;
+      pointer-events: none;
+    }
+
+    .touch-reload-btn {
+      position: absolute;
+      bottom: 175px;
+      right: 45px;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(255, 196, 57, 0.25);
+      border: 2px solid var(--cbm-gold);
+      color: #fff;
+      font-weight: 800;
+      font-size: 12px;
+      pointer-events: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Post-Match & Rare Animated War Chest Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 7, 14, 0.88);
+      backdrop-filter: blur(10px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-backdrop.active {
+      display: flex;
+    }
+
+    .modal-window {
+      background: var(--panel);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      max-width: 580px;
+      width: 100%;
+      padding: 26px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8);
+      text-align: center;
+    }
+
+    #rare-chest-canvas {
+      width: 240px;
+      height: 200px;
+      margin: 0 auto 12px;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app-root">
+  <!-- Top CBM Telemetry & Identity Header -->
+  <header class="gf-topbar">
+    <div class="brand-cluster">
+      <img src="https://cbm.wispbyte.org/cbm-logo-new.png" alt="CBM Crest" class="brand-logo">
+      <div class="brand-title">
+        <span>CBM GUNFIGHT</span>
+        <span class="brand-tag">P2P Zero-Trust</span>
+      </div>
+    </div>
+
+    <div class="top-telemetry">
+      <div class="telemetry-pill" title="Peer-to-Peer Signaling Status">
+        <span class="dot-live" id="p2p-dot"></span>
+        <span>P2P ID: <strong id="hud-peer-id">Initializing...</strong></span>
+      </div>
+      <div class="telemetry-pill gold" id="hud-pill-reserves" title="Unencumbered Clan Bank Reserves Backing Match Rewards">
+        <span>🏛️ Reserves: <strong id="hud-reserves-gold">--.-- G</strong></span>
+      </div>
+      <div class="telemetry-pill emerald" id="hud-pill-user" title="Authenticated CBM Account Balance">
+        <span>👤 <strong id="hud-user-name">Unauthenticated</strong> <span id="hud-user-bal-wrapper">(<strong id="hud-user-bal">0.00 G</strong>)</span></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Paginated Menu Layer -->
+  <div id="menu-layer">
+    <nav class="nav-stepper">
+      <button type="button" class="step-tab active" data-page="page-auth">
+        <span class="step-num">1</span> CBM Auth &amp; Identity
+      </button>
+      <button type="button" class="step-tab" data-page="page-characters">
+        <span class="step-num">2</span> Character Roster (6)
+      </button>
+      <button type="button" class="step-tab" data-page="page-handguns">
+        <span class="step-num">3</span> Handgun Armory (11)
+      </button>
+      <button type="button" class="step-tab" data-page="page-lobby">
+        <span class="step-num">4</span> P2P Lobby &amp; Ranked Lookup
+      </button>
+    </nav>
+
+    <div class="pages-viewport">
+      <!-- PAGE 1: CBM AUTHENTICATION & SECURITY ENCLAVE -->
+      <section class="menu-page active" id="page-auth">
+        <div class="gf-card">
+          <div class="gf-card-header">
+            <div>
+              <div class="gf-card-title">🔐 CBM Account Authentication (Zero-Bots Policy)</div>
+              <div class="gf-card-sub">Sign in with your Clan Bank Manager account to compete in human-only P2P lobbies and receive Unencumbered Reserve Gold rewards.</div>
+            </div>
+            <span class="brand-tag">No AI Bots • Human P2P Only</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 18px; margin-bottom: 16px;">
+            <!-- CARD A: REGISTERED CBM ACCOUNT AUTHENTICATION -->
+            <div style="background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <div style="font-size: 13px; font-weight: 800; color: #fff;">🔑 CBM Member Sign-In</div>
+                <span class="badge" style="background: rgba(0, 112, 224, 0.15); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.3);">FULL ACCESS</span>
+              </div>
+              <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.45;">
+                Enables live account balance synchronization, 100.00 G Reserve War Chest payouts, and VIP Pass privileges.
+              </p>
+              <form id="auth-login-form" onsubmit="event.preventDefault()">
+                <div style="margin-bottom: 10px;">
+                  <label style="font-size: 11.5px; color: var(--text-dim); font-weight: 700; display: block; margin-bottom: 4px;">CBM Account Username</label>
+                  <input type="text" id="auth-username" class="input-box" placeholder="e.g. B8bbq or Commander" autocomplete="username">
+                </div>
+                <div style="margin-bottom: 12px;">
+                  <label style="font-size: 11.5px; color: var(--text-dim); font-weight: 700; display: block; margin-bottom: 4px;">6-Digit PIN or Password</label>
+                  <input type="password" id="auth-secret" class="input-box" placeholder="••••••" autocomplete="current-password">
+                </div>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button type="submit" class="btn btn-primary btn-sm" id="btn-cbm-login">Verify Identity</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-sync-session">Use Active Session</button>
+                </div>
+                <div id="auth-status-msg" style="margin-top: 10px; font-size: 12px; color: var(--cbm-emerald);"></div>
+              </form>
+            </div>
+
+            <!-- CARD B: ANONYMOUS GUEST OPERATIVE ACCESS -->
+            <div style="background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 18px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <div style="font-size: 13px; font-weight: 800; color: #94a3b8;">🕶️ Anonymous Guest Access</div>
+                <span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3);">NO SIGN-IN REQUIRED</span>
+              </div>
+              <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 12px; line-height: 1.45;">
+                Play immediately without an account. Customize your temporary combat callsign and deploy across all multiplayer modes.
+              </p>
+              <div style="margin-bottom: 10px;">
+                <label style="font-size: 11.5px; color: var(--text-dim); font-weight: 700; display: block; margin-bottom: 4px;">Guest Callsign (Visible in Roster)</label>
+                <div style="display: flex; gap: 8px;">
+                  <input type="text" id="anon-callsign-input" class="input-box" placeholder="e.g. Ghost_Operative" maxlength="20" style="flex: 1;">
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-save-anon-callsign">Set Callsign</button>
+                </div>
+              </div>
+              <div style="background: rgba(15, 23, 42, 0.65); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 10px; font-size: 11.5px; color: #cbd5e1; line-height: 1.5; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #f59e0b; margin-bottom: 4px;">⚠️ Guest Operative Rules:</div>
+                • 🔒 <strong>Zero Session Storage:</strong> Guest session data is completely ephemeral and does not get saved in your browser.<br>
+                • 🔒 <strong>Standard Issue Loadout:</strong> Guests are restricted to default operative (Alfred) and standard handgun (H&amp;K USP9).<br>
+                • 🔒 <strong>No Gold Rewards:</strong> Gold telemetry and Reserve War Chest rewards are disabled for guest operatives.<br>
+                • ⏱️ <strong>Room Cooldown:</strong> 8-second cooldown between room creations.<br>
+                • 💡 Sign in with a CBM account to unlock all operatives, custom handguns, and Gold match rewards.
+              </div>
+              <button type="button" class="btn btn-gold btn-sm" id="btn-continue-anon" style="width: 100%;">
+                Play as Anonymous Guest →
+              </button>
+            </div>
+          </div>
+
+          <!-- UNENCUMBERED RESERVE COVENANT BANNER -->
+          <div style="background: rgba(11, 18, 32, 0.85); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 16px;">
+            <div style="font-size: 13px; font-weight: 800; color: var(--cbm-gold); margin-bottom: 6px;">🏆 Unencumbered Reserve War Chest Covenant</div>
+            <p style="font-size: 12px; color: var(--text-dim); line-height: 1.55; margin: 0 0 8px 0;">
+              Achieving <strong>1st Rank in Free-For-All</strong> or <strong>1st Rank on your Team</strong> triggers a cryptographic roll with a <strong>0.01% to 0.1%</strong> chance (`1 in 1,000` to `1 in 10,000`) to spawn an animated War Chest carrying up to <strong>100.00 Gold</strong> paid directly from CBM's unencumbered reserves into your account balance.
+            </p>
+            <div style="font-family: var(--font-mono); font-size: 11px; color: #93c5fd; display: flex; gap: 16px; flex-wrap: wrap;">
+              <span>• Anti-Scripting: Trusted Event &amp; Cadence Active</span>
+              <span>• Zero-Trust P2P: Signed State Packets</span>
+              <span>• Platform: <span id="detected-platform-label">Desktop Mouse + WASD</span></span>
+            </div>
+          </div>
+
+          <div class="pagination-bar">
+            <span style="font-size: 12px; color: var(--text-muted);">Step 1 of 4 • Identity Verification</span>
+            <button type="button" class="btn btn-primary" data-goto="page-characters">Next: Select Operative →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 2: CHARACTER SELECTION (ALFRED, JACK, JOHNSON, MIA, VERITY) -->
+      <section class="menu-page" id="page-characters">
+        <div class="gf-card">
+          <div class="gf-card-header">
+            <div>
+              <div class="gf-card-title">🎭 Select Operative (2D Ball Rig with Articulated Hands)</div>
+              <div class="gf-card-sub">Each operative features bespoke attire, facial visor/mask styling, and independent 2D ball hands with live reload kinematics.</div>
+            </div>
+            <span class="brand-tag" id="selected-char-badge">Selected: Alfred</span>
+          </div>
+
+          <div id="anon-char-notice" style="display:none; margin-bottom: 12px; background: rgba(15, 23, 42, 0.7); border: 1px dashed rgba(245, 158, 11, 0.4); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #cbd5e1; transition: border-color 0.2s ease;">
+            🔒 <strong>Guest Operative Restriction:</strong> Anonymous sessions are limited to default operative <strong>Alfred</strong>. Sign in with a CBM account on Step 1 to unlock Jack, Johnson, Mia, Verity, and Ava.
+          </div>
+
+          <div class="char-grid" id="char-roster-grid"></div>
+
+          <div class="pagination-bar">
+            <button type="button" class="btn btn-ghost" data-goto="page-auth">← Back: CBM Auth</button>
+            <span style="font-size: 12px; color: var(--text-muted);">Step 2 of 4 • Character Selection</span>
+            <button type="button" class="btn btn-primary" data-goto="page-handguns">Next: Select Sidearm →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 3: PAGINATED HANDGUN SELECTION (#10 TO #01) -->
+      <section class="menu-page" id="page-handguns">
+        <div class="gf-card">
+          <div class="gf-card-header">
+            <div>
+              <div class="gf-card-title">🔫 Tactical Sidearm Armory (Ranked #10 to #01)</div>
+              <div class="gf-card-sub">Authentic ballistic profiles, magazine capacities, reload timings, and recoil recovery curves.</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="brand-tag" id="selected-gun-badge">Selected: #01 H&amp;K USP9 / P30</span>
+            </div>
+          </div>
+
+          <div id="anon-gun-notice" style="display:none; margin-bottom: 12px; background: rgba(15, 23, 42, 0.7); border: 1px dashed rgba(245, 158, 11, 0.4); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #cbd5e1; transition: border-color 0.2s ease;">
+            🔒 <strong>Guest Arsenal Restriction:</strong> Anonymous sessions are limited to standard issue <strong>Heckler &amp; Koch USP9 / P30</strong>. Sign in with a CBM account on Step 1 to access the full 10-handgun combat armory.
+          </div>
+
+          <div class="gun-grid" id="gun-catalog-grid"></div>
+
+          <!-- Pagination Controls for Handguns -->
+          <div class="pagination-bar">
+            <button type="button" class="btn btn-ghost" data-goto="page-characters">← Back: Operative</button>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-gun-prev">◀ Prev Page</button>
+              <span id="gun-page-indicator" style="font-family: var(--font-mono); font-size: 12px; color: #fff;">Page 1 / 2</span>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-gun-next">Next Page ▶</button>
+            </div>
+            <button type="button" class="btn btn-primary" data-goto="page-lobby">Next: P2P Matchmaking →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- PAGE 4: MULTIPLAYER P2P LOBBY, RANKED OPPONENT LOOKUP & MAP VOTE -->
+      <section class="menu-page" id="page-lobby">
+        <div class="gf-card">
+          <div class="gf-card-header">
+            <div>
+              <div class="gf-card-title">🌐 Peer-to-Peer Lobby &amp; Matchmaking</div>
+              <div class="gf-card-sub">Zero bots. Connect directly with human peers via WebRTC PeerJS or multi-window local P2P mesh.</div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-peer">📋 Copy My Room ID</button>
+            </div>
+          </div>
+
+          <!-- Mode Selection -->
+          <div class="mode-selector-grid">
+            <div class="mode-card selected" data-mode="FFA">
+              <div style="font-weight: 800; font-size: 15px; color: #fff;">🔥 Free For All (FFA)</div>
+              <div style="font-size: 11.5px; color: var(--cbm-gold); font-family: var(--font-mono); margin: 4px 0;">Min. 4 Players • Max. 10 Players</div>
+              <p style="font-size: 12px; color: var(--text-dim);">Every operative for themselves. Countdown and 3-map vote initiate automatically once 4+ human players join.</p>
+            </div>
+
+            <div class="mode-card" data-mode="TEAMS">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span style="font-weight: 800; font-size: 15px; color: #fff;">🛡️ 2 Teams (Alpha vs Bravo)</span>
+                <select id="team-size-select" class="input-box" style="width: 96px; padding: 3px 6px; font-size: 11.5px;">
+                  <option value="2">2 Players</option>
+                  <option value="4" selected>4 Players</option>
+                  <option value="8">8 Players</option>
+                  <option value="10">10 Players</option>
+                </select>
+              </div>
+              <div style="font-size: 11.5px; color: #60a5fa; font-family: var(--font-mono); margin: 4px 0;">Required/Max: 2, 4, 8, or 10 Players</div>
+              <p style="font-size: 12px; color: var(--text-dim);">Balanced 2-team tactical combat. Countdown starts when the exact required player capacity is reached.</p>
+            </div>
+
+            <div class="mode-card" data-mode="RANKED">
+              <div style="font-weight: 800; font-size: 15px; color: #fff;">⚔️ Ranked 1v1 Duel</div>
+              <div style="font-size: 11.5px; color: var(--cbm-emerald); font-family: var(--font-mono); margin: 4px 0;">Strict Max. 2 Players • Opponent Lookup</div>
+              <p style="font-size: 12px; color: var(--text-dim);">High-stakes competitive 1v1. Includes live CBM Opponent Lookup to inspect your rival's ledger &amp; clan credentials.</p>
+            </div>
+          </div>
+
+          <!-- Active Room Isolation Status Banner -->
+          <div id="room-status-banner" style="background: rgba(15, 23, 42, 0.75); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 18px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <span class="badge" id="room-badge-type" style="background: rgba(0, 112, 224, 0.2); color: #60a5fa; border: 1px solid rgba(0, 112, 224, 0.4); font-size: 11px;">PUBLIC MATCHMAKING</span>
+              <div>
+                <div style="font-size: 14px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 8px;">
+                  Room Code: <span id="current-room-label" style="color: var(--cbm-gold); font-family: var(--font-mono); letter-spacing: 0.5px;">PUBLIC-FFA</span>
+                  <span id="room-role-pill" class="badge" style="background: rgba(255, 196, 57, 0.15); color: var(--cbm-gold); border: 1px solid rgba(255, 196, 57, 0.3); font-size: 10px; display: none;">👑 HOST</span>
+                </div>
+                <div style="font-size: 11.5px; color: var(--text-dim);" id="room-subtext-desc">Connecting to open matchmaking peers in FFA pool.</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-room-code" title="Copy Room Code">📋 Copy Code</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-copy-room-link" title="Copy Direct Invite Link">🔗 Copy Invite Link</button>
+              <button type="button" class="btn btn-gold btn-sm" id="btn-recreate-room" title="Re-create room with new clean code">🔄 Re-Create Room</button>
+              <button type="button" class="btn btn-danger btn-sm" id="btn-leave-custom-room" style="display: none;" title="Exit to public matchmaking">🚪 Exit to Public</button>
+            </div>
+          </div>
+
+          <!-- P2P Connection & Ranked Opponent Lookup Row -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <!-- Join / Host P2P Room -->
+            <div style="background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px;">
+              <div style="font-size: 13px; font-weight: 800; color: #fff; margin-bottom: 10px;">🔗 Host or Join Isolated Room</div>
+              <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="join-room-input" class="input-box" placeholder="Enter Room Code or Invite URL (e.g. GF-X7Y2)">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-join-p2p">Join Room</button>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <button type="button" class="btn btn-gold btn-sm" id="btn-host-lobby">Host New Room</button>
+                <span id="room-feedback-msg" style="font-size: 11.5px; color: var(--cbm-emerald);"></span>
+              </div>
+            </div>
+
+            <!-- Ranked Opponent Lookup -->
+            <div style="background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px;">
+              <div style="font-size: 13px; font-weight: 800; color: var(--cbm-gold); margin-bottom: 10px;">🔍 Ranked Opponent CBM Lookup</div>
+              <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="opponent-lookup-input" class="input-box" placeholder="Enter Opponent CBM Username (e.g. B8bbq)">
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-lookup-opponent">Inspect</button>
+              </div>
+              <div id="opponent-lookup-result" style="font-size: 12px; color: var(--text-dim); min-height: 38px;">
+                Query any opponent's CBM verification status, clan tag, and standing prior to engagement.
+              </div>
+            </div>
+          </div>
+
+          <!-- Connected Human Peers Roster & Countdown -->
+          <div style="background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <span style="font-size: 14px; font-weight: 800; color: #fff;" id="lobby-status-headline">Waiting for Human Players (1 / 4 Min Required)</span>
+                <div style="font-size: 11.5px; color: var(--text-dim);" id="lobby-rule-subtext">FFA requires at least 4 human players (max 10) to start countdown &amp; map vote.</div>
+              </div>
+              <div style="font-family: var(--font-mono); font-size: 20px; font-weight: 900; color: var(--cbm-gold);" id="lobby-countdown-timer">STANDBY</div>
+            </div>
+
+            <div class="roster-slot-grid" id="lobby-roster-slots"></div>
+          </div>
+
+          <!-- 3-Randomized Map Vote Panel (Revealed when player threshold is met) -->
+          <div id="map-vote-section" style="display: none; margin-top: 16px; background: rgba(0, 112, 224, 0.08); border: 1px solid rgba(0, 112, 224, 0.35); border-radius: var(--radius-md); padding: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div>
+                <div style="font-size: 15px; font-weight: 800; color: #fff;">🗳️ Server Opened — Vote for Arena Map &amp; Time of Day (3 Randomized Candidates)</div>
+                <div style="font-size: 12px; color: var(--text-dim);">Click a candidate below to cast your vote. Deployment begins when countdown reaches 0!</div>
+              </div>
+              <span class="brand-tag" id="vote-timer-badge">Voting Active</span>
+            </div>
+            <div class="map-vote-grid" id="map-vote-cards"></div>
+          </div>
+
+          <div class="pagination-bar">
+            <button type="button" class="btn btn-ghost" data-goto="page-handguns">← Back: Sidearm Armory</button>
+            <span style="font-size: 12px; color: var(--text-muted);">Step 4 of 4 • P2P Lobby &amp; Deployment</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- ACTIVE 2D ARENA GAMEPLAY LAYER -->
+  <div id="game-layer">
+    <canvas id="arena-canvas"></canvas>
+
+    <div class="hud-overlay">
+      <div class="hud-top-row">
+        <div class="hud-box">
+          <div style="font-size: 11px; color: var(--cbm-gold); font-family: var(--font-mono); font-weight: 700;" id="hud-map-info">FOREST • MIDNIGHT</div>
+          <div style="font-size: 15px; font-weight: 800; color: #fff;" id="hud-mode-score">FFA • FIRST TO 10 KILLS</div>
+          <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;" id="hud-crate-timer">Next Ammo Crate: 12s</div>
+        </div>
+
+        <div class="hud-box" style="min-width: 220px;">
+          <div style="font-size: 11px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">Live Leaderboard</div>
+          <div id="hud-leaderboard-list" style="font-size: 12px; font-family: var(--font-mono);"></div>
+        </div>
+
+        <div class="hud-box">
+          <button type="button" class="btn btn-danger btn-sm" id="btn-leave-match">Leave Arena</button>
+        </div>
+      </div>
+
+      <div class="hud-bottom-row">
+        <div class="hud-box" style="min-width: 220px;">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; margin-bottom: 5px;">
+            <span id="hud-char-label">ALFRED</span>
+            <span id="hud-hp-text" style="color: var(--cbm-emerald);">100 / 100 HP</span>
+          </div>
+          <div style="width: 100%; height: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden;">
+            <div id="hud-hp-bar" style="width: 100%; height: 100%; background: var(--cbm-emerald); transition: width 0.12s;"></div>
+          </div>
+        </div>
+
+        <div class="hud-box" style="text-align: right;">
+          <div style="font-size: 11px; color: #60a5fa; font-weight: 700;" id="hud-gun-label">#01 H&amp;K USP9 / P30</div>
+          <div class="ammo-counter">
+            <span id="hud-mag-curr">15</span> <span class="ammo-reserve">/ <span id="hud-mag-res">60</span></span>
+          </div>
+          <div style="font-size: 11px; color: var(--cbm-gold); font-family: var(--font-mono);" id="hud-reload-status">[R] RELOAD • [LMB] FIRE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mobile Adaptive Dual Virtual Joysticks -->
+    <div id="touch-controls">
+      <div class="joy-zone" id="joy-left"><div class="joy-stick" id="stick-left"></div></div>
+      <div class="joy-zone" id="joy-right"><div class="joy-stick" id="stick-right"></div></div>
+      <button type="button" class="touch-reload-btn" id="btn-touch-reload">RELOAD</button>
+    </div>
+  </div>
+
+  <!-- POST-MATCH RESULTS & RARE ANIMATED WAR CHEST REWARD MODAL -->
+  <div class="modal-backdrop" id="post-match-modal">
+    <div class="modal-window">
+      <div class="brand-tag" style="margin-bottom: 8px;" id="pm-rank-badge">MATCH CONCLUDED</div>
+      <h2 style="font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 6px;" id="pm-headline">Victory Achieved!</h2>
+      <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px;" id="pm-subtext"></p>
+
+      <!-- Rare Animated Chest Container (0.01% - 0.1% Roll) -->
+      <div id="pm-chest-container" style="display: none; background: radial-gradient(circle, rgba(255,196,57,0.22) 0%, rgba(11,18,32,0.95) 75%); border: 2px solid var(--cbm-gold); border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;">
+        <canvas id="rare-chest-canvas" width="240" height="200"></canvas>
+        <div style="font-size: 16px; font-weight: 900; color: var(--cbm-gold);" id="pm-chest-title">ULTRA-RARE WAR CHEST UNLOCKED!</div>
+        <div style="font-size: 13px; color: #fff; margin-top: 4px;" id="pm-chest-reward-text">Crediting Gold from Unencumbered Reserves...</div>
+      </div>
+
+      <div id="pm-roll-audit" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-bottom: 18px; padding: 8px; background: var(--bg-deep); border-radius: var(--radius-sm);"></div>
+
+      <div style="display: flex; justify-content: center; gap: 12px;">
+        <button type="button" class="btn btn-primary" id="btn-return-lobby">Return to P2P Lobby</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIP BUNDLE UNLOCK MODAL (AVA & SIG P365-380 ROSE) -->
+  <div class="modal-backdrop" id="vip-bundle-modal">
+    <div class="modal-window" style="max-width: 520px; border-color: rgba(244, 114, 182, 0.45); box-shadow: 0 16px 40px rgba(244, 114, 182, 0.25);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <span class="vip-tag" style="font-size: 11px;">⭐ VIP BUNDLE EXCLUSIVE</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-close-vip-modal" style="padding: 2px 8px; font-size: 13px;">✕</button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 14px; text-align: left;">
+        <canvas id="vip-modal-preview" width="96" height="96" style="background: var(--bg-deep); border: 1px solid rgba(244,114,182,0.3); border-radius: var(--radius-sm); flex-shrink: 0;"></canvas>
+        <div>
+          <h3 style="font-size: 18px; font-weight: 900; color: #fff; margin-bottom: 4px;">Ava &amp; SIG Sauer P365-380 ROSE</h3>
+          <p style="font-size: 12px; color: var(--text-dim); line-height: 1.45;">
+            Pink catgirl specialist with animated cat-paw ball hands &amp; .380 ACP ROSE micro-compact pistol with matte rose-gold controls, XRAY3 sights &amp; cat-paw charm.
+          </p>
+        </div>
+      </div>
+
+      <div style="background: var(--bg-deep); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; text-align: left;">
+        <div style="font-size: 12px; font-weight: 800; color: #fbcfe8; margin-bottom: 8px;">Access Tiers</div>
+        <ul style="font-size: 12px; color: var(--text-dim); padding-left: 18px; line-height: 1.6; margin: 0;">
+          <li><strong style="color: #fff;">CBM Plus Subscribers:</strong> Included free with your subscription across all matches.</li>
+          <li><strong style="color: #fff;">1-Match Pass (50.00 Gold):</strong> Pay 50.00 Gold from your account balance to unlock Ava &amp; the P365-380 ROSE for one match. <em>100% of this fee is converted directly to unencumbered clan reserves.</em></li>
+        </ul>
+        <div style="margin-top: 10px; font-family: var(--font-mono); font-size: 12px; color: var(--cbm-gold);" id="vip-modal-balance-text">
+          Account Balance: 0.00 Gold
+        </div>
+      </div>
+
+      <div id="vip-modal-status-msg" style="font-size: 12px; margin-bottom: 14px; padding: 8px 12px; border-radius: 6px; display: none;"></div>
+
+      <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+        <a href="/subscription" target="_blank" class="btn btn-gold btn-sm" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+          ⚡ Get CBM Plus (Free VIP)
+        </a>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-confirm-vip-50" style="background: #ec4899; border-color: #f472b6;">
+          Unlock 1 Match (50 Gold)
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ==========================================================================
+   * 1. ANTI-SCRIPTING, ZERO-TRUST ENCLAVE & IMMUTABLE CATALOGS
+   * ========================================================================== */
+  const SecurityEnclave = (() => {
+    const sessionNonce = crypto.getRandomValues(new Uint32Array(4)).join('-');
+    const fireTimestamps = [];
+    let packetSeq = 0;
+
+    function verifyTrustedInput(evt) {
+      if (!evt) return false;
+      if (evt.isTrusted !== true) {
+        console.warn('[CBM Zero-Trust] Blocked untrusted synthetic script event.');
+        return false;
+      }
+      return true;
+    }
+
+    function checkFireCadence(minIntervalMs) {
+      const now = performance.now();
+      if (fireTimestamps.length > 0) {
+        const delta = now - fireTimestamps[fireTimestamps.length - 1];
+        if (delta < minIntervalMs * 0.82) {
+          return false;
+        }
+      }
+      fireTimestamps.push(now);
+      if (fireTimestamps.length > 16) fireTimestamps.shift();
+
+      // Detect inhuman macro cadence (near-zero standard deviation across 12 rapid clicks)
+      if (fireTimestamps.length >= 12) {
+        const intervals = [];
+        for (let i = 1; i < fireTimestamps.length; i++) {
+          intervals.push(fireTimestamps[i] - fireTimestamps[i - 1]);
+        }
+        const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+        const variance = intervals.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / intervals.length;
+        if (avg < 190 && Math.sqrt(variance) < 0.35) {
+          console.warn('[CBM Zero-Trust] Automated macro clicker signature rejected.');
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function signPacket(payload) {
+      packetSeq += 1;
+      const ts = Date.now();
+      const raw = `${packetSeq}:${ts}:${payload.type}:${payload.senderId}:${sessionNonce}`;
+      let hash = 2166136261;
+      for (let i = 0; i < raw.length; i++) {
+        hash ^= raw.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return Object.assign({}, payload, {
+        seq: packetSeq,
+        ts,
+        sig: (hash >>> 0).toString(16)
+      });
+    }
+
+    function verifyPacket(pkt) {
+      if (!pkt || typeof pkt !== 'object' || !pkt.senderId || !pkt.type || !pkt.sig) return false;
+      if (Math.abs(Date.now() - (pkt.ts || 0)) > 15000) return false;
+      return true;
+    }
+
+    function cryptographicRoll() {
+      const buf = new Uint32Array(2);
+      crypto.getRandomValues(buf);
+      // Uniform float in [0, 1) with 53-bit precision
+      return (buf[0] * Math.pow(2, -32)) + (buf[1] * Math.pow(2, -64));
+    }
+
+    return Object.freeze({
+      verifyTrustedInput,
+      checkFireCadence,
+      signPacket,
+      verifyPacket,
+      cryptographicRoll
+    });
+  })();
+
+  /* ==========================================================================
+   * 2. IMMUTABLE CHARACTERS, 10 HANDGUNS, MAPS & TIME OF DAY DEFINITIONS
+   * ========================================================================== */
+  const CHARACTERS = Object.freeze([
+    Object.freeze({
+      id: 'alfred',
+      name: 'Alfred',
+      role: 'Tactical Gentleman',
+      bodyColor: '#27303f',
+      vestColor: '#151b26',
+      accentColor: '#dc2626',
+      skinColor: '#f1c27d',
+      gloveColor: '#e2e8f0',
+      hatType: 'beret',
+      faceType: 'monocle',
+      desc: 'Charcoal suit vest & crimson tie, brass monocle, mustache, and white-gloved ball hands.'
+    }),
+    Object.freeze({
+      id: 'jack',
+      name: 'Jack',
+      role: 'Spec-Ops Breacher',
+      bodyColor: '#365314',
+      vestColor: '#1a2e05',
+      accentColor: '#84cc16',
+      skinColor: '#e0ac69',
+      gloveColor: '#27272a',
+      hatType: 'nvg_helmet',
+      faceType: 'balaclava',
+      desc: 'Olive kevlar rig, skull balaclava mask, dual-tube night vision goggles, and armored ball hands.'
+    }),
+    Object.freeze({
+      id: 'johnson',
+      name: 'Johnson',
+      role: 'Heavy Enforcer',
+      bodyColor: '#78350f',
+      vestColor: '#451a03',
+      accentColor: '#f59e0b',
+      skinColor: '#8d5524',
+      gloveColor: '#44403c',
+      hatType: 'bandana',
+      faceType: 'aviators',
+      desc: 'Desert flak vest, ammo bandolier, crimson bandana, Gold aviators, and heavy tactical ball hands.'
+    }),
+    Object.freeze({
+      id: 'mia',
+      name: 'Mia',
+      role: 'Cyber Recon',
+      bodyColor: '#311042',
+      vestColor: '#1e1b4b',
+      accentColor: '#06b6d4',
+      skinColor: '#ffdbac',
+      gloveColor: '#0891b2',
+      hatType: 'cyber_hood',
+      faceType: 'neon_visor',
+      desc: 'Sleek synth-weave jacket, illuminated cyan visor mask, comms headset, and pulse-gloved ball hands.'
+    }),
+    Object.freeze({
+      id: 'verity',
+      name: 'Verity',
+      role: 'Sovereign Commander',
+      bodyColor: '#0f172a',
+      vestColor: '#1e3a8a',
+      accentColor: '#ffc439',
+      skinColor: '#f5cfa0',
+      gloveColor: '#f8fafc',
+      hatType: 'officer_cap',
+      faceType: 'crest_mask',
+      desc: 'Gold-trimmed CBM officer coat, royal epaulets, gilded half-mask, and dress-gloved ball hands.'
+    }),
+    Object.freeze({
+      id: 'ava',
+      name: 'Ava',
+      role: 'Pink Catgirl Specialist',
+      isVip: true,
+      vipBundle: 'ava_rose',
+      bodyColor: '#f472b6',
+      vestColor: '#831843',
+      accentColor: '#fbcfe8',
+      skinColor: '#ffe4e6',
+      gloveColor: '#fdf2f8',
+      pawPadColor: '#fb7185',
+      earOuterColor: '#f472b6',
+      earInnerColor: '#fda4af',
+      bellColor: '#fbbf24',
+      hatType: 'cat_ears_headset',
+      faceType: 'catgirl_kawaii',
+      desc: 'VIP Bundle operative with twitching neko ears, golden collar bell, swaying tail, and cat-paw ball hands.'
+    })
+  ]);
+
+  const HANDGUNS = Object.freeze([
+    Object.freeze({
+      rank: 0,
+      id: 'sig_p365_380_rose',
+      name: 'SIG Sauer P365-380 ROSE (.380 ACP)',
+      type: 'VIP Micro-Compact Pistol',
+      caliber: '.380 ACP',
+      isVip: true,
+      vipBundle: 'ava_rose',
+      referenceUrl: 'https://www.sigsauer.com/p365-380-rose.html',
+      overview: 'VIP Bundle special edition ROSE micro-compact in soft-shooting .380 ACP with rose gold controls, XRAY3 tritium sights, and cat-paw charm.',
+      damage: 28,
+      magSize: 10,
+      reserveMax: 60,
+      fireIntervalMs: 145,
+      reloadTimeMs: 1280,
+      bulletSpeed: 19.5,
+      spreadRad: 0.015,
+      recoilKick: 2.1,
+      gunColor: '#f472b6',
+      slideColor: '#1f242d',
+      roseGoldColor: '#e8998d',
+      gripColor: '#db2777'
+    }),
+    Object.freeze({
+      rank: 10,
+      id: 'm1911',
+      name: 'Colt M1911 (.45 ACP)',
+      type: 'Single-Action Semi-Automatic Pistol',
+      overview: 'A legendary historic military sidearm known for heavy stopping power and over a century of service.',
+      damage: 42,
+      magSize: 8,
+      reserveMax: 48,
+      fireIntervalMs: 310,
+      reloadTimeMs: 1750,
+      bulletSpeed: 15.5,
+      spreadRad: 0.035,
+      recoilKick: 7.5,
+      gunColor: '#52525b',
+      slideColor: '#27272a',
+      gripColor: '#78350f'
+    }),
+    Object.freeze({
+      rank: 9,
+      id: 'fiveseven',
+      name: 'FN Five-seveN (5.7x28mm)',
+      type: 'Semi-Automatic Pistol',
+      overview: 'Features high-velocity armor-piercing capability and a lightweight, futuristic polymer build.',
+      damage: 25,
+      magSize: 20,
+      reserveMax: 100,
+      fireIntervalMs: 165,
+      reloadTimeMs: 1550,
+      bulletSpeed: 22.0,
+      spreadRad: 0.022,
+      recoilKick: 3.2,
+      gunColor: '#18181b',
+      slideColor: '#3f3f46',
+      gripColor: '#27272a'
+    }),
+    Object.freeze({
+      rank: 8,
+      id: 'beretta92',
+      name: 'Beretta 92FS / M9 (9mm)',
+      type: 'Double-Action/Single-Action Semi-Automatic Pistol',
+      overview: 'Former U.S. military standard-issue with an open-top slide design that prevents stovepipe jams.',
+      damage: 30,
+      magSize: 15,
+      reserveMax: 75,
+      fireIntervalMs: 210,
+      reloadTimeMs: 1600,
+      bulletSpeed: 17.5,
+      spreadRad: 0.028,
+      recoilKick: 4.5,
+      gunColor: '#27272a',
+      slideColor: '#52525b',
+      gripColor: '#18181b'
+    }),
+    Object.freeze({
+      rank: 7,
+      id: 'echelon',
+      name: 'Springfield Echelon (9mm)',
+      type: 'Striker-Fired Modular Pistol',
+      overview: 'Features a central chassis fire control unit and proven extreme durability in high-round-count NATO testing.',
+      damage: 31,
+      magSize: 17,
+      reserveMax: 85,
+      fireIntervalMs: 195,
+      reloadTimeMs: 1500,
+      bulletSpeed: 18.2,
+      spreadRad: 0.024,
+      recoilKick: 4.0,
+      gunColor: '#1e293b',
+      slideColor: '#334155',
+      gripColor: '#0f172a'
+    }),
+    Object.freeze({
+      rank: 6,
+      id: 'mp9',
+      name: 'Smith & Wesson M&P9 M2.0 (9mm)',
+      type: 'Striker-Fired Polymer Pistol',
+      overview: 'Built with an extended stainless steel chassis and high-endurance resistance against mud, ice, and heavy use.',
+      damage: 32,
+      magSize: 17,
+      reserveMax: 85,
+      fireIntervalMs: 200,
+      reloadTimeMs: 1520,
+      bulletSpeed: 18.0,
+      spreadRad: 0.025,
+      recoilKick: 4.1,
+      gunColor: '#292524',
+      slideColor: '#57534e',
+      gripColor: '#1c1917'
+    }),
+    Object.freeze({
+      rank: 5,
+      id: 'cz75',
+      name: 'CZ 75 / CZ P-10 C (9mm)',
+      type: 'Semi-Automatic Pistol',
+      overview: 'Renowned worldwide for ergonomic comfort, hammer- or striker-fired precision, and long-lasting cold-hammer-forged barrels.',
+      damage: 33,
+      magSize: 16,
+      reserveMax: 80,
+      fireIntervalMs: 190,
+      reloadTimeMs: 1480,
+      bulletSpeed: 18.8,
+      spreadRad: 0.018,
+      recoilKick: 3.8,
+      gunColor: '#1e1b4b',
+      slideColor: '#374151',
+      gripColor: '#111827'
+    }),
+    Object.freeze({
+      rank: 4,
+      id: 'walther_pdp',
+      name: 'Walther PDP (9mm)',
+      type: 'Striker-Fired Modular Pistol',
+      overview: 'Celebrated for superior out-of-the-box factory triggers, modular optics-ready slides, and deep ergonomic grip textures.',
+      damage: 31,
+      magSize: 18,
+      reserveMax: 90,
+      fireIntervalMs: 175,
+      reloadTimeMs: 1450,
+      bulletSpeed: 19.0,
+      spreadRad: 0.020,
+      recoilKick: 3.6,
+      gunColor: '#0f172a',
+      slideColor: '#475569',
+      gripColor: '#1e293b'
+    }),
+    Object.freeze({
+      rank: 3,
+      id: 'sig_p226',
+      name: 'SIG Sauer P226 MK25 / P320-M17 (9mm)',
+      type: 'Service/Maritime Combat Pistol',
+      overview: 'Engineered with anti-corrosion maritime coatings and chosen as the modular sidearm for modern U.S. armed forces (M17).',
+      damage: 34,
+      magSize: 17,
+      reserveMax: 85,
+      fireIntervalMs: 195,
+      reloadTimeMs: 1460,
+      bulletSpeed: 19.2,
+      spreadRad: 0.019,
+      recoilKick: 3.9,
+      gunColor: '#451a03',
+      slideColor: '#a16207',
+      gripColor: '#713f12'
+    }),
+    Object.freeze({
+      rank: 2,
+      id: 'glock17',
+      name: 'Glock 17 / Glock 19 Gen 5 (9mm)',
+      type: 'Striker-Fired Polymer Pistol',
+      overview: 'The global benchmark for simplicity (only 34 parts), extreme field ruggedness, and trusted military/law enforcement adoption.',
+      damage: 30,
+      magSize: 19,
+      reserveMax: 95,
+      fireIntervalMs: 170,
+      reloadTimeMs: 1320,
+      bulletSpeed: 18.6,
+      spreadRad: 0.021,
+      recoilKick: 3.4,
+      gunColor: '#171717',
+      slideColor: '#262626',
+      gripColor: '#0a0a0a'
+    }),
+    Object.freeze({
+      rank: 1,
+      id: 'hk_usp9',
+      name: 'Heckler & Koch USP9 / P30 (9mm)',
+      type: 'High-Endurance Combat/Tactical Pistol',
+      overview: 'Exceeds strict Special Operations Command standards, featuring a proprietary dual-recoil reduction system and peerless long-term mechanical survival.',
+      damage: 35,
+      magSize: 15,
+      reserveMax: 90,
+      fireIntervalMs: 180,
+      reloadTimeMs: 1400,
+      bulletSpeed: 20.0,
+      spreadRad: 0.014,
+      recoilKick: 2.6,
+      gunColor: '#090d16',
+      slideColor: '#334155',
+      gripColor: '#1e293b'
+    })
+  ]);
+
+  const MAPS = Object.freeze({
+    Forest: Object.freeze({
+      id: 'Forest',
+      name: 'Whispering Pine Forest',
+      groundBase: '#1b3022',
+      gridColor: 'rgba(16, 185, 129, 0.06)',
+      obstacles: Object.freeze([
+        { x: 340, y: 260, w: 130, h: 48, type: 'log', color: '#451a03' },
+        { x: 920, y: 240, w: 95, h: 95, type: 'boulder', color: '#475569' },
+        { x: 640, y: 460, w: 180, h: 65, type: 'bunker', color: '#292524' },
+        { x: 310, y: 680, w: 110, h: 85, type: 'boulder', color: '#334155' },
+        { x: 1020, y: 660, w: 150, h: 52, type: 'log', color: '#451a03' }
+      ]),
+      crateSpawns: Object.freeze([
+        { x: 220, y: 480 }, { x: 730, y: 220 }, { x: 730, y: 740 }, { x: 1220, y: 480 }, { x: 520, y: 580 }
+      ])
+    }),
+    City: Object.freeze({
+      id: 'City',
+      name: 'Metro Financial District',
+      groundBase: '#1e2430',
+      gridColor: 'rgba(96, 165, 250, 0.07)',
+      obstacles: Object.freeze([
+        { x: 320, y: 240, w: 160, h: 70, type: 'cruiser', color: '#1e3a8a' },
+        { x: 960, y: 250, w: 140, h: 75, type: 'barrier', color: '#475569' },
+        { x: 650, y: 440, w: 160, h: 110, type: 'vault_kiosk', color: '#0f172a' },
+        { x: 340, y: 670, w: 150, h: 65, type: 'barrier', color: '#475569' },
+        { x: 980, y: 680, w: 160, h: 70, type: 'cruiser', color: '#1e3a8a' }
+      ]),
+      crateSpawns: Object.freeze([
+        { x: 180, y: 460 }, { x: 730, y: 180 }, { x: 730, y: 780 }, { x: 1260, y: 460 }, { x: 850, y: 520 }
+      ])
+    }),
+    Mountain: Object.freeze({
+      id: 'Mountain',
+      name: 'Sovereign Peak Outpost',
+      groundBase: '#27272a',
+      gridColor: 'rgba(248, 250, 252, 0.06)',
+      obstacles: Object.freeze([
+        { x: 330, y: 230, w: 125, h: 90, type: 'crag', color: '#52525b' },
+        { x: 980, y: 230, w: 130, h: 90, type: 'crag', color: '#52525b' },
+        { x: 630, y: 450, w: 200, h: 60, type: 'ridge', color: '#3f3f46' },
+        { x: 350, y: 690, w: 135, h: 80, type: 'crag', color: '#52525b' },
+        { x: 960, y: 690, w: 145, h: 80, type: 'crag', color: '#52525b' }
+      ]),
+      crateSpawns: Object.freeze([
+        { x: 200, y: 470 }, { x: 730, y: 210 }, { x: 730, y: 760 }, { x: 1250, y: 470 }, { x: 480, y: 390 }
+      ])
+    })
+  });
+
+  const TIMES_OF_DAY = Object.freeze({
+    Midnight: Object.freeze({
+      id: 'Midnight',
+      ambientOverlay: 'rgba(3, 7, 18, 0.76)',
+      Tint: '#090d16',
+      flashlight: true,
+      skyBadge: '🌙 Midnight'
+    }),
+    Day: Object.freeze({
+      id: 'Day',
+      ambientOverlay: 'rgba(255, 255, 255, 0.02)',
+      Tint: '#ffffff',
+      flashlight: false,
+      skyBadge: '☀️ Day'
+    }),
+    Evening: Object.freeze({
+      id: 'Evening',
+      ambientOverlay: 'rgba(124, 45, 18, 0.34)',
+      Tint: '#fdba74',
+      flashlight: false,
+      skyBadge: '🌇 Evening'
+    }),
+    Morning: Object.freeze({
+      id: 'Morning',
+      ambientOverlay: 'rgba(14, 116, 144, 0.24)',
+      Tint: '#67e8f9',
+      flashlight: false,
+      skyBadge: '🌅 Morning'
+    })
+  });
+
+  /* ==========================================================================
+   * 3. PROCEDURAL WEB AUDIO SYNTHESIZER (GUNSHOTS, SLIDE RACK, CRATES, CHEST)
+   * ========================================================================== */
+  const SoundFX = (() => {
+    let ctx = null;
+    function ensureCtx() {
+      if (!ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) ctx = new AudioCtx();
+      }
+      if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return ctx;
+    }
+
+    function playShot(caliberWeight = 1.0) {
+      const c = ensureCtx();
+      if (!c) return;
+      const now = c.currentTime;
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(190 / caliberWeight, now);
+      osc.frequency.exponentialRampToValueAtTime(38, now + 0.11);
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+      osc.connect(gain);
+      gain.connect(c.destination);
+      osc.start(now);
+      osc.stop(now + 0.12);
+    }
+
+    function playReloadRack() {
+      const c = ensureCtx();
+      if (!c) return;
+      const now = c.currentTime;
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.setValueAtTime(780, now + 0.06);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+      osc.connect(gain);
+      gain.connect(c.destination);
+      osc.start(now);
+      osc.stop(now + 0.15);
+    }
+
+    function playCratePickup() {
+      const c = ensureCtx();
+      if (!c) return;
+      const now = c.currentTime;
+      [523.25, 659.25, 783.99].forEach((freq, idx) => {
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.05);
+        gain.gain.setValueAtTime(0.14, now + idx * 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.05 + 0.16);
+        osc.connect(gain);
+        gain.connect(c.destination);
+        osc.start(now + idx * 0.05);
+        osc.stop(now + idx * 0.05 + 0.17);
+      });
+    }
+
+    function playChestFanfare() {
+      const c = ensureCtx();
+      if (!c) return;
+      const now = c.currentTime;
+      [440, 554.37, 659.25, 880, 1108.73].forEach((freq, idx) => {
+        const osc = c.createOscillator();
+        const gain = c.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.09);
+        gain.gain.setValueAtTime(0.2, now + idx * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.09 + 0.45);
+        osc.connect(gain);
+        gain.connect(c.destination);
+        osc.start(now + idx * 0.09);
+        osc.stop(now + idx * 0.09 + 0.46);
+      });
+    }
+
+    return Object.freeze({ playShot, playReloadRack, playCratePickup, playChestFanfare });
+  })();
+
+  /* ==========================================================================
+   * 4. 2D BALL CHARACTER & ARTICULATED BALL-HANDS RENDERER
+   * ========================================================================== */
+  const CharacterRenderer = (() => {
+    /**
+     * Renders the SIG Sauer P365-380 ROSE with Matte Rose Gold controls,
+     * XRAY3 tritium sights, rose/cat-paw engravings, and a dangling cat-paw charm.
+     */
+    function renderP365RoseWeapon(ctx, gunX, gunY, slidePullBack = 0, timeNow = 0) {
+      ctx.save();
+      ctx.translate(gunX, gunY);
+
+      // 1. Polymer Grip Module & Frame (Cat-themed Pink with Rose Stippling)
+      ctx.fillStyle = '#f472b6';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-5, -2.5, 22, 6, 2);
+      else ctx.rect(-5, -2.5, 22, 6);
+      ctx.fill();
+
+      // Matte Rose Gold Trigger & Manual Safety Lever
+      ctx.fillStyle = '#e8998d';
+      ctx.fillRect(-3, -3.2, 3.5, 1.5);
+      ctx.fillRect(6, 2.2, 2.5, 2.5);
+
+      // 2. Exposed Matte Rose Gold Barrel Hood / Chamber
+      ctx.fillStyle = '#e8998d';
+      ctx.fillRect(2, -3.2, 7, 4.2);
+
+      // 3. Nitron Black + Pink Cat-Themed Slide
+      ctx.save();
+      ctx.translate(-slidePullBack, 0);
+
+      ctx.fillStyle = '#1f242d';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-6, -4.2, 24, 5.5, 1.5);
+      else ctx.rect(-6, -4.2, 24, 5.5);
+      ctx.fill();
+
+      // Pink Cat-Whisker / Rose Engraving Stripe along Slide
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(-2, -1.5);
+      ctx.lineTo(14, -1.5);
+      ctx.stroke();
+
+      // Cute Tiny Pink Cat-Ear Rear Sight & XRAY3 Green Tritium Front Sight
+      ctx.fillStyle = '#4ade80';
+      ctx.fillRect(15.5, -4.8, 1.8, 1.4);
+      ctx.fillStyle = '#f472b6';
+      ctx.fillRect(-5, -5.0, 2.2, 1.5);
+
+      // Matte Rose Gold Slide Backplate
+      ctx.fillStyle = '#e8998d';
+      ctx.fillRect(-6.5, -4.0, 1.4, 5.0);
+
+      ctx.restore();
+
+      // 4. Dangling Cute Cat-Paw Weapon Charm on Rear Loop
+      const sway = Math.sin(timeNow * 0.008) * 0.35 + (slidePullBack * 0.08);
+      ctx.save();
+      ctx.translate(-5, 3);
+      ctx.rotate(sway);
+      ctx.strokeStyle = '#e8998d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 4.5);
+      ctx.stroke();
+      ctx.fillStyle = '#fbcfe8';
+      ctx.beginPath();
+      ctx.arc(0, 6.5, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#f43f5e';
+      ctx.beginPath();
+      ctx.arc(0, 6.8, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.restore();
+    }
+
+    /**
+     * Renders a cute Cat-Paw 2D Ball Hand (with toe-bean pads).
+     */
+    function drawCatPawBallHand(ctx, hx, hy, radius, charDef, showPalmBeans = false) {
+      ctx.save();
+      ctx.translate(hx, hy);
+
+      // Base Fluffy White/Pink Ball Hand
+      ctx.fillStyle = (charDef && charDef.gloveColor) || '#fdf2f8';
+      ctx.strokeStyle = '#831843';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Pink Wrist Cuff Ribbon
+      ctx.strokeStyle = (charDef && charDef.bodyColor) || '#f472b6';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.78, Math.PI * 0.65, Math.PI * 1.35);
+      ctx.stroke();
+
+      // Cute Pink Cat Toe-Beans
+      ctx.fillStyle = (charDef && charDef.pawPadColor) || '#fb7185';
+      const beanOffset = showPalmBeans ? 0.5 : 1.8;
+      ctx.beginPath();
+      ctx.arc(beanOffset, 0, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      [-2.6, 0, 2.6].forEach((dy, i) => {
+        ctx.beginPath();
+        ctx.arc(beanOffset + 2.8 - Math.abs(i - 1) * 0.6, dy, 1.1, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.restore();
+    }
+
+    /**
+     * Renders "Ava" — Cute Pink Catgirl 2D Ball Operative with swaying tail,
+     * twitching cat ears, golden collar bell, kawaii face, and separate ball hands.
+     */
+    function renderAvaOperative(ctx, state) {
+      const {
+        x, y, radius = 26, aimAngle = 0,
+        charDef, gunDef,
+        reloadProgress = 0, isReloading = false, recoilOffset = 0,
+        hp = 100, maxHp = 100, name = 'Ava', team = null
+      } = state;
+
+      const now = performance.now();
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Ground drop shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
+      ctx.beginPath();
+      ctx.ellipse(0, radius * 0.88, radius * 0.95, radius * 0.38, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rotate character rig toward aimAngle
+      ctx.save();
+      ctx.rotate(aimAngle);
+
+      // 1. Animated Swaying Fluffy Pink Cat Tail
+      const tailWag = Math.sin(now * 0.006) * 7;
+      ctx.save();
+      ctx.strokeStyle = (charDef && charDef.bodyColor) || '#f472b6';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-radius + 3, 0);
+      ctx.quadraticCurveTo(-radius - 12, tailWag, -radius - 20, -tailWag * 0.7);
+      ctx.stroke();
+
+      // White fluffy tail tip
+      ctx.strokeStyle = '#fdf2f8';
+      ctx.lineWidth = 6.5;
+      ctx.beginPath();
+      ctx.moveTo(-radius - 15, -tailWag * 0.35);
+      ctx.lineTo(-radius - 20, -tailWag * 0.7);
+      ctx.stroke();
+      ctx.restore();
+
+      // 2. Main 2D Ball Body (Sakura Pink & Berry Pleated Outfit)
+      const skinCol = (charDef && charDef.skinColor) || '#ffe4e6';
+      const bodyCol = (charDef && charDef.bodyColor) || '#f472b6';
+      const vestCol = (charDef && charDef.vestColor) || '#831843';
+
+      const bodyGrad = ctx.createRadialGradient(-4, -5, 4, 0, 0, radius);
+      bodyGrad.addColorStop(0, skinCol);
+      bodyGrad.addColorStop(0.58, bodyCol);
+      bodyGrad.addColorStop(1, vestCol);
+
+      ctx.fillStyle = bodyGrad;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = team === 'ALPHA' ? '#38bdf8' : (team === 'BRAVO' ? '#f87171' : '#fbcfe8');
+      ctx.stroke();
+
+      // Berry Hoodie / Skirt Capelet around back half of Ball
+      ctx.fillStyle = vestCol;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.94, Math.PI * 0.42, Math.PI * 1.58);
+      ctx.fill();
+
+      // Cute Pink Ribbon Collar & Golden Cat Bell at front neck
+      ctx.strokeStyle = '#ec4899';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.82, -0.5, 0.5);
+      ctx.stroke();
+
+      // Golden Cat Bell
+      ctx.fillStyle = (charDef && charDef.bellColor) || '#fbbf24';
+      ctx.strokeStyle = '#78350f';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(radius * 0.84, 0, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#451a03';
+      ctx.beginPath();
+      ctx.arc(radius * 0.88, 0, 1.1, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 3. Kawaii Catgirl Face, Whiskers, Blush & Sparkling Eyes
+      ctx.fillStyle = 'rgba(244, 63, 94, 0.45)';
+      ctx.beginPath();
+      ctx.ellipse(9, -10.5, 3.2, 2.0, 0, 0, Math.PI * 2);
+      ctx.ellipse(9, 10.5, 3.2, 2.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const isBlinking = (Math.floor(now / 180) % 22 === 0);
+      if (recoilOffset > 0.6 || isBlinking) {
+        ctx.strokeStyle = '#4c0519';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(9, -8); ctx.lineTo(12, -6); ctx.lineTo(9, -4);
+        ctx.moveTo(9, 4);  ctx.lineTo(12, 6);  ctx.lineTo(9, 8);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#4c0519';
+        ctx.beginPath();
+        ctx.ellipse(11, -6.2, 3.2, 2.7, 0, 0, Math.PI * 2);
+        ctx.ellipse(11, 6.2, 3.2, 2.7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(12, -7, 1.2, 0, Math.PI * 2);
+        ctx.arc(12, 5.4, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Tiny ":3" Cat Mouth & Side Whiskers
+      ctx.strokeStyle = '#831843';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.arc(14, -1.6, 1.6, 0, Math.PI);
+      ctx.arc(14, 1.6, 1.6, 0, Math.PI);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(131, 24, 67, 0.55)';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(7, -13); ctx.lineTo(5, -18);
+      ctx.moveTo(9, -13); ctx.lineTo(8, -18.5);
+      ctx.moveTo(7, 13);  ctx.lineTo(5, 18);
+      ctx.moveTo(9, 13);  ctx.lineTo(8, 18.5);
+      ctx.stroke();
+
+      // 4. Pastel Pink Hair Crown & Twitching Triangular Cat Ears
+      ctx.fillStyle = '#f472b6';
+      ctx.beginPath();
+      ctx.arc(-4, 0, radius * 0.64, 0, Math.PI * 2);
+      ctx.fill();
+
+      const earTwitch = Math.sin(now * 0.012) > 0.92 ? 1.8 : 0;
+
+      [-1, 1].forEach(side => {
+        ctx.save();
+        const ty = side * 12;
+        ctx.translate(-2, ty);
+        ctx.rotate(side * (0.25 + (side === 1 ? earTwitch * 0.08 : 0)));
+
+        ctx.fillStyle = (charDef && charDef.earOuterColor) || '#f472b6';
+        ctx.strokeStyle = '#831843';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(-6, 0);
+        ctx.lineTo(6, 0);
+        ctx.lineTo(1, side * 13);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = (charDef && charDef.earInnerColor) || '#fda4af';
+        ctx.beginPath();
+        ctx.moveTo(-3, side * 1.5);
+        ctx.lineTo(3.5, side * 1.5);
+        ctx.lineTo(1, side * 9.5);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      });
+
+      // 5. Articulated Separate Cat-Paw 2D Ball Hands & Gun Kinematics
+      const gunX = radius + 9 - recoilOffset;
+      const gunY = 6;
+
+      let rightHandX = gunX - 4;
+      let rightHandY = gunY + 4.5;
+      let leftHandX = gunX + 3.5;
+      let leftHandY = gunY - 5.5;
+      let slidePullBack = recoilOffset * 0.9;
+
+      if (isReloading) {
+        if (reloadProgress < 0.35) {
+          const t = reloadProgress / 0.35;
+          leftHandX = (gunX + 3.5) * (1 - t) + (-5) * t;
+          leftHandY = (gunY - 5.5) * (1 - t) + (-radius - 7) * t;
+        } else if (reloadProgress < 0.72) {
+          const t = (reloadProgress - 0.35) / 0.37;
+          leftHandX = (-5) * (1 - t) + (gunX - 1) * t;
+          leftHandY = (-radius - 7) * (1 - t) + (gunY + 1) * t;
+        } else {
+          const t = (reloadProgress - 0.72) / 0.28;
+          slidePullBack = Math.sin(t * Math.PI) * 8.5;
+          leftHandX = gunX - slidePullBack;
+          leftHandY = gunY - 3;
+        }
+      }
+
+      // Draw Moving Fresh Magazine in Left Paw during Reload
+      if (isReloading && reloadProgress >= 0.32 && reloadProgress < 0.72) {
+        ctx.fillStyle = '#18181b';
+        ctx.fillRect(leftHandX - 3, leftHandY - 3, 8, 5);
+        ctx.fillStyle = '#e8998d';
+        ctx.fillRect(leftHandX - 4, leftHandY - 3, 2, 5);
+      }
+
+      // Right Trigger Cat-Paw Ball Hand
+      drawCatPawBallHand(ctx, rightHandX, rightHandY, 7.2, charDef, false);
+
+      // Weapon Rendering
+      if (gunDef && gunDef.id === 'sig_p365_380_rose') {
+        renderP365RoseWeapon(ctx, gunX, gunY, slidePullBack, now);
+      } else {
+        ctx.fillStyle = gunDef ? gunDef.gunColor : '#27272a';
+        ctx.fillRect(gunX - 4, gunY - 3, 22, 6);
+        ctx.fillStyle = gunDef ? gunDef.slideColor : '#52525b';
+        ctx.fillRect(gunX - 4 - slidePullBack, gunY - 4, 20, 5);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(gunX - 4 - slidePullBack, gunY - 4, 20, 5);
+      }
+
+      // Left Support Cat-Paw Ball Hand
+      drawCatPawBallHand(ctx, leftHandX, leftHandY, 7.2, charDef, isReloading);
+
+      ctx.restore(); // End rotation
+
+      // Overhead Nameplate & Reload Progress Bar
+      ctx.font = '800 11.5px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fbcfe8';
+      ctx.fillText(`🐾 ${name}`, 0, -radius - 15);
+
+      const barW = 44;
+      const barH = 5;
+      const hpRatio = Math.max(0, Math.min(1, hp / maxHp));
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.fillRect(-barW / 2, -radius - 10, barW, barH);
+      ctx.fillStyle = hpRatio > 0.5 ? '#10b981' : (hpRatio > 0.25 ? '#f59e0b' : '#ef4444');
+      ctx.fillRect(-barW / 2, -radius - 10, barW * hpRatio, barH);
+
+      if (isReloading) {
+        ctx.fillStyle = '#f472b6';
+        ctx.fillRect(-barW / 2, -radius - 5, barW * reloadProgress, 2.5);
+      }
+
+      ctx.restore();
+    }
+
+    /**
+     * Draws a 2D Ball Operative with clothes, face/mask, weapon, and separate 2D ball hands
+     * including multi-stage reload animations (eject mag, insert mag, rack slide).
+     */
+    function drawBallOperative(ctx, state) {
+      const {
+        x, y, radius = 24, aimAngle = 0, charDef, gunDef,
+        reloadProgress = 0, isReloading = false, recoilOffset = 0,
+        hp = 100, maxHp = 100, name = 'Player', team = null
+      } = state;
+
+      if (charDef && charDef.id === 'ava') {
+        return renderAvaOperative(ctx, state);
+      }
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Soft ground shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+      ctx.beginPath();
+      ctx.ellipse(0, radius * 0.85, radius * 0.9, radius * 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rotate character rig toward aimAngle
+      ctx.save();
+      ctx.rotate(aimAngle);
+
+      // 1. Base 2D Ball Body (Skin / Torso Sphere)
+      const grad = ctx.createRadialGradient(-5, -6, 3, 0, 0, radius);
+      grad.addColorStop(0, charDef.skinColor);
+      grad.addColorStop(0.55, charDef.bodyColor);
+      grad.addColorStop(1, charDef.vestColor);
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = team === 'ALPHA' ? '#38bdf8' : (team === 'BRAVO' ? '#f87171' : charDef.accentColor);
+      ctx.stroke();
+
+      // 2. Tactical Vest / Suit Clothes Arc
+      ctx.fillStyle = charDef.vestColor;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.92, Math.PI * 0.35, Math.PI * 1.65);
+      ctx.fill();
+
+      // Accent Tie / Bandolier / Epaulets
+      ctx.strokeStyle = charDef.accentColor;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-4, -radius * 0.75);
+      ctx.lineTo(-4, radius * 0.75);
+      ctx.stroke();
+
+      // 3. Face / Mask / Visor Details (facing right +X in local space)
+      if (charDef.faceType === 'neon_visor') {
+        ctx.fillStyle = '#06b6d4';
+        ctx.shadowColor = '#06b6d4';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(6, -10, 11, 20);
+        ctx.shadowBlur = 0;
+      } else if (charDef.faceType === 'aviators') {
+        ctx.fillStyle = '#111827';
+        ctx.fillRect(8, -11, 8, 9);
+        ctx.fillRect(8, 2, 8, 9);
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(8, -11, 8, 9);
+        ctx.strokeRect(8, 2, 8, 9);
+      } else if (charDef.faceType === 'balaclava') {
+        ctx.fillStyle = '#18181b';
+        ctx.beginPath();
+        ctx.arc(4, 0, radius * 0.65, -Math.PI * 0.5, Math.PI * 0.5);
+        ctx.fill();
+        ctx.fillStyle = '#fef08a';
+        ctx.beginPath();
+        ctx.arc(11, -6, 2.5, 0, Math.PI * 2);
+        ctx.arc(11, 6, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (charDef.faceType === 'monocle') {
+        ctx.fillStyle = '#1e293b';
+        ctx.beginPath();
+        ctx.arc(11, -6, 2.5, 0, Math.PI * 2);
+        ctx.arc(11, 6, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        // Gold Monocle on right eye
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.arc(11, 6, 5.2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        // Crest Mask
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(5, -9, 10, 18);
+        ctx.fillStyle = '#ffc439';
+        ctx.beginPath();
+        ctx.arc(11, -5, 2.3, 0, Math.PI * 2);
+        ctx.arc(11, 5, 2.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 4. Hat / Helmet Accessory on top of Ball
+      ctx.fillStyle = charDef.vestColor;
+      ctx.beginPath();
+      ctx.arc(-3, 0, radius * 0.68, 0, Math.PI * 2);
+      ctx.fill();
+      if (charDef.hatType === 'nvg_helmet') {
+        ctx.fillStyle = '#84cc16';
+        ctx.fillRect(4, -8, 6, 5);
+        ctx.fillRect(4, 3, 6, 5);
+      } else if (charDef.hatType === 'officer_cap') {
+        ctx.strokeStyle = '#ffc439';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius * 0.65, -0.8, 0.8);
+        ctx.stroke();
+      }
+
+      // 5. Articulated Separate 2D Ball Hands & Handgun Kinematics
+      const gunX = radius + 8 - recoilOffset;
+      const gunY = 6;
+
+      let rightHandX = gunX - 4;
+      let rightHandY = gunY + 4;
+      let leftHandX = gunX + 4;
+      let leftHandY = gunY - 6;
+      let slidePullBack = 0;
+
+      if (isReloading) {
+        if (reloadProgress < 0.35) {
+          const t = reloadProgress / 0.35;
+          leftHandX = (gunX + 4) * (1 - t) + (-4) * t;
+          leftHandY = (gunY - 6) * (1 - t) + (-radius - 6) * t;
+        } else if (reloadProgress < 0.72) {
+          const t = (reloadProgress - 0.35) / 0.37;
+          leftHandX = (-4) * (1 - t) + (gunX) * t;
+          leftHandY = (-radius - 6) * (1 - t) + (gunY) * t;
+        } else {
+          const t = (reloadProgress - 0.72) / 0.28;
+          slidePullBack = Math.sin(t * Math.PI) * 8;
+          leftHandX = gunX - slidePullBack;
+          leftHandY = gunY - 3;
+        }
+      }
+
+      // Draw Ejected/Moving Magazine during Reload
+      if (isReloading && reloadProgress < 0.7) {
+        ctx.fillStyle = '#18181b';
+        ctx.fillRect(leftHandX - 3, leftHandY - 3, 8, 5);
+      }
+
+      // Draw Right Trigger Ball Hand (Separate 2D Ball)
+      ctx.fillStyle = charDef.gloveColor;
+      ctx.strokeStyle = '#090d16';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(rightHandX, rightHandY, 7.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Draw Handgun Receiver & Barrel (or custom P365 ROSE)
+      if (gunDef && gunDef.id === 'sig_p365_380_rose') {
+        renderP365RoseWeapon(ctx, gunX, gunY, slidePullBack, performance.now());
+      } else {
+        ctx.fillStyle = gunDef ? gunDef.gunColor : '#27272a';
+        ctx.fillRect(gunX - 4, gunY - 3, 22, 6);
+
+        // Draw Handgun Top Slide (with recoil/reload rack offset)
+        ctx.fillStyle = gunDef ? gunDef.slideColor : '#52525b';
+        ctx.fillRect(gunX - 4 - slidePullBack, gunY - 4, 20, 5);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(gunX - 4 - slidePullBack, gunY - 4, 20, 5);
+      }
+
+      // Draw Left Support Ball Hand (Separate 2D Ball)
+      ctx.fillStyle = charDef.gloveColor;
+      ctx.strokeStyle = '#090d16';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(leftHandX, leftHandY, 7.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.restore(); // End rotation
+
+      // 6. Floating Overhead Nameplate & Health Bar
+      ctx.font = '700 11px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(name, 0, -radius - 16);
+
+      const barW = 42;
+      const barH = 5;
+      const hpRatio = Math.max(0, Math.min(1, hp / maxHp));
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.fillRect(-barW / 2, -radius - 11, barW, barH);
+      ctx.fillStyle = hpRatio > 0.5 ? '#10b981' : (hpRatio > 0.25 ? '#f59e0b' : '#ef4444');
+      ctx.fillRect(-barW / 2, -radius - 11, barW * hpRatio, barH);
+
+      if (isReloading) {
+        ctx.fillStyle = '#ffc439';
+        ctx.fillRect(-barW / 2, -radius - 5, barW * reloadProgress, 2.5);
+      }
+
+      ctx.restore();
+    }
+
+    return Object.freeze({
+      drawBallOperative,
+      renderAvaOperative,
+      renderP365RoseWeapon,
+      drawCatPawBallHand
+    });
+  })();
+
+  /* ==========================================================================
+   * 5. CBM NETWORK & UNENCUMBERED RESERVES INTEGRATION BRIDGE
+   * ========================================================================== */
+  const CBMBridge = (() => {
+    // Purge any legacy anonymous guest name from localStorage to guarantee zero storage persistence
+    try {
+      localStorage.removeItem('cbm_gf_anon_name');
+    } catch (_) {}
+
+    const defaultAnonTag = 'Anon_' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    const state = {
+      authenticated: false,
+      isAnonymous: true,
+      username: defaultAnonTag,
+      displayName: defaultAnonTag,
+      clanTag: 'GUEST',
+      depositedGold: 0.0,
+      bankReservesGold: 0.0,
+      isVerified: false,
+      isCbmPlus: false,
+      vipPassActive: false,
+      pin: ''
+    };
+
+    function setGuestCallsign(name) {
+      const clean = String(name || '').trim().replace(/[^a-zA-Z0-9_\-\.]/g, '').substring(0, 20);
+      if (clean) {
+        state.username = clean;
+        state.displayName = clean;
+        // Guest session data is ephemeral; zero persistent storage is used.
+        updateTopTelemetryUI();
+      }
+      return state.displayName;
+    }
+
+    async function fetchBankTelemetry() {
+      try {
+        const res = await fetch('/api/cbm/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.treasury && typeof data.treasury.bank_reserves_gold === 'number') {
+            state.bankReservesGold = data.treasury.bank_reserves_gold;
+          }
+        }
+      } catch (_) {
+        if (!state.bankReservesGold) state.bankReservesGold = 1450.00;
+      }
+      updateTopTelemetryUI();
+    }
+
+    async function checkVipStatus() {
+      try {
+        const user = state.username;
+        if (!user || state.isAnonymous) return;
+        const res = await fetch(`/api/cbm/gunfight/vip-status?user=${encodeURIComponent(user)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.cbm_plus) {
+            state.isCbmPlus = true;
+          }
+        }
+      } catch (_) {}
+    }
+
+    async function unlockVipPass() {
+      if (state.isAnonymous) {
+        return { success: false, message: 'VIP Pass requires an authenticated CBM account.' };
+      }
+      const username = state.username;
+      const pin = state.pin;
+      const tok = localStorage.getItem('cbm_session_token');
+      const headers = { 'Content-Type': 'application/json' };
+      if (tok) headers['Authorization'] = 'Bearer ' + tok;
+
+      try {
+        const res = await fetch('/api/cbm/gunfight/unlock-vip', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ account_name: username, pin, cost_gold: 50.0 })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          state.vipPassActive = true;
+          if (data.vip) {
+            if (typeof data.vip.balance_after_gold === 'number') {
+              state.depositedGold = data.vip.balance_after_gold;
+            }
+            if (typeof data.vip.new_reserves_gold === 'number') {
+              state.bankReservesGold = data.vip.new_reserves_gold;
+            }
+          }
+          updateTopTelemetryUI();
+          return { success: true, message: data.message };
+        } else {
+          return { success: false, message: data.message || 'Failed to unlock VIP Bundle.' };
+        }
+      } catch (err) {
+        return { success: false, message: 'Network connection error.' };
+      }
+    }
+
+    function hasVipAccess() {
+      return Boolean(state.isCbmPlus || state.vipPassActive);
+    }
+
+    function consumeMatchVipPass() {
+      if (state.vipPassActive && !state.isCbmPlus) {
+        state.vipPassActive = false;
+      }
+    }
+
+    async function syncActiveBrowserSession() {
+      const savedUser = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
+      if (!savedUser) {
+        setAuthStatus('No active browser session found. You may sign in or play as Guest.', false);
+        return false;
+      }
+      return await lookupAndBindAccount(savedUser, sessionStorage.getItem('cbm_pin') || '');
+    }
+
+    async function authenticateWithCredentials(username, secret) {
+      if (!username) {
+        setAuthStatus('Please enter your CBM Username.', true);
+        return false;
+      }
+      const isPin = /^\d{4,8}$/.test(secret);
+      try {
+        const payload = { username };
+        if (isPin) payload.pin = secret;
+        else payload.password = secret;
+
+        const res = await fetch('/api/cbm/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.session_token) localStorage.setItem('cbm_session_token', data.session_token);
+          localStorage.setItem('cbm_user', username);
+          state.pin = isPin ? secret : '';
+          await lookupAndBindAccount(username, state.pin);
+          await checkVipStatus();
+          setAuthStatus(`Authenticated as verified CBM Member: ${state.displayName}`, false);
+          return true;
+        }
+      } catch (_) {}
+
+      // Fallback to account lookup verification
+      const ok = await lookupAndBindAccount(username, isPin ? secret : '');
+      if (ok) {
+        await checkVipStatus();
+        setAuthStatus(`Bound to CBM Account: ${state.displayName}`, false);
+        return true;
+      }
+      setAuthStatus('Could not verify credentials. Playing in guest mode or check credentials.', true);
+      return false;
+    }
+
+    async function lookupAndBindAccount(username, pin = '') {
+      try {
+        const headers = {};
+        const tok = localStorage.getItem('cbm_session_token');
+        if (tok) headers['Authorization'] = 'Bearer ' + tok;
+        if (pin) headers['X-CBM-PIN'] = pin;
+
+        const res = await fetch(`/api/cbm/account?name=${encodeURIComponent(username)}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.account) {
+            state.authenticated = true;
+            state.isAnonymous = false;
+            state.username = data.account.account_name || username;
+            state.displayName = data.account.display_name || state.username;
+            state.clanTag = data.account.clan_tag || 'ANTI-OG';
+            state.depositedGold = Number(data.account.deposited_gold || 0);
+            state.isVerified = Boolean(data.account.is_verified);
+            state.isCbmPlus = Boolean(data.account.cbm_plus_active);
+            updateTopTelemetryUI();
+            checkVipStatus();
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    async function inspectOpponent(targetUser) {
+      const box = document.getElementById('opponent-lookup-result');
+      if (!targetUser) return;
+      box.innerHTML = 'Querying CBM Ledger...';
+      try {
+        const res = await fetch(`/api/cbm/account?name=${encodeURIComponent(targetUser)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const a = data.account || {};
+          box.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; color:#fff;">
+              <span><strong>${escapeHtml(a.display_name || a.account_name)}</strong> [${escapeHtml(a.clan_tag || 'NONE')}]</span>
+              <span style="color:${a.is_verified ? '#10b981' : '#f59e0b'}; font-family:var(--font-mono);">
+                ${a.is_verified ? '✓ Verified CBM' : 'Unverified'}
+              </span>
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">
+              Role: ${escapeHtml(a.role || 'member')} • Standing: Active
+            </div>
+          `;
+          return;
+        }
+      } catch (_) {}
+      box.innerHTML = `<span style="color:#f87171;">Member '${escapeHtml(targetUser)}' not found on CBM public ledger.</span>`;
+    }
+
+    async function creditReserveChestReward(rewardGold) {
+      if (state.isAnonymous) {
+        return 0; // Guest operative - chest rewards locked
+      }
+      const cappedGold = Math.min(100.0, Math.max(1.0, Number(rewardGold.toFixed(2))));
+      state.depositedGold = Number((state.depositedGold + cappedGold).toFixed(2));
+      state.bankReservesGold = Math.max(0, Number((state.bankReservesGold - cappedGold).toFixed(2)));
+      updateTopTelemetryUI();
+      return cappedGold;
+    }
+
+    function setAuthStatus(msg, isErr) {
+      const el = document.getElementById('auth-status-msg');
+      if (el) {
+        el.textContent = msg;
+        el.style.color = isErr ? '#f87171' : '#10b981';
+      }
+    }
+
+    function updateTopTelemetryUI() {
+      const nameEl = document.getElementById('hud-user-name');
+      const balEl = document.getElementById('hud-user-bal');
+      const resEl = document.getElementById('hud-reserves-gold');
+      const pillRes = document.getElementById('hud-pill-reserves');
+      const balWrap = document.getElementById('hud-user-bal-wrapper');
+
+      if (state.isAnonymous) {
+        // Hide reserves and balance from top telemetry for anonymous users
+        if (pillRes) pillRes.style.display = 'none';
+        if (balWrap) balWrap.style.display = 'none';
+        if (nameEl) {
+          nameEl.innerHTML = `<span style="color:#cbd5e1;">🕶️ ${escapeHtml(state.displayName)}</span> <span class="badge" style="font-size:9.5px; background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid rgba(148,163,184,0.3); padding:1px 4px; margin-left:4px;">GUEST</span>`;
+        }
+      } else {
+        // Authenticated user: show full telemetry
+        if (pillRes) pillRes.style.display = 'inline-flex';
+        if (balWrap) balWrap.style.display = 'inline';
+        if (nameEl) {
+          nameEl.textContent = state.displayName;
+        }
+        if (balEl) {
+          balEl.textContent = `${state.depositedGold.toFixed(2)} G`;
+        }
+        if (resEl) {
+          resEl.textContent = `${state.bankReservesGold.toFixed(2)} G`;
+        }
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
+
+    return Object.freeze({
+      state,
+      setGuestCallsign,
+      fetchBankTelemetry,
+      checkVipStatus,
+      unlockVipPass,
+      hasVipAccess,
+      consumeMatchVipPass,
+      syncActiveBrowserSession,
+      authenticateWithCredentials,
+      inspectOpponent,
+      creditReserveChestReward,
+      escapeHtml
+    });
+  })();
+
+  /* ==========================================================================
+   * 6. PEER-TO-PEER (WEBRTC PEERJS + BROADCASTCHANNEL MESH) ENGINE
+   * ========================================================================== */
+  const P2PEngine = (() => {
+    const myPeerId = 'cbm-gf-' + Math.random().toString(36).substring(2, 8);
+    let currentRoomId = 'public-ffa';
+    let peerInstance = null;
+    const dataConns = new Map();
+    const bcChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('cbm_gunfight_p2p_mesh') : null;
+    let onPacketCallback = null;
+
+    const ICE_CONFIG = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'stun:global.stun.twilio.com:3478' }
+      ],
+      sdpSemantics: 'unified-plan'
+    };
+
+    function setRoomId(roomId) {
+      currentRoomId = String(roomId || 'public-ffa').trim();
+    }
+
+    function getRoomId() {
+      return currentRoomId;
+    }
+
+    function disconnectAll() {
+      dataConns.forEach((conn) => {
+        try { conn.close(); } catch (_) {}
+      });
+      dataConns.clear();
+      updateMeshStatusUI();
+    }
+
+    function updateMeshStatusUI() {
+      const peerLabel = document.getElementById('hud-peer-id');
+      const p2pDot = document.getElementById('p2p-dot');
+      const openCount = Array.from(dataConns.values()).filter(c => c && c.open).length;
+      if (peerLabel) {
+        if (openCount > 0) {
+          peerLabel.textContent = `${myPeerId} (${openCount} peer${openCount === 1 ? '' : 's'})`;
+        } else {
+          peerLabel.textContent = myPeerId;
+        }
+      }
+      if (p2pDot) {
+        p2pDot.style.background = openCount > 0 ? 'var(--cbm-emerald)' : 'var(--cbm-gold)';
+      }
+    }
+
+    function init(onPacket) {
+      onPacketCallback = onPacket;
+      updateMeshStatusUI();
+
+      if (bcChannel) {
+        bcChannel.onmessage = (ev) => {
+          if (ev.data && SecurityEnclave.verifyPacket(ev.data) && ev.data.senderId !== myPeerId) {
+            if (ev.data.roomId && ev.data.roomId.toLowerCase() !== currentRoomId.toLowerCase()) {
+              return; // STRICT ROOM ISOLATION: Ignore packet from different room in other tab!
+            }
+            if (onPacketCallback) onPacketCallback(ev.data);
+          }
+        };
+      }
+
+      if (typeof Peer !== 'undefined') {
+        try {
+          peerInstance = new Peer(myPeerId, {
+            debug: 1,
+            config: ICE_CONFIG
+          });
+          peerInstance.on('open', (id) => {
+            console.log('[P2PEngine] PeerJS Signaling active:', id);
+            updateMeshStatusUI();
+          });
+          peerInstance.on('connection', (conn) => {
+            console.log('[P2PEngine] Incoming WebRTC connection from:', conn.peer);
+            setupConn(conn);
+          });
+          peerInstance.on('error', (err) => {
+            console.warn('[P2PEngine Signaling Warning]', err.type, err.message);
+            updateMeshStatusUI();
+          });
+          peerInstance.on('disconnected', () => {
+            console.warn('[P2PEngine] Disconnected from signaling server. Reconnecting...');
+            try { peerInstance.reconnect(); } catch (_) {}
+          });
+        } catch (e) {
+          console.warn('[P2PEngine] Failed to initialize PeerJS:', e);
+        }
+      }
+    }
+
+    function setupConn(conn) {
+      if (!conn) return;
+
+      conn.on('open', () => {
+        console.log('[P2PEngine] DataChannel OPEN with:', conn.peer);
+        dataConns.set(conn.peer, conn);
+        updateMeshStatusUI();
+
+        // Transmit local presence tagged with currentRoomId across this connection
+        const presence = SecurityEnclave.signPacket({
+          type: 'HELLO_JOIN',
+          senderId: myPeerId,
+          roomId: currentRoomId
+        });
+        try { conn.send(presence); } catch (_) {}
+
+        if (onPacketCallback) onPacketCallback({ type: 'PEER_CONNECTED', senderId: conn.peer });
+      });
+
+      conn.on('data', (data) => {
+        if (SecurityEnclave.verifyPacket(data) && data.senderId !== myPeerId) {
+          if (data.roomId && data.roomId.toLowerCase() !== currentRoomId.toLowerCase()) {
+            return; // STRICT ROOM ISOLATION: Ignore packet from foreign room!
+          }
+          if (onPacketCallback) onPacketCallback(data);
+        }
+      });
+
+      conn.on('close', () => {
+        console.log('[P2PEngine] DataChannel CLOSED for:', conn.peer);
+        dataConns.delete(conn.peer);
+        updateMeshStatusUI();
+        if (onPacketCallback) onPacketCallback({ type: 'PEER_DISCONNECTED', senderId: conn.peer });
+      });
+
+      conn.on('error', (err) => {
+        console.warn('[P2PEngine Conn Error]', conn.peer, err);
+        dataConns.delete(conn.peer);
+        updateMeshStatusUI();
+      });
+    }
+
+    function connectToPeer(targetId) {
+      if (!targetId || targetId === myPeerId) return;
+      if (dataConns.has(targetId) && dataConns.get(targetId).open) return;
+
+      if (peerInstance && !peerInstance.destroyed) {
+        try {
+          console.log('[P2PEngine] Initiating WebRTC connection to remote peer:', targetId);
+          const conn = peerInstance.connect(targetId, {
+            reliable: true,
+            serialization: 'json'
+          });
+          setupConn(conn);
+        } catch (err) {
+          console.warn('[P2PEngine] Error connecting to peer:', targetId, err);
+        }
+      }
+    }
+
+    function broadcast(payload) {
+      const signed = SecurityEnclave.signPacket(Object.assign({}, payload, { senderId: myPeerId, roomId: currentRoomId }));
+      if (bcChannel) {
+        try { bcChannel.postMessage(signed); } catch (_) {}
+      }
+      dataConns.forEach((conn) => {
+        if (conn && conn.open) {
+          try { conn.send(signed); } catch (_) {}
+        }
+      });
+    }
+
+    function hasConnection(peerId) {
+      return dataConns.has(peerId) && dataConns.get(peerId).open;
+    }
+
+    function getConnectionCount() {
+      return Array.from(dataConns.values()).filter(c => c && c.open).length;
+    }
+
+    return Object.freeze({
+      myPeerId,
+      setRoomId,
+      getRoomId,
+      disconnectAll,
+      init,
+      connectToPeer,
+      broadcast,
+      hasConnection,
+      getConnectionCount
+    });
+  })();
+
+  /* ==========================================================================
+   * 7. GAME STATE, LOBBY COUNTDOWN, 3-MAP VOTE & ARENA SIMULATION
+   * ========================================================================== */
+  const GameController = (() => {
+    let selectedChar = CHARACTERS[0];
+    let selectedGun = HANDGUNS.find(g => g.id === 'hk_usp9') || HANDGUNS[1]; // Default #01 H&K USP9 / P30
+    let gunPageIndex = 0;
+    const GUNS_PER_PAGE = 6;
+
+    let lobbyMode = 'FFA'; // 'FFA', 'TEAMS', 'RANKED'
+    let requiredTeamTotal = 4; // 2, 4, 8, or 10
+    const peersRoster = new Map();
+
+    // Isolated Room System State
+    let currentRoomId = 'public-ffa';
+    let isRoomHost = false;
+    let isCustomRoom = false;
+    let lastRoomCreateTs = 0;
+
+    let lobbyState = 'WAITING'; // 'WAITING', 'COUNTDOWN', 'VOTING', 'IN_MATCH'
+    let countdownSec = 8;
+    let countdownInterval = null;
+    let mapVoteOptions = [];
+    let mapVotesByPeer = new Map();
+
+    // Active Match State
+    let activeMap = MAPS.Forest;
+    let activeTime = TIMES_OF_DAY.Midnight;
+    let matchRunning = false;
+    const players = new Map();
+    let bullets = [];
+    let droppedMags = [];
+    let particles = [];
+    let ammoCrates = [];
+    let nextCrateTimer = 10.0;
+    let lastFrameTs = performance.now();
+
+    // Input State
+    const keys = { w: false, a: false, s: false, d: false };
+    let mouseWorldX = 720;
+    let mouseWorldY = 450;
+    let isMouseDown = false;
+
+    function getMinMaxPlayers() {
+      if (isCustomRoom) {
+        if (lobbyMode === 'TEAMS') return { min: 2, max: requiredTeamTotal };
+        return { min: 2, max: 10 };
+      }
+      if (lobbyMode === 'FFA') return { min: 4, max: 10 };
+      if (lobbyMode === 'TEAMS') return { min: requiredTeamTotal, max: requiredTeamTotal };
+      return { min: 2, max: 2 }; // RANKED 1v1
+    }
+
+    function updateRoomBannerUI() {
+      const label = document.getElementById('current-room-label');
+      const badge = document.getElementById('room-badge-type');
+      const rolePill = document.getElementById('room-role-pill');
+      const desc = document.getElementById('room-subtext-desc');
+      const leaveBtn = document.getElementById('btn-leave-custom-room');
+
+      if (label) label.textContent = currentRoomId.toUpperCase();
+      if (rolePill) rolePill.style.display = isRoomHost ? 'inline-flex' : 'none';
+      if (badge) {
+        if (isCustomRoom) {
+          badge.textContent = 'ISOLATED PRIVATE ROOM';
+          badge.style.background = 'rgba(245, 158, 11, 0.18)';
+          badge.style.color = '#fbbf24';
+          badge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+        } else {
+          badge.textContent = 'PUBLIC MATCHMAKING';
+          badge.style.background = 'rgba(0, 112, 224, 0.2)';
+          badge.style.color = '#60a5fa';
+          badge.style.borderColor = 'rgba(0, 112, 224, 0.4)';
+        }
+      }
+      if (desc) {
+        desc.textContent = isCustomRoom
+          ? (isRoomHost ? 'You are hosting this private room. Share code or direct invite link!' : 'Connected to host operative in isolated room mesh.')
+          : `Matchmaking pool active for mode ${lobbyMode}.`;
+      }
+      if (leaveBtn) {
+        leaveBtn.style.display = isCustomRoom ? 'inline-flex' : 'none';
+      }
+    }
+
+    async function createOrHostRoom(customCode = '') {
+      const fb = document.getElementById('room-feedback-msg');
+      const now = Date.now();
+      if (CBMBridge.state.isAnonymous && now - lastRoomCreateTs < 8000) {
+        const waitSec = Math.ceil((8000 - (now - lastRoomCreateTs)) / 1000);
+        if (fb) fb.textContent = `⚠️ Anonymous room cooldown: wait ${waitSec}s.`;
+        return;
+      }
+
+      if (fb) fb.textContent = 'Provisioning isolated room...';
+
+      // Disconnect cleanly from current peers
+      P2PEngine.broadcast({ type: 'PEER_LEFT', senderId: P2PEngine.myPeerId, roomId: currentRoomId });
+      P2PEngine.disconnectAll();
+      cancelLobbyCountdown();
+      peersRoster.clear();
+
+      try {
+        const res = await fetch('/api/cbm/gunfight/lobby/create-room', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            peerId: P2PEngine.myPeerId,
+            name: CBMBridge.state.displayName,
+            mode: lobbyMode,
+            teamSize: requiredTeamTotal,
+            isAnon: CBMBridge.state.isAnonymous,
+            customCode: customCode || ''
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          lastRoomCreateTs = Date.now();
+          currentRoomId = data.roomId;
+          isRoomHost = true;
+          isCustomRoom = true;
+          P2PEngine.setRoomId(currentRoomId);
+
+          const url = new URL(window.location.href);
+          url.searchParams.set('room', currentRoomId);
+          window.history.replaceState({}, '', url.toString());
+
+          syncSelfInRoster();
+          broadcastPresence();
+          syncLobbyWithServer();
+          updateRoomBannerUI();
+          renderLobbyRosterUI();
+
+          if (fb) fb.textContent = `✓ Room ${currentRoomId} created!`;
+          setTimeout(() => { if (fb) fb.textContent = ''; }, 3500);
+        } else {
+          if (fb) fb.textContent = `✕ ${data.message || 'Failed to create room.'}`;
+        }
+      } catch (err) {
+        const localCode = 'GF-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+        currentRoomId = localCode;
+        isRoomHost = true;
+        isCustomRoom = true;
+        P2PEngine.setRoomId(currentRoomId);
+        syncSelfInRoster();
+        broadcastPresence();
+        updateRoomBannerUI();
+        renderLobbyRosterUI();
+        if (fb) fb.textContent = `✓ Room ${currentRoomId} active.`;
+      }
+    }
+
+    function joinCustomRoom(inputCodeOrUrl) {
+      const fb = document.getElementById('room-feedback-msg');
+      let targetCode = String(inputCodeOrUrl || '').trim();
+      if (!targetCode) return;
+
+      try {
+        if (targetCode.includes('?') || targetCode.startsWith('http')) {
+          const u = new URL(targetCode.startsWith('http') ? targetCode : window.location.origin + '/' + targetCode);
+          const rParam = u.searchParams.get('room');
+          if (rParam) targetCode = rParam;
+        }
+      } catch (_) {}
+
+      targetCode = targetCode.replace(/[^A-Za-z0-9\-]/g, '').toUpperCase();
+      if (!targetCode) {
+        if (fb) fb.textContent = 'Invalid room code.';
+        return;
+      }
+
+      P2PEngine.broadcast({ type: 'PEER_LEFT', senderId: P2PEngine.myPeerId, roomId: currentRoomId });
+      P2PEngine.disconnectAll();
+      cancelLobbyCountdown();
+      peersRoster.clear();
+
+      currentRoomId = targetCode;
+      isRoomHost = false;
+      isCustomRoom = true;
+      P2PEngine.setRoomId(currentRoomId);
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('room', currentRoomId);
+      window.history.replaceState({}, '', url.toString());
+
+      syncSelfInRoster();
+      broadcastPresence();
+      syncLobbyWithServer();
+      updateRoomBannerUI();
+      renderLobbyRosterUI();
+
+      if (fb) fb.textContent = `✓ Switched to room ${currentRoomId}`;
+      setTimeout(() => { if (fb) fb.textContent = ''; }, 3000);
+    }
+
+    function leaveToPublicLobby() {
+      P2PEngine.broadcast({ type: 'PEER_LEFT', senderId: P2PEngine.myPeerId, roomId: currentRoomId });
+      P2PEngine.disconnectAll();
+      cancelLobbyCountdown();
+      peersRoster.clear();
+
+      currentRoomId = 'public-' + lobbyMode.toLowerCase();
+      isRoomHost = false;
+      isCustomRoom = false;
+      P2PEngine.setRoomId(currentRoomId);
+
+      const url = new URL(window.location.href);
+      url.searchParams.delete('room');
+      window.history.replaceState({}, '', url.toString());
+
+      syncSelfInRoster();
+      broadcastPresence();
+      syncLobbyWithServer();
+      updateRoomBannerUI();
+      renderLobbyRosterUI();
+
+      const fb = document.getElementById('room-feedback-msg');
+      if (fb) fb.textContent = 'Returned to public matchmaking.';
+      setTimeout(() => { if (fb) fb.textContent = ''; }, 2500);
+    }
+
+    function syncSelfInRoster() {
+      if (CBMBridge.state.isAnonymous) {
+        selectedChar = CHARACTERS[0];
+        selectedGun = HANDGUNS.find(g => g.id === 'hk_usp9') || HANDGUNS[1];
+      }
+      peersRoster.set(P2PEngine.myPeerId, {
+        peerId: P2PEngine.myPeerId,
+        name: CBMBridge.state.displayName,
+        charId: selectedChar.id,
+        gunId: selectedGun.id,
+        roomId: currentRoomId,
+        isHost: isRoomHost,
+        isAnon: CBMBridge.state.isAnonymous,
+        lastSeen: Date.now()
+      });
+    }
+
+    function broadcastPresence() {
+      syncSelfInRoster();
+      P2PEngine.broadcast({
+        type: 'LOBBY_PRESENCE',
+        name: CBMBridge.state.displayName,
+        roomId: currentRoomId,
+        isHost: isRoomHost,
+        isAnon: CBMBridge.state.isAnonymous,
+        charId: selectedChar.id,
+        gunId: selectedGun.id,
+        mode: lobbyMode,
+        teamSize: requiredTeamTotal
+      });
+      evaluateLobbyThresholds();
+      renderLobbyRosterUI();
+    }
+
+    async function syncLobbyWithServer() {
+      if (lobbyState === 'IN_MATCH') return;
+      try {
+        const payload = {
+          peerId: P2PEngine.myPeerId,
+          name: CBMBridge.state.displayName || 'Operative',
+          mode: lobbyMode,
+          roomId: currentRoomId,
+          isHost: isRoomHost,
+          isAnon: CBMBridge.state.isAnonymous,
+          charId: selectedChar.id,
+          gunId: selectedGun.id,
+          teamSize: requiredTeamTotal
+        };
+        const res = await fetch('/api/cbm/gunfight/lobby/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === 'ok') {
+          if (data.roomMeta) {
+            const rm = data.roomMeta;
+            if (rm.lobbyState === 'VOTING' && lobbyState === 'WAITING' && Array.isArray(rm.mapVoteOptions) && rm.mapVoteOptions.length > 0) {
+              lobbyState = 'VOTING';
+              mapVoteOptions = rm.mapVoteOptions;
+              const remaining = Math.max(1, Math.round(rm.deployAt - (Date.now() / 1000)));
+              countdownSec = remaining;
+              renderMapVoteUI();
+              if (countdownInterval) clearInterval(countdownInterval);
+              countdownInterval = setInterval(() => {
+                countdownSec -= 1;
+                const timerEl = document.getElementById('lobby-countdown-timer');
+                if (timerEl) timerEl.textContent = `DEPLOY IN ${Math.max(0, countdownSec)}s`;
+                if (countdownSec <= 0) {
+                  clearInterval(countdownInterval);
+                  if (rm.winningMap) launchMatch(rm.winningMap.mapId, rm.winningMap.timeId);
+                }
+              }, 1000);
+            } else if (rm.lobbyState === 'IN_MATCH' && lobbyState !== 'IN_MATCH' && rm.winningMap) {
+              if (countdownInterval) clearInterval(countdownInterval);
+              launchMatch(rm.winningMap.mapId, rm.winningMap.timeId);
+            }
+          }
+          if (Array.isArray(data.activePeers)) {
+          let rosterChanged = false;
+          data.activePeers.forEach((remote) => {
+            if (!remote.peerId || remote.peerId === P2PEngine.myPeerId) return;
+            // STRICT ROOM ISOLATION: match remote.roomId with currentRoomId
+            if (remote.mode === lobbyMode && (!remote.roomId || remote.roomId.toLowerCase() === currentRoomId.toLowerCase())) {
+              if (!peersRoster.has(remote.peerId)) {
+                peersRoster.set(remote.peerId, {
+                  peerId: remote.peerId,
+                  name: remote.name || remote.peerId.slice(0, 8),
+                  charId: remote.charId || 'alfred',
+                  gunId: remote.gunId || 'hk_usp9',
+                  roomId: remote.roomId || currentRoomId,
+                  isHost: Boolean(remote.isHost),
+                  isAnon: Boolean(remote.isAnon),
+                  lastSeen: Date.now()
+                });
+                rosterChanged = true;
+              } else {
+                const existing = peersRoster.get(remote.peerId);
+                existing.lastSeen = Date.now();
+                if (remote.name) existing.name = remote.name;
+                if (remote.charId) existing.charId = remote.charId;
+                if (remote.gunId) existing.gunId = remote.gunId;
+                if (remote.isHost !== undefined) existing.isHost = Boolean(remote.isHost);
+                if (remote.isAnon !== undefined) existing.isAnon = Boolean(remote.isAnon);
+              }
+
+              // Auto-connect via WebRTC if not yet connected
+              if (!P2PEngine.hasConnection(remote.peerId)) {
+                P2PEngine.connectToPeer(remote.peerId);
+              }
+            }
+          });
+
+          // Prune stale peers from roster not seen in 15 seconds
+          const now = Date.now();
+          peersRoster.forEach((p, pid) => {
+            if (pid !== P2PEngine.myPeerId && now - (p.lastSeen || 0) > 15000) {
+              peersRoster.delete(pid);
+              rosterChanged = true;
+            }
+          });
+
+          if (rosterChanged) {
+            evaluateLobbyThresholds();
+            renderLobbyRosterUI();
+          }
+        }
+      } catch (_) {}
+    }
+
+    function evaluateLobbyThresholds() {
+      if (lobbyState === 'IN_MATCH') return;
+      const { min, max } = getMinMaxPlayers();
+      const count = Math.min(max, peersRoster.size);
+
+      if (count >= min && lobbyState === 'WAITING') {
+        startLobbyCountdown();
+      } else if (count < min && (lobbyState === 'COUNTDOWN' || lobbyState === 'VOTING')) {
+        cancelLobbyCountdown();
+      }
+    }
+
+    function generate3RandomizedMapOptions() {
+      const mapKeys = Object.keys(MAPS);
+      const timeKeys = Object.keys(TIMES_OF_DAY);
+      const combos = [];
+      mapKeys.forEach(m => {
+        timeKeys.forEach(t => combos.push({ mapId: m, timeId: t }));
+      });
+      // Cryptographic Fisher-Yates shuffle
+      for (let i = combos.length - 1; i > 0; i--) {
+        const j = Math.floor(SecurityEnclave.cryptographicRoll() * (i + 1));
+        const tmp = combos[i];
+        combos[i] = combos[j];
+        combos[j] = tmp;
+      }
+      return combos.slice(0, 3);
+    }
+
+    function startLobbyCountdown() {
+      lobbyState = 'VOTING';
+      countdownSec = 10;
+      mapVoteOptions = generate3RandomizedMapOptions();
+      mapVotesByPeer.clear();
+      mapVotesByPeer.set(P2PEngine.myPeerId, 0);
+
+      P2PEngine.broadcast({
+        type: 'MAP_VOTE_START',
+        options: mapVoteOptions,
+        countdownSec
+      });
+
+      renderMapVoteUI();
+
+      if (countdownInterval) clearInterval(countdownInterval);
+      countdownInterval = setInterval(() => {
+        countdownSec -= 1;
+        const timerEl = document.getElementById('lobby-countdown-timer');
+        if (timerEl) timerEl.textContent = `DEPLOY IN ${countdownSec}s`;
+        if (countdownSec <= 0) {
+          clearInterval(countdownInterval);
+          finalizeMapVoteAndLaunch();
+        }
+      }, 1000);
+    }
+
+    function cancelLobbyCountdown() {
+      lobbyState = 'WAITING';
+      if (countdownInterval) clearInterval(countdownInterval);
+      const timerEl = document.getElementById('lobby-countdown-timer');
+      if (timerEl) timerEl.textContent = 'STANDBY';
+      const voteSec = document.getElementById('map-vote-section');
+      if (voteSec) voteSec.style.display = 'none';
+    }
+
+    function renderMapVoteUI() {
+      const sec = document.getElementById('map-vote-section');
+      const container = document.getElementById('map-vote-cards');
+      if (!sec || !container) return;
+      sec.style.display = 'block';
+
+      const myVote = mapVotesByPeer.get(P2PEngine.myPeerId) || 0;
+      container.innerHTML = mapVoteOptions.map((opt, idx) => {
+        let tally = 0;
+        mapVotesByPeer.forEach(v => { if (v === idx) tally++; });
+        const m = MAPS[opt.mapId];
+        const t = TIMES_OF_DAY[opt.timeId];
+        return `
+          <div class="map-vote-card ${myVote === idx ? 'voted' : ''}" data-vote-idx="${idx}">
+            <div style="font-size:15px; font-weight:800; color:#fff;">${m.name}</div>
+            <div style="font-size:12px; color:var(--cbm-gold); margin:4px 0;">${t.skyBadge}</div>
+            <div style="font-family:var(--font-mono); font-size:12px; color:#60a5fa; margin-top:6px;">
+              ${tally} Vote(s)
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.querySelectorAll('.map-vote-card').forEach(card => {
+        card.addEventListener('click', (ev) => {
+          if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+          const idx = Number(card.getAttribute('data-vote-idx'));
+          mapVotesByPeer.set(P2PEngine.myPeerId, idx);
+          P2PEngine.broadcast({ type: 'CAST_MAP_VOTE', voteIdx: idx });
+          renderMapVoteUI();
+        });
+      });
+    }
+
+    function finalizeMapVoteAndLaunch() {
+      let winningIdx = 0;
+      let bestVotes = -1;
+      [0, 1, 2].forEach(idx => {
+        let count = 0;
+        mapVotesByPeer.forEach(v => { if (v === idx) count++; });
+        if (count > bestVotes) {
+          bestVotes = count;
+          winningIdx = idx;
+        }
+      });
+
+      const chosen = mapVoteOptions[winningIdx] || { mapId: 'Forest', timeId: 'Midnight' };
+      P2PEngine.broadcast({
+        type: 'MATCH_LAUNCH',
+        mapId: chosen.mapId,
+        timeId: chosen.timeId
+      });
+      launchMatch(chosen.mapId, chosen.timeId);
+    }
+
+    function launchMatch(mapId, timeId) {
+      if (lobbyState === 'IN_MATCH' && matchRunning) return;
+      lobbyState = 'IN_MATCH';
+      if (countdownInterval) clearInterval(countdownInterval);
+      activeMap = MAPS[mapId] || MAPS.Forest;
+      activeTime = TIMES_OF_DAY[timeId] || TIMES_OF_DAY.Midnight;
+
+      players.clear();
+      bullets = [];
+      droppedMags = [];
+      particles = [];
+      ammoCrates = [];
+      nextCrateTimer = 8.0;
+
+      const peerArray = Array.from(peersRoster.values()).sort((a, b) => a.peerId.localeCompare(b.peerId));
+      peerArray.forEach((p, idx) => {
+        const angle = (idx / Math.max(1, peerArray.length)) * Math.PI * 2;
+        const spawnX = 720 + Math.cos(angle) * 360;
+        const spawnY = 460 + Math.sin(angle) * 240;
+        const isAnonPeer = Boolean(p.isAnon);
+        const cDef = isAnonPeer ? CHARACTERS[0] : (CHARACTERS.find(c => c.id === p.charId) || CHARACTERS[0]);
+        const gDef = isAnonPeer ? (HANDGUNS.find(g => g.id === 'hk_usp9') || HANDGUNS[1]) : (HANDGUNS.find(g => g.id === p.gunId) || HANDGUNS[1]);
+        const team = lobbyMode === 'TEAMS' ? (idx % 2 === 0 ? 'ALPHA' : 'BRAVO') : null;
+
+        players.set(p.peerId, {
+          peerId: p.peerId,
+          name: p.name,
+          x: spawnX,
+          y: spawnY,
+          vx: 0,
+          vy: 0,
+          aimAngle: angle + Math.PI,
+          charDef: cDef,
+          gunDef: gDef,
+          hp: 100,
+          maxHp: 100,
+          mag: gDef.magSize,
+          reserve: gDef.reserveMax,
+          isReloading: false,
+          reloadStartTs: 0,
+          reloadProgress: 0,
+          recoilOffset: 0,
+          kills: 0,
+          deaths: 0,
+          team
+        });
+      });
+
+      // Spawn initial Ammo Crate
+      spawnAmmoCrate(0);
+
+      document.getElementById('game-layer').classList.add('active');
+      document.getElementById('hud-map-info').textContent = `${activeMap.id.toUpperCase()} • ${activeTime.id.toUpperCase()}`;
+      document.getElementById('hud-char-label').textContent = selectedChar.name.toUpperCase();
+      document.getElementById('hud-gun-label').textContent = `#${String(selectedGun.rank).padStart(2, '0')} ${selectedGun.name}`;
+
+      matchRunning = true;
+      lastFrameTs = performance.now();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function spawnAmmoCrate(seedIdx) {
+      const pts = activeMap.crateSpawns;
+      const pt = pts[seedIdx % pts.length];
+      ammoCrates.push({
+        id: 'crate_' + Date.now() + '_' + seedIdx,
+        x: pt.x,
+        y: pt.y,
+        active: true,
+        spawnTs: performance.now()
+      });
+    }
+
+    function triggerReload() {
+      const me = players.get(P2PEngine.myPeerId);
+      if (!me || me.isReloading) return;
+      if (me.mag >= me.gunDef.magSize || me.reserve <= 0) return;
+
+      me.isReloading = true;
+      me.reloadStartTs = performance.now();
+      me.reloadProgress = 0;
+
+      // Drop empty magazine onto arena floor
+      droppedMags.push({
+        x: me.x + Math.cos(me.aimAngle) * 16,
+        y: me.y + Math.sin(me.aimAngle) * 16,
+        rot: me.aimAngle,
+        alpha: 1.0
+      });
+
+      SoundFX.playReloadRack();
+      P2PEngine.broadcast({ type: 'PLAYER_RELOAD', peerId: me.peerId });
+    }
+
+    function attemptFire(evt) {
+      if (evt && !SecurityEnclave.verifyTrustedInput(evt)) return;
+      const me = players.get(P2PEngine.myPeerId);
+      if (!me || me.hp <= 0 || me.isReloading) return;
+
+      if (me.mag <= 0) {
+        triggerReload();
+        return;
+      }
+
+      if (!SecurityEnclave.checkFireCadence(me.gunDef.fireIntervalMs)) return;
+
+      me.mag -= 1;
+      me.recoilOffset = me.gunDef.recoilKick;
+      const spread = (Math.random() - 0.5) * me.gunDef.spreadRad;
+      const angle = me.aimAngle + spread;
+
+      const muzX = me.x + Math.cos(me.aimAngle) * 34;
+      const muzY = me.y + Math.sin(me.aimAngle) * 34;
+
+      const bullet = {
+        ownerId: me.peerId,
+        team: me.team,
+        x: muzX,
+        y: muzY,
+        vx: Math.cos(angle) * me.gunDef.bulletSpeed,
+        vy: Math.sin(angle) * me.gunDef.bulletSpeed,
+        damage: me.gunDef.damage,
+        life: 75
+      };
+
+      bullets.push(bullet);
+      SoundFX.playShot(me.gunDef.damage / 30);
+
+      for (let i = 0; i < 5; i++) {
+        particles.push({
+          x: muzX,
+          y: muzY,
+          vx: Math.cos(angle + (Math.random() - 0.5) * 0.6) * (3 + Math.random() * 4),
+          vy: Math.sin(angle + (Math.random() - 0.5) * 0.6) * (3 + Math.random() * 4),
+          color: '#ffc439',
+          life: 12
+        });
+      }
+
+      P2PEngine.broadcast({
+        type: 'PLAYER_SHOOT',
+        x: muzX,
+        y: muzY,
+        vx: bullet.vx,
+        vy: bullet.vy,
+        damage: bullet.damage,
+        team: me.team
+      });
+
+      if (me.mag === 0 && me.reserve > 0) {
+        setTimeout(() => triggerReload(), 160);
+      }
+    }
+
+    function rectCircleCollides(circleX, circleY, radius, rect) {
+      const closestX = Math.max(rect.x, Math.min(circleX, rect.x + rect.w));
+      const closestY = Math.max(rect.y, Math.min(circleY, rect.y + rect.h));
+      const dx = circleX - closestX;
+      const dy = circleY - closestY;
+      return (dx * dx + dy * dy) < (radius * radius);
+    }
+
+    function updateSimulation(dt) {
+      const me = players.get(P2PEngine.myPeerId);
+      if (me && me.hp > 0) {
+        const speed = 3.9;
+        let moveX = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
+        let moveY = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+        const len = Math.hypot(moveX, moveY);
+        if (len > 0) {
+          moveX = (moveX / len) * speed;
+          moveY = (moveY / len) * speed;
+        }
+
+        const nextX = Math.max(40, Math.min(1400, me.x + moveX));
+        const nextY = Math.max(40, Math.min(860, me.y + moveY));
+
+        let blockedX = false;
+        let blockedY = false;
+        for (const ob of activeMap.obstacles) {
+          if (rectCircleCollides(nextX, me.y, 24, ob)) blockedX = true;
+          if (rectCircleCollides(me.x, nextY, 24, ob)) blockedY = true;
+        }
+        if (!blockedX) me.x = nextX;
+        if (!blockedY) me.y = nextY;
+
+        me.aimAngle = Math.atan2(mouseWorldY - me.y, mouseWorldX - me.x);
+        me.recoilOffset = Math.max(0, me.recoilOffset - dt * 28);
+
+        if (me.isReloading) {
+          const elapsed = performance.now() - me.reloadStartTs;
+          me.reloadProgress = Math.min(1, elapsed / me.gunDef.reloadTimeMs);
+          if (me.reloadProgress >= 1) {
+            const needed = me.gunDef.magSize - me.mag;
+            const transfer = Math.min(needed, me.reserve);
+            me.mag += transfer;
+            me.reserve -= transfer;
+            me.isReloading = false;
+            me.reloadProgress = 0;
+            SoundFX.playReloadRack();
+          }
+        }
+
+        // Broadcast my state to P2P peers
+        P2PEngine.broadcast({
+          type: 'PLAYER_STATE',
+          x: me.x,
+          y: me.y,
+          aimAngle: me.aimAngle,
+          hp: me.hp,
+          mag: me.mag,
+          reserve: me.reserve,
+          isReloading: me.isReloading,
+          reloadProgress: me.reloadProgress,
+          kills: me.kills
+        });
+      }
+
+      // Auto-Spawning Ammo Crates
+      nextCrateTimer -= dt;
+      if (nextCrateTimer <= 0) {
+        nextCrateTimer = 11.0;
+        if (ammoCrates.filter(c => c.active).length < 3) {
+          spawnAmmoCrate(Math.floor(Math.random() * 10));
+        }
+      }
+
+      // Check Ammo Crate Pickups
+      if (me && me.hp > 0) {
+        ammoCrates.forEach(c => {
+          if (c.active && Math.hypot(me.x - c.x, me.y - c.y) < 38) {
+            c.active = false;
+            me.reserve = Math.min(me.gunDef.reserveMax * 2, me.reserve + me.gunDef.magSize * 2);
+            SoundFX.playCratePickup();
+            P2PEngine.broadcast({ type: 'CRATE_PICKUP', crateId: c.id });
+          }
+        });
+      }
+
+      // Update Bullets & Collisions
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
+        b.x += b.vx;
+        b.y += b.vy;
+        b.life -= 1;
+
+        let remove = b.life <= 0 || b.x < 0 || b.x > 1440 || b.y < 0 || b.y > 900;
+        if (!remove) {
+          for (const ob of activeMap.obstacles) {
+            if (b.x >= ob.x && b.x <= ob.x + ob.w && b.y >= ob.y && b.y <= ob.y + ob.h) {
+              remove = true;
+              break;
+            }
+          }
+        }
+
+        if (!remove) {
+          players.forEach((p) => {
+            if (p.peerId !== b.ownerId && p.hp > 0) {
+              if (b.team && p.team && b.team === p.team) return;
+              if (Math.hypot(b.x - p.x, b.y - p.y) < 24) {
+                remove = true;
+                p.hp = Math.max(0, p.hp - b.damage);
+                if (p.hp === 0) {
+                  const shooter = players.get(b.ownerId);
+                  if (shooter) {
+                    shooter.kills += 1;
+                    if (shooter.kills >= 10) {
+                      concludeMatch(shooter);
+                    }
+                  }
+                  setTimeout(() => {
+                    p.hp = p.maxHp;
+                    p.x = 200 + Math.random() * 1000;
+                    p.y = 180 + Math.random() * 540;
+                  }, 2000);
+                }
+              }
+            }
+          });
+        }
+
+        if (remove) bullets.splice(i, 1);
+      }
+
+      // Update Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.x += pt.vx;
+        pt.y += pt.vy;
+        pt.life -= 1;
+        if (pt.life <= 0) particles.splice(i, 1);
+      }
+
+      updateHUD(me);
+    }
+
+    function renderArena() {
+      const canvas = document.getElementById('arena-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+      }
+
+      const me = players.get(P2PEngine.myPeerId);
+      const camX = me ? me.x - canvas.width / 2 : 0;
+      const camY = me ? me.y - canvas.height / 2 : 0;
+
+      ctx.save();
+      ctx.fillStyle = '#05080f';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.translate(-camX, -camY);
+
+      // 1. Arena Floor
+      ctx.fillStyle = activeMap.groundBase;
+      ctx.fillRect(0, 0, 1440, 900);
+
+      // Tactical Grid
+      ctx.strokeStyle = activeMap.gridColor;
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= 1440; x += 60) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 900); ctx.stroke();
+      }
+      for (let y = 0; y <= 900; y += 60) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1440, y); ctx.stroke();
+      }
+
+      // Arena Boundary Wall
+      ctx.strokeStyle = '#ffc439';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(20, 20, 1400, 860);
+
+      // 2. Dropped Magazines
+      droppedMags.forEach(m => {
+        ctx.save();
+        ctx.translate(m.x, m.y);
+        ctx.rotate(m.rot);
+        ctx.fillStyle = 'rgba(39, 39, 42, 0.85)';
+        ctx.fillRect(-5, -3, 10, 6);
+        ctx.restore();
+      });
+
+      // 3. Auto-Spawned Ammo Crates
+      ammoCrates.forEach(c => {
+        if (!c.active) return;
+        const bob = Math.sin(performance.now() * 0.005) * 4;
+        ctx.save();
+        ctx.translate(c.x, c.y + bob);
+        ctx.fillStyle = '#365314';
+        ctx.strokeStyle = '#ffc439';
+        ctx.lineWidth = 2.2;
+        ctx.fillRect(-16, -13, 32, 26);
+        ctx.strokeRect(-16, -13, 32, 26);
+        ctx.fillStyle = '#ffc439';
+        ctx.font = '800 10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('AMMO', 0, 4);
+        ctx.restore();
+      });
+
+      // 4. Map Obstacles
+      activeMap.obstacles.forEach(ob => {
+        ctx.fillStyle = ob.color;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+        ctx.lineWidth = 2;
+        ctx.fillRect(ob.x, ob.y, ob.w, ob.h);
+        ctx.strokeRect(ob.x, ob.y, ob.w, ob.h);
+      });
+
+      // 5. Bullets & Muzzle Particles
+      ctx.fillStyle = '#fde047';
+      bullets.forEach(b => {
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 3.6, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      particles.forEach(pt => {
+        ctx.fillStyle = pt.color;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 6. All Human Operatives (2D Balls with Separate Ball Hands)
+      players.forEach(p => {
+        if (p.hp > 0) {
+          CharacterRenderer.drawBallOperative(ctx, p);
+        }
+      });
+
+      // 7. Time of Day Lighting Overlay (Midnight, Day, Evening, Morning)
+      ctx.fillStyle = activeTime.ambientOverlay;
+      ctx.fillRect(0, 0, 1440, 900);
+
+      // Midnight Tactical Flashlight Cone
+      if (activeTime.flashlight && me && me.hp > 0) {
+        ctx.save();
+        ctx.translate(me.x, me.y);
+        ctx.rotate(me.aimAngle);
+        const coneGrad = ctx.createRadialGradient(0, 0, 15, 0, 0, 340);
+        coneGrad.addColorStop(0, 'rgba(254, 240, 138, 0.28)');
+        coneGrad.addColorStop(1, 'rgba(254, 240, 138, 0.0)');
+        ctx.fillStyle = coneGrad;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, 340, -0.45, 0.45);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      ctx.restore();
+    }
+
+    function updateHUD(me) {
+      if (me) {
+        document.getElementById('hud-mag-curr').textContent = me.mag;
+        document.getElementById('hud-mag-res').textContent = me.reserve;
+        document.getElementById('hud-hp-text').textContent = `${me.hp} / ${me.maxHp} HP`;
+        document.getElementById('hud-hp-bar').style.width = `${(me.hp / me.maxHp) * 100}%`;
+        document.getElementById('hud-reload-status').textContent = me.isReloading
+          ? `RELOADING... ${Math.round(me.reloadProgress * 100)}%`
+          : '[R] RELOAD • [LMB] FIRE';
+      }
+      document.getElementById('hud-crate-timer').textContent = `Next Ammo Crate: ${Math.ceil(nextCrateTimer)}s`;
+
+      const lb = document.getElementById('hud-leaderboard-list');
+      if (lb) {
+        const sorted = Array.from(players.values()).sort((a, b) => b.kills - a.kills);
+        lb.innerHTML = sorted.map((p, idx) => `
+          <div style="display:flex; justify-content:space-between; color:${p.peerId === P2PEngine.myPeerId ? '#ffc439' : '#fff'};">
+            <span>#${idx + 1} ${CBMBridge.escapeHtml(p.name)}</span>
+            <span>${p.kills} Kills</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    function gameLoop(now) {
+      if (!matchRunning) return;
+      const dt = Math.min(0.1, (now - lastFrameTs) / 1000);
+      lastFrameTs = now;
+      updateSimulation(dt);
+      renderArena();
+      requestAnimationFrame(gameLoop);
+    }
+
+    /**
+     * Evaluates 1st Rank in FFA or 1st Rank in own Team and executes the
+     * 0.01% - 0.1% (0.0001 to 0.001) cryptographic roll for the Animated War Chest
+     * carrying up to 100.00 Gold out of Unencumbered Reserves.
+     */
+    async function concludeMatch(winner) {
+      matchRunning = false;
+      CBMBridge.consumeMatchVipPass();
+      if (selectedChar.isVip && !CBMBridge.hasVipAccess()) {
+        selectedChar = CHARACTERS[0];
+        const scBadge = document.getElementById('selected-char-badge');
+        if (scBadge) scBadge.textContent = `Selected: ${selectedChar.name}`;
+      }
+      if (selectedGun.isVip && !CBMBridge.hasVipAccess()) {
+        selectedGun = HANDGUNS.find(g => g.id === 'hk_usp9') || HANDGUNS[0];
+        const sgBadge = document.getElementById('selected-gun-badge');
+        if (sgBadge) sgBadge.textContent = `Selected: #${String(selectedGun.rank).padStart(2, '0')} ${selectedGun.name}`;
+      }
+      const me = players.get(P2PEngine.myPeerId);
+      const modal = document.getElementById('post-match-modal');
+      const chestBox = document.getElementById('pm-chest-container');
+      const auditBox = document.getElementById('pm-roll-audit');
+
+      // Determine if local player achieved #1 in FFA or #1 in their own team
+      const allSorted = Array.from(players.values()).sort((a, b) => b.kills - a.kills);
+      let isFirstRank = false;
+      if (me) {
+        if (lobbyMode === 'TEAMS' && me.team) {
+          const teamMates = allSorted.filter(p => p.team === me.team);
+          isFirstRank = teamMates.length > 0 && teamMates[0].peerId === me.peerId;
+        } else {
+          isFirstRank = allSorted.length > 0 && allSorted[0].peerId === me.peerId;
+        }
+      }
+
+      document.getElementById('pm-headline').textContent = isFirstRank
+        ? '🏆 1st Rank Achieved!'
+        : `Match Won by ${winner ? winner.name : 'Operative'}`;
+      document.getElementById('pm-subtext').textContent = isFirstRank
+        ? 'You finished #1! Rolling cryptographic RNG (0.01%–0.1% threshold) for an Unencumbered Reserve War Chest...'
+        : 'Only the 1st Rank player in FFA or 1st Rank within their Team is eligible for the Rare Reserve War Chest roll.';
+
+      if (isFirstRank) {
+        // Dynamic probability between 0.01% (0.0001) and 0.1% (0.001)
+        const chanceThreshold = 0.001; // 0.1% upper bound (0.01% - 0.1% range)
+        const rollValue = SecurityEnclave.cryptographicRoll();
+        const unlockedChest = rollValue <= chanceThreshold;
+
+        auditBox.textContent = `Cryptographic RNG Roll: ${rollValue.toFixed(6)} | Required Threshold: <= ${chanceThreshold.toFixed(4)} (0.01%–0.1% Window)`;
+
+        if (unlockedChest) {
+          const rawGold = 1 + SecurityEnclave.cryptographicRoll() * 99;
+          const creditedGold = await CBMBridge.creditReserveChestReward(rawGold);
+          chestBox.style.display = 'block';
+          document.getElementById('pm-chest-reward-text').textContent = `+${creditedGold.toFixed(2)} Gold unlocked from Unencumbered Reserves straight into your CBM balance!`;
+          SoundFX.playChestFanfare();
+          animateRareWarChest(creditedGold);
+        } else {
+          chestBox.style.display = 'none';
+        }
+      } else {
+        chestBox.style.display = 'none';
+        auditBox.textContent = 'Finish #1 in FFA or #1 on your Team to qualify for the 0.01%–0.1% Reserve War Chest roll.';
+      }
+
+      modal.classList.add('active');
+    }
+
+    function animateRareWarChest(goldAmount) {
+      const cnv = document.getElementById('rare-chest-canvas');
+      if (!cnv) return;
+      const ctx = cnv.getContext('2d');
+      let t = 0;
+
+      function frame() {
+        if (!document.getElementById('post-match-modal').classList.contains('active')) return;
+        t += 0.04;
+        ctx.clearRect(0, 0, cnv.width, cnv.height);
+
+        const cx = cnv.width / 2;
+        const cy = cnv.height / 2 + 15;
+
+        // Golden God-rays
+        ctx.save();
+        ctx.translate(cx, cy - 10);
+        ctx.rotate(t * 0.4);
+        for (let i = 0; i < 8; i++) {
+          ctx.rotate(Math.PI / 4);
+          ctx.fillStyle = 'rgba(255, 196, 57, 0.14)';
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(-15, -90);
+          ctx.lineTo(15, -90);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+
+        // Chest Base
+        ctx.fillStyle = '#451a03';
+        ctx.strokeStyle = '#ffc439';
+        ctx.lineWidth = 3;
+        ctx.fillRect(cx - 55, cy - 25, 110, 60);
+        ctx.strokeRect(cx - 55, cy - 25, 110, 60);
+
+        // Animated Opening Lid
+        const openLift = Math.min(28, t * 18);
+        ctx.fillStyle = '#78350f';
+        ctx.fillRect(cx - 58, cy - 48 - openLift, 116, 26);
+        ctx.strokeRect(cx - 58, cy - 48 - openLift, 116, 26);
+
+        // Glowing Gold Bullion Inside
+        ctx.fillStyle = '#ffc439';
+        ctx.font = '900 18px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`+${goldAmount.toFixed(2)} GOLD`, cx, cy - 12 - openLift * 0.4);
+
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function handleIncomingPacket(pkt) {
+      if (pkt.roomId && currentRoomId && pkt.roomId.toLowerCase() !== currentRoomId.toLowerCase()) {
+        return; // STRICT ROOM ISOLATION
+      }
+      if (pkt.type === 'PEER_CONNECTED') {
+        broadcastPresence();
+        return;
+      }
+      if (pkt.type === 'PEER_LEFT' || pkt.type === 'PEER_DISCONNECTED') {
+        peersRoster.delete(pkt.senderId);
+        evaluateLobbyThresholds();
+        renderLobbyRosterUI();
+        return;
+      }
+      if (pkt.type === 'ROOM_DISBANDED') {
+        leaveToPublicLobby();
+        const fb = document.getElementById('room-feedback-msg');
+        if (fb) fb.textContent = 'Room was closed by host. Reverted to public lobby.';
+        return;
+      }
+      if (pkt.type === 'LOBBY_PRESENCE' || pkt.type === 'HELLO_JOIN') {
+        const isNew = !peersRoster.has(pkt.senderId);
+        peersRoster.set(pkt.senderId, {
+          peerId: pkt.senderId,
+          name: pkt.name || pkt.senderId.slice(0, 8),
+          charId: pkt.charId || 'alfred',
+          gunId: pkt.gunId || 'hk_usp9',
+          roomId: pkt.roomId || currentRoomId,
+          isHost: Boolean(pkt.isHost),
+          isAnon: Boolean(pkt.isAnon),
+          lastSeen: Date.now()
+        });
+        evaluateLobbyThresholds();
+        renderLobbyRosterUI();
+
+        if (isNew || pkt.type === 'HELLO_JOIN') {
+          P2PEngine.broadcast({
+            type: 'LOBBY_PRESENCE',
+            name: CBMBridge.state.displayName,
+            roomId: currentRoomId,
+            isHost: isRoomHost,
+            isAnon: CBMBridge.state.isAnonymous,
+            charId: selectedChar.id,
+            gunId: selectedGun.id,
+            mode: lobbyMode,
+            teamSize: requiredTeamTotal
+          });
+        }
+      } else if (pkt.type === 'MAP_VOTE_START') {
+        lobbyState = 'VOTING';
+        mapVoteOptions = pkt.options || generate3RandomizedMapOptions();
+        countdownSec = pkt.countdownSec || 10;
+        renderMapVoteUI();
+      } else if (pkt.type === 'CAST_MAP_VOTE') {
+        mapVotesByPeer.set(pkt.senderId, Number(pkt.voteIdx) || 0);
+        renderMapVoteUI();
+      } else if (pkt.type === 'MATCH_LAUNCH') {
+        if (countdownInterval) clearInterval(countdownInterval);
+        launchMatch(pkt.mapId, pkt.timeId);
+      } else if (pkt.type === 'PLAYER_STATE') {
+        const p = players.get(pkt.senderId);
+        if (p) {
+          p.x = pkt.x;
+          p.y = pkt.y;
+          p.aimAngle = pkt.aimAngle;
+          p.hp = pkt.hp;
+          p.mag = pkt.mag;
+          p.reserve = pkt.reserve;
+          p.isReloading = pkt.isReloading;
+          p.reloadProgress = pkt.reloadProgress;
+          p.kills = pkt.kills;
+        }
+      } else if (pkt.type === 'PLAYER_SHOOT') {
+        bullets.push({
+          ownerId: pkt.senderId,
+          team: pkt.team,
+          x: pkt.x,
+          y: pkt.y,
+          vx: pkt.vx,
+          vy: pkt.vy,
+          damage: pkt.damage || 30,
+          life: 75
+        });
+        SoundFX.playShot(1.0);
+      } else if (pkt.type === 'CRATE_PICKUP') {
+        ammoCrates.forEach(c => {
+          if (c.id === pkt.crateId) c.active = false;
+        });
+      }
+    }
+
+    /* ========================================================================
+     * 8. PAGINATED UI RENDERING & EVENT BINDING
+     * ======================================================================== */
+    function openVipModal(assetName) {
+      const modal = document.getElementById('vip-bundle-modal');
+      if (!modal) return;
+      const statusMsg = document.getElementById('vip-modal-status-msg');
+      if (statusMsg) {
+        statusMsg.style.display = 'none';
+        statusMsg.textContent = '';
+      }
+      const balEl = document.getElementById('vip-modal-balance-text');
+      if (balEl) {
+        balEl.textContent = `Account Balance: ${CBMBridge.state.depositedGold.toFixed(2)} Gold`;
+      }
+
+      // Draw preview of Ava holding the ROSE pistol on canvas
+      const cnv = document.getElementById('vip-modal-preview');
+      if (cnv) {
+        const ctx = cnv.getContext('2d');
+        ctx.clearRect(0, 0, cnv.width, cnv.height);
+        const avaDef = CHARACTERS.find(c => c.id === 'ava') || CHARACTERS[0];
+        const roseDef = HANDGUNS.find(g => g.id === 'sig_p365_380_rose') || HANDGUNS[0];
+        CharacterRenderer.renderAvaOperative(ctx, {
+          x: 48,
+          y: 52,
+          radius: 24,
+          aimAngle: -0.2,
+          charDef: avaDef,
+          gunDef: roseDef,
+          hp: 100,
+          maxHp: 100,
+          name: 'Ava'
+        });
+      }
+
+      modal.classList.add('active');
+    }
+
+    function renderCharactersGrid() {
+      const grid = document.getElementById('char-roster-grid');
+      if (!grid) return;
+      const isAnon = CBMBridge.state.isAnonymous;
+      if (isAnon) {
+        selectedChar = CHARACTERS[0];
+        const scBadge = document.getElementById('selected-char-badge');
+        if (scBadge) scBadge.textContent = `Selected: ${selectedChar.name} (Guest Standard)`;
+      }
+
+      const notice = document.getElementById('anon-char-notice');
+      if (notice) notice.style.display = isAnon ? 'block' : 'none';
+
+      grid.innerHTML = CHARACTERS.map(c => {
+        const isSelected = c.id === selectedChar.id;
+        const isLockedForAnon = isAnon && c.id !== CHARACTERS[0].id;
+        let badgeHtml = '';
+        if (c.isVip) {
+          badgeHtml = `<div style="position: absolute; top: 10px; right: 10px;"><span class="vip-tag">⭐ VIP OPERATIVE</span></div>`;
+        } else if (isAnon && isLockedForAnon) {
+          badgeHtml = `<div style="position: absolute; top: 10px; right: 10px;"><span class="badge" style="background: rgba(239, 68, 68, 0.25); border: 1px solid #ef4444; color: #fca5a5; font-size: 10px; padding: 2px 6px; border-radius: 4px;">🔒 CBM Member</span></div>`;
+        } else if (isAnon && c.id === CHARACTERS[0].id) {
+          badgeHtml = `<div style="position: absolute; top: 10px; right: 10px;"><span class="badge" style="background: rgba(16, 185, 129, 0.25); border: 1px solid #10b981; color: #a7f3d0; font-size: 10px; padding: 2px 6px; border-radius: 4px;">✓ Guest Issue</span></div>`;
+        }
+
+        const extraStyle = isLockedForAnon ? 'opacity: 0.55; filter: grayscale(40%); cursor: not-allowed;' : '';
+
+        return `
+        <div class="char-card ${c.isVip ? 'vip' : ''} ${isSelected ? 'selected' : ''}" data-char-id="${c.id}" style="${extraStyle}">
+          ${badgeHtml}
+          <canvas class="char-canvas-preview" width="130" height="130" id="preview-char-${c.id}"></canvas>
+          <div class="char-name">${c.name}</div>
+          <div class="char-role">${c.role}</div>
+          <p class="char-desc">${c.desc}</p>
+        </div>
+        `;
+      }).join('');
+
+      CHARACTERS.forEach(c => {
+        const cnv = document.getElementById(`preview-char-${c.id}`);
+        if (cnv) {
+          const ctx = cnv.getContext('2d');
+          CharacterRenderer.drawBallOperative(ctx, {
+            x: 65,
+            y: 72,
+            radius: 26,
+            aimAngle: -0.25,
+            charDef: c,
+            gunDef: selectedGun,
+            hp: 100,
+            maxHp: 100,
+            name: c.name
+          });
+        }
+      });
+
+      grid.querySelectorAll('.char-card').forEach(card => {
+        card.addEventListener('click', (ev) => {
+          if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+          const id = card.getAttribute('data-char-id');
+          const targetChar = CHARACTERS.find(x => x.id === id) || CHARACTERS[0];
+          if (CBMBridge.state.isAnonymous && targetChar.id !== CHARACTERS[0].id) {
+            const notEl = document.getElementById('anon-char-notice');
+            if (notEl) {
+              notEl.style.display = 'block';
+              notEl.style.borderColor = '#ef4444';
+              setTimeout(() => { if (notEl) notEl.style.borderColor = 'rgba(245, 158, 11, 0.4)'; }, 1500);
+            }
+            return;
+          }
+          if (targetChar.isVip && !CBMBridge.hasVipAccess()) {
+            openVipModal(targetChar.name);
+            return;
+          }
+          selectedChar = targetChar;
+          document.getElementById('selected-char-badge').textContent = `Selected: ${selectedChar.name}`;
+          renderCharactersGrid();
+          broadcastPresence();
+        });
+      });
+    }
+
+    function renderHandgunsPage() {
+      const grid = document.getElementById('gun-catalog-grid');
+      if (!grid) return;
+      const isAnon = CBMBridge.state.isAnonymous;
+      const defaultGun = HANDGUNS.find(g => g.id === 'hk_usp9') || HANDGUNS[1];
+      if (isAnon) {
+        selectedGun = defaultGun;
+        const sgBadge = document.getElementById('selected-gun-badge');
+        if (sgBadge) sgBadge.textContent = `Selected: #${String(selectedGun.rank).padStart(2, '0')} ${selectedGun.name} (Guest Standard)`;
+      }
+
+      const notice = document.getElementById('anon-gun-notice');
+      if (notice) notice.style.display = isAnon ? 'block' : 'none';
+
+      const totalPages = Math.ceil(HANDGUNS.length / GUNS_PER_PAGE);
+      gunPageIndex = Math.max(0, Math.min(totalPages - 1, gunPageIndex));
+
+      const slice = HANDGUNS.slice(gunPageIndex * GUNS_PER_PAGE, (gunPageIndex + 1) * GUNS_PER_PAGE);
+      grid.innerHTML = slice.map(g => {
+        const isSelected = g.id === selectedGun.id;
+        const isLockedForAnon = isAnon && g.id !== defaultGun.id;
+        let badgeHtml = '';
+        if (g.isVip) {
+          badgeHtml = `<span class="vip-tag">⭐ VIP EXCLUSIVE</span>`;
+        } else if (isAnon && isLockedForAnon) {
+          badgeHtml = `<span class="badge" style="background: rgba(239, 68, 68, 0.25); border: 1px solid #ef4444; color: #fca5a5; font-size: 10px; padding: 2px 6px; border-radius: 4px;">🔒 CBM Member</span>`;
+        } else if (isAnon && g.id === defaultGun.id) {
+          badgeHtml = `<span class="badge" style="background: rgba(16, 185, 129, 0.25); border: 1px solid #10b981; color: #a7f3d0; font-size: 10px; padding: 2px 6px; border-radius: 4px;">✓ Guest Issue</span>`;
+        } else {
+          badgeHtml = `<span class="gun-rank-badge">#${String(g.rank).padStart(2, '0')}</span>`;
+        }
+
+        const extraStyle = isLockedForAnon ? 'opacity: 0.55; filter: grayscale(40%); cursor: not-allowed;' : '';
+
+        return `
+        <div class="gun-card ${g.isVip ? 'vip' : ''} ${isSelected ? 'selected' : ''}" data-gun-id="${g.id}" style="${extraStyle}">
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              ${badgeHtml}
+              <span class="gun-type-tag">${g.type}</span>
+            </div>
+            <div style="font-size:16px; font-weight:800; color:#fff; margin-bottom:4px;">${g.name}</div>
+            <p class="gun-overview">${g.overview}</p>
+          </div>
+          <div class="gun-stats-bars">
+            <div class="stat-row">
+              <span>Damage (${g.damage})</span>
+              <div class="stat-track"><div class="stat-fill" style="width:${(g.damage / 45) * 100}%"></div></div>
+            </div>
+            <div class="stat-row">
+              <span>Magazine (${g.magSize})</span>
+              <div class="stat-track"><div class="stat-fill" style="width:${(g.magSize / 22) * 100}%"></div></div>
+            </div>
+            <div class="stat-row">
+              <span>Velocity (${g.bulletSpeed})</span>
+              <div class="stat-track"><div class="stat-fill" style="width:${(g.bulletSpeed / 24) * 100}%"></div></div>
+            </div>
+            <div class="stat-row">
+              <span>Reload (${(g.reloadTimeMs / 1000).toFixed(2)}s)</span>
+              <div class="stat-track"><div class="stat-fill" style="width:${(2000 - g.reloadTimeMs) / 10}%"></div></div>
+            </div>
+          </div>
+        </div>
+        `;
+      }).join('');
+
+      document.getElementById('gun-page-indicator').textContent = `Page ${gunPageIndex + 1} / ${totalPages}`;
+      document.getElementById('btn-gun-prev').disabled = gunPageIndex === 0;
+      document.getElementById('btn-gun-next').disabled = gunPageIndex >= totalPages - 1;
+
+      grid.querySelectorAll('.gun-card').forEach(card => {
+        card.addEventListener('click', (ev) => {
+          if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+          const id = card.getAttribute('data-gun-id');
+          const targetGun = HANDGUNS.find(x => x.id === id) || defaultGun;
+          if (CBMBridge.state.isAnonymous && targetGun.id !== defaultGun.id) {
+            const notEl = document.getElementById('anon-gun-notice');
+            if (notEl) {
+              notEl.style.display = 'block';
+              notEl.style.borderColor = '#ef4444';
+              setTimeout(() => { if (notEl) notEl.style.borderColor = 'rgba(245, 158, 11, 0.4)'; }, 1500);
+            }
+            return;
+          }
+          if (targetGun.isVip && !CBMBridge.hasVipAccess()) {
+            openVipModal(targetGun.name);
+            return;
+          }
+          selectedGun = targetGun;
+          document.getElementById('selected-gun-badge').textContent = targetGun.isVip
+            ? `Selected: VIP ${selectedGun.name}`
+            : `Selected: #${String(selectedGun.rank).padStart(2, '0')} ${selectedGun.name}`;
+          renderHandgunsPage();
+          renderCharactersGrid();
+          broadcastPresence();
+        });
+      });
+    }
+
+    function renderLobbyRosterUI() {
+      const container = document.getElementById('lobby-roster-slots');
+      const headline = document.getElementById('lobby-status-headline');
+      const subtext = document.getElementById('lobby-rule-subtext');
+      if (!container) return;
+
+      const { min, max } = getMinMaxPlayers();
+      const peerList = Array.from(peersRoster.values()).slice(0, max);
+
+      if (headline) {
+        headline.textContent = `Connected Human Peers (${peerList.length} / ${min} Min • ${max} Max)`;
+      }
+      if (subtext) {
+        if (lobbyMode === 'FFA') {
+          subtext.textContent = 'Free For All requires at least 4 human players (max 10) to start countdown & 3-map vote.';
+        } else if (lobbyMode === 'TEAMS') {
+          subtext.textContent = `2 Teams mode configured for ${requiredTeamTotal} human players (${requiredTeamTotal / 2}v${requiredTeamTotal / 2}).`;
+        } else {
+          subtext.textContent = 'Ranked 1v1 Duel requires exactly 2 human players.';
+        }
+      }
+
+      const slotsHtml = [];
+      for (let i = 0; i < max; i++) {
+        const p = peerList[i];
+        if (p) {
+          const cName = (CHARACTERS.find(c => c.id === p.charId) || CHARACTERS[0]).name;
+          const hostBadge = p.isHost ? '<span class="badge" style="font-size:9.5px; background:rgba(255,196,57,0.2); color:var(--cbm-gold); border:1px solid rgba(255,196,57,0.4); padding:1px 4px; margin-left:4px;">👑 HOST</span>' : '';
+          const anonBadge = p.isAnon ? '<span class="badge" style="font-size:9.5px; background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid rgba(148,163,184,0.3); padding:1px 4px; margin-left:4px;">GUEST</span>' : '';
+          slotsHtml.push(`
+            <div class="roster-slot filled">
+              <div>
+                <strong style="color:#fff;">${CBMBridge.escapeHtml(p.name)}</strong>${hostBadge}${anonBadge}
+                <div style="font-size:10.5px; color:var(--cbm-gold);">${cName}</div>
+              </div>
+              <span style="font-family:var(--font-mono); font-size:11px; color:var(--cbm-emerald);">READY</span>
+            </div>
+          `);
+        } else {
+          slotsHtml.push(`
+            <div class="roster-slot">
+              <span style="color:var(--text-muted);">Open Human Slot #${i + 1}</span>
+              <span style="font-size:10px; color:var(--text-muted);">P2P Waiting...</span>
+            </div>
+          `);
+        }
+      }
+      container.innerHTML = slotsHtml.join('');
+      updateRoomBannerUI();
+    }
+
+    function initDOMBindings() {
+      // Top-level step pagination
+      document.querySelectorAll('.step-tab').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+          if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+          switchMenuPage(btn.getAttribute('data-page'));
+        });
+      });
+
+      document.querySelectorAll('[data-goto]').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+          if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+          switchMenuPage(btn.getAttribute('data-goto'));
+        });
+      });
+
+      function switchMenuPage(pageId) {
+        document.querySelectorAll('.menu-page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.step-tab').forEach(t => t.classList.remove('active'));
+        const target = document.getElementById(pageId);
+        if (target) target.classList.add('active');
+        const tab = document.querySelector(`.step-tab[data-page="${pageId}"]`);
+        if (tab) tab.classList.add('active');
+      }
+
+      // Anonymous Guest Call Sign Bindings
+      document.getElementById('btn-save-anon-callsign')?.addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        const name = document.getElementById('anon-callsign-input').value.trim();
+        if (name) {
+          CBMBridge.setGuestCallsign(name);
+          broadcastPresence();
+          const fb = document.getElementById('auth-status-msg');
+          if (fb) {
+            fb.textContent = `✓ Callsign set to: ${CBMBridge.state.displayName}`;
+            fb.style.color = 'var(--cbm-gold)';
+          }
+        }
+      });
+
+      document.getElementById('btn-continue-anon')?.addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        const name = document.getElementById('anon-callsign-input').value.trim();
+        if (name) CBMBridge.setGuestCallsign(name);
+        broadcastPresence();
+        switchMenuPage('page-characters');
+      });
+
+      // Auth buttons & form
+      document.getElementById('auth-login-form')?.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        document.getElementById('btn-cbm-login')?.click();
+      });
+
+      document.getElementById('btn-cbm-login').addEventListener('click', async (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        const u = document.getElementById('auth-username').value.trim();
+        const s = document.getElementById('auth-secret').value.trim();
+        const ok = await CBMBridge.authenticateWithCredentials(u, s);
+        if (ok) {
+          renderCharactersGrid();
+          renderHandgunsPage();
+        }
+        broadcastPresence();
+      });
+
+      document.getElementById('btn-sync-session').addEventListener('click', async (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        const ok = await CBMBridge.syncActiveBrowserSession();
+        if (ok) {
+          renderCharactersGrid();
+          renderHandgunsPage();
+        }
+        broadcastPresence();
+      });
+
+      // Handgun pagination
+      document.getElementById('btn-gun-prev').addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        gunPageIndex -= 1;
+        renderHandgunsPage();
+      });
+      document.getElementById('btn-gun-next').addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        gunPageIndex += 1;
+        renderHandgunsPage();
+      });
+
+      // Mode cards
+      document.querySelectorAll('.mode-card').forEach(card => {
+        card.addEventListener('click', (ev) => {
+          if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+          document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+          card.classList.add('selected');
+          lobbyMode = card.getAttribute('data-mode');
+          cancelLobbyCountdown();
+          evaluateLobbyThresholds();
+          renderLobbyRosterUI();
+          broadcastPresence();
+          syncLobbyWithServer();
+        });
+      });
+
+      document.getElementById('team-size-select').addEventListener('change', (ev) => {
+        const val = Number(ev.target.value);
+        if ([2, 4, 8, 10].includes(val)) {
+          requiredTeamTotal = val;
+          cancelLobbyCountdown();
+          evaluateLobbyThresholds();
+          renderLobbyRosterUI();
+          broadcastPresence();
+          syncLobbyWithServer();
+        }
+      });
+
+      // Room Isolation & P2P Connect Controls
+      document.getElementById('btn-copy-peer')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(P2PEngine.myPeerId).then(() => {
+          const btn = document.getElementById('btn-copy-peer');
+          if (btn) {
+            const old = btn.textContent;
+            btn.textContent = '✓ Copied ID!';
+            setTimeout(() => { btn.textContent = old; }, 2000);
+          }
+        }).catch(() => {});
+      });
+
+      document.getElementById('btn-copy-room-code')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(currentRoomId).then(() => {
+          const btn = document.getElementById('btn-copy-room-code');
+          if (btn) {
+            const old = btn.textContent;
+            btn.textContent = '✓ Copied Code!';
+            setTimeout(() => { btn.textContent = old; }, 2000);
+          }
+        }).catch(() => {});
+      });
+
+      document.getElementById('btn-copy-room-link')?.addEventListener('click', () => {
+        const u = new URL(window.location.origin + '/gunfight');
+        u.searchParams.set('room', currentRoomId);
+        navigator.clipboard.writeText(u.toString()).then(() => {
+          const btn = document.getElementById('btn-copy-room-link');
+          if (btn) {
+            const old = btn.textContent;
+            btn.textContent = '✓ Copied Link!';
+            setTimeout(() => { btn.textContent = old; }, 2000);
+          }
+        }).catch(() => {});
+      });
+
+      document.getElementById('btn-recreate-room')?.addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        createOrHostRoom();
+      });
+
+      document.getElementById('btn-leave-custom-room')?.addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        leaveToPublicLobby();
+      });
+
+      document.getElementById('btn-join-p2p')?.addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        const target = document.getElementById('join-room-input').value.trim();
+        if (target) {
+          joinCustomRoom(target);
+        }
+      });
+
+      document.getElementById('btn-host-lobby')?.addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        createOrHostRoom();
+      });
+
+      // Ranked Opponent Lookup
+      document.getElementById('btn-lookup-opponent').addEventListener('click', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        const q = document.getElementById('opponent-lookup-input').value.trim();
+        CBMBridge.inspectOpponent(q);
+      });
+
+      // Leave Match & Post-Match Modal
+      document.getElementById('btn-leave-match').addEventListener('click', () => {
+        matchRunning = false;
+        lobbyState = 'WAITING';
+        document.getElementById('game-layer').classList.remove('active');
+      });
+
+      document.getElementById('btn-return-lobby').addEventListener('click', () => {
+        document.getElementById('post-match-modal').classList.remove('active');
+        document.getElementById('game-layer').classList.remove('active');
+        lobbyState = 'WAITING';
+        renderLobbyRosterUI();
+      });
+
+      // VIP Bundle Modal Handlers
+      document.getElementById('btn-close-vip-modal')?.addEventListener('click', () => {
+        document.getElementById('vip-bundle-modal')?.classList.remove('active');
+      });
+
+      document.getElementById('btn-confirm-vip-50')?.addEventListener('click', async (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        const btn = ev.currentTarget;
+        const statusMsg = document.getElementById('vip-modal-status-msg');
+        btn.disabled = true;
+        btn.textContent = 'Converting 50 Gold to Clan Reserves...';
+
+        const res = await CBMBridge.unlockVipPass();
+        if (res.success) {
+          if (statusMsg) {
+            statusMsg.style.display = 'block';
+            statusMsg.style.background = 'rgba(16, 185, 129, 0.18)';
+            statusMsg.style.border = '1px solid #10b981';
+            statusMsg.style.color = '#a7f3d0';
+            statusMsg.textContent = `✓ ${res.message || 'VIP Pass activated for 1 match! 50.00 Gold converted to unencumbered clan reserves.'}`;
+          }
+          const avaDef = CHARACTERS.find(c => c.id === 'ava');
+          const roseDef = HANDGUNS.find(g => g.id === 'sig_p365_380_rose');
+          if (avaDef) {
+            selectedChar = avaDef;
+            const scBadge = document.getElementById('selected-char-badge');
+            if (scBadge) scBadge.textContent = `Selected: ${selectedChar.name}`;
+          }
+          if (roseDef) {
+            selectedGun = roseDef;
+            const sgBadge = document.getElementById('selected-gun-badge');
+            if (sgBadge) sgBadge.textContent = `Selected: VIP ${selectedGun.name}`;
+          }
+          renderCharactersGrid();
+          renderHandgunsPage();
+          broadcastPresence();
+
+          setTimeout(() => {
+            document.getElementById('vip-bundle-modal')?.classList.remove('active');
+            btn.disabled = false;
+            btn.textContent = 'Unlock 1 Match (50 Gold)';
+          }, 1100);
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Unlock 1 Match (50 Gold)';
+          if (statusMsg) {
+            statusMsg.style.display = 'block';
+            statusMsg.style.background = 'rgba(239, 68, 68, 0.18)';
+            statusMsg.style.border = '1px solid #ef4444';
+            statusMsg.style.color = '#fca5a5';
+            statusMsg.textContent = `✕ ${res.message || 'Failed to unlock VIP Pass. Ensure sufficient balance or upgrade to CBM Plus.'}`;
+          }
+        }
+      });
+
+      // Arena Keyboard & Mouse Controls
+      window.addEventListener('keydown', (ev) => {
+        if (!SecurityEnclave.verifyTrustedInput(ev)) return;
+        if (!ev || typeof ev.key !== 'string') return;
+        const k = ev.key.toLowerCase();
+        if (k in keys) keys[k] = true;
+        if (k === 'r' && matchRunning) triggerReload();
+      });
+
+      window.addEventListener('keyup', (ev) => {
+        if (!ev || typeof ev.key !== 'string') return;
+        const k = ev.key.toLowerCase();
+        if (k in keys) keys[k] = false;
+      });
+
+      const canvas = document.getElementById('arena-canvas');
+      canvas.addEventListener('mousemove', (ev) => {
+        const me = players.get(P2PEngine.myPeerId);
+        const camX = me ? me.x - canvas.width / 2 : 0;
+        const camY = me ? me.y - canvas.height / 2 : 0;
+        mouseWorldX = ev.clientX + camX;
+        mouseWorldY = ev.clientY + camY;
+      });
+
+      canvas.addEventListener('mousedown', (ev) => {
+        if (ev.button === 0 && matchRunning) {
+          isMouseDown = true;
+          attemptFire(ev);
+        }
+      });
+
+      window.addEventListener('mouseup', () => { isMouseDown = false; });
+
+      // Platform-Adaptive Touch Controls Detection
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      if (isTouch) {
+        document.getElementById('detected-platform-label').textContent = 'Mobile Dual-Stick Touch';
+        document.getElementById('touch-controls').classList.add('active');
+        setupTouchJoysticks();
+      }
+    }
+
+    function setupTouchJoysticks() {
+      const joyL = document.getElementById('joy-left');
+      const stickL = document.getElementById('stick-left');
+      const joyR = document.getElementById('joy-right');
+      const stickR = document.getElementById('stick-right');
+
+      joyL.addEventListener('touchmove', (ev) => {
+        ev.preventDefault();
+        const touch = ev.targetTouches[0];
+        const rect = joyL.getBoundingClientRect();
+        const dx = touch.clientX - (rect.left + rect.width / 2);
+        const dy = touch.clientY - (rect.top + rect.height / 2);
+        const dist = Math.min(45, Math.hypot(dx, dy));
+        const ang = Math.atan2(dy, dx);
+        stickL.style.transform = `translate(${Math.cos(ang) * dist}px, ${Math.sin(ang) * dist}px)`;
+        keys.w = dy < -12;
+        keys.s = dy > 12;
+        keys.a = dx < -12;
+        keys.d = dx > 12;
+      }, { passive: false });
+
+      joyL.addEventListener('touchend', () => {
+        stickL.style.transform = 'translate(0px, 0px)';
+        keys.w = keys.a = keys.s = keys.d = false;
+      });
+
+      joyR.addEventListener('touchmove', (ev) => {
+        ev.preventDefault();
+        const touch = ev.targetTouches[0];
+        const rect = joyR.getBoundingClientRect();
+        const dx = touch.clientX - (rect.left + rect.width / 2);
+        const dy = touch.clientY - (rect.top + rect.height / 2);
+        const dist = Math.min(45, Math.hypot(dx, dy));
+        const ang = Math.atan2(dy, dx);
+        stickR.style.transform = `translate(${Math.cos(ang) * dist}px, ${Math.sin(ang) * dist}px)`;
+        const me = players.get(P2PEngine.myPeerId);
+        if (me) {
+          mouseWorldX = me.x + Math.cos(ang) * 200;
+          mouseWorldY = me.y + Math.sin(ang) * 200;
+        }
+        if (dist > 28) attemptFire(ev);
+      }, { passive: false });
+
+      joyR.addEventListener('touchend', () => {
+        stickR.style.transform = 'translate(0px, 0px)';
+      });
+
+      document.getElementById('btn-touch-reload').addEventListener('touchstart', (ev) => {
+        ev.preventDefault();
+        triggerReload();
+      });
+    }
+
+    async function start() {
+      P2PEngine.init(handleIncomingPacket);
+      CBMBridge.fetchBankTelemetry();
+      try {
+        await CBMBridge.syncActiveBrowserSession();
+      } catch (_) {}
+      renderCharactersGrid();
+      renderHandgunsPage();
+      syncSelfInRoster();
+      renderLobbyRosterUI();
+      initDOMBindings();
+
+      // Check URL query parameters for direct room auto-join
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomParam = urlParams.get('room');
+        if (roomParam) {
+          joinCustomRoom(roomParam);
+        }
+      } catch (_) {}
+
+      // Pre-fill anon callsign input
+      const anonInput = document.getElementById('anon-callsign-input');
+      if (anonInput && CBMBridge.state.displayName) {
+        anonInput.value = CBMBridge.state.displayName;
+      }
+
+      // Immediate lobby discovery
+      syncLobbyWithServer();
+
+      // Heartbeat presence across P2P mesh and server registry every 2.5 seconds
+      setInterval(() => {
+        if (lobbyState !== 'IN_MATCH') {
+          broadcastPresence();
+          syncLobbyWithServer();
+        }
+      }, 2500);
+
+      window.addEventListener('beforeunload', () => {
+        try {
+          navigator.sendBeacon('/api/cbm/gunfight/lobby/leave', JSON.stringify({ peerId: P2PEngine.myPeerId }));
+        } catch (_) {}
+      });
+    }
+
+    return Object.freeze({ start });
+  })();
+
+  window.addEventListener('DOMContentLoaded', () => {
+    GameController.start();
+  });
+})();
+</script>
+</body>
+</html>

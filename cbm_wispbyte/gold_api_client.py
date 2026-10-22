@@ -14,10 +14,19 @@ import sys
 import json
 import time
 import ssl
+import re
+import unicodedata
 import urllib.request
 import urllib.error
 from typing import Dict, Any, Optional, List, Tuple
 from resilient_fetcher import fetcher
+
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -68,6 +77,7 @@ class TerritorialGoldClient:
         - zombie points: divide by 100
         - 1v1 points / ELO (ovo_elo): divide by 10
         """
+        disp, clan_tag, role = extract_profile_metadata(raw)
         return {
             "gold": round(raw.get("gold_cents", 0) / 100.0, 2),
             "br_points": round(raw.get("br_points", 0) / 100.0, 2),
@@ -81,6 +91,10 @@ class TerritorialGoldClient:
             "username": raw.get("username", ""),
             "clan_a": raw.get("clan_member_clan_a", ""),
             "clan_b": raw.get("clan_member_clan_b", ""),
+            "clan_leader_clan": raw.get("clan_leader_clan", ""),
+            "clan_tag": clan_tag,
+            "role": role,
+            "display_name": disp,
             "gold_rank": raw.get("gold_rank", 0),
             "br_rank": raw.get("br_rank", 0),
             "zombie_rank": raw.get("zombie_rank", 0),
@@ -196,6 +210,72 @@ class TerritorialGoldClient:
 
 GoldApiClient = TerritorialGoldClient
 
+
+def clean_clan_tag(val: Any) -> str:
+    """
+    Cleans, strips, and normalizes a clan tag or bracketed string:
+    - Strips outer brackets if present (e.g. '[👑]' -> '👑')
+    - Strips surrounding whitespace
+    - Normalizes Unicode using NFKC
+    - Strips invisible codepoints, variation selectors (U+FE00 through U+FE0F),
+      zero-width spaces/joiners (\u200b-\u200d\u2060\ufeff)
+    - Filters out null/sentinel values ('none', 'null', 'undefined', '')
+    """
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    # Strip enclosing square or round brackets if paired
+    if (s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")")):
+        if len(s) >= 2:
+            s = s[1:-1].strip()
+    # Normalize unicode (NFKC)
+    s = unicodedata.normalize("NFKC", s)
+    # Strip variation selectors and zero-width joiners/spaces
+    s = re.sub(r"[\ufe00-\ufe0f\u200b-\u200d\u2060\ufeff]", "", s)
+    s = s.strip()
+    if s.lower() in ("none", "null", "undefined", ""):
+        return ""
+    return s
+
+
+def clans_match(clan1: Any, clan2: Any) -> bool:
+    """
+    Compares two clan tags for semantic equality with Unicode normalization,
+    variation selector removal, and case folding.
+    Returns True if both are valid and represent the same clan tag.
+    """
+    c1 = clean_clan_tag(clan1).casefold()
+    c2 = clean_clan_tag(clan2).casefold()
+    if not c1 or not c2:
+        return False
+    return c1 == c2
+
+
+def extract_clan_tag(text: Any) -> str:
+    """
+    Extracts and normalizes a clan tag enclosed in brackets from a username or text handle.
+    Supports emojis, Unicode scripts (Cyrillic, Greek, etc.), alphanumeric tokens, and symbols.
+    Example: '[👑] King' -> '👑', '[⚔️] Warrior' -> '⚔', 'Player [PRO]' -> 'PRO'
+    """
+    if not text:
+        return ""
+    s = str(text).strip()
+    match = re.search(r"\[([^\[\]\r\n\t]{1,32})\]", s)
+    if match:
+        clean = clean_clan_tag(match.group(1))
+        if clean:
+            return clean
+    # Also check round brackets if no square brackets present
+    match_paren = re.search(r"\(([^()\[\]\r\n\t]{1,32})\)", s)
+    if match_paren:
+        clean = clean_clan_tag(match_paren.group(1))
+        if clean:
+            return clean
+    return ""
+
+
 def extract_profile_metadata(account_data: Dict[str, Any]) -> Tuple[str, str, str]:
     """
     Extracts normalized (display_name, clan_tag, role) from Territorial.io /api/account/get account_data.
@@ -203,33 +283,33 @@ def extract_profile_metadata(account_data: Dict[str, Any]) -> Tuple[str, str, st
     1. Display Name: Extracted from raw username.
     2. Clan Tag Priority:
        - Priority 1: clan_member_clan_a (primary monthly score clan)
-       - Priority 2: Tag extracted via re.search anywhere in username [TAG]
+       - Priority 2: Tag extracted via regex anywhere in username [TAG] (supports emojis & Unicode)
        - Priority 3: clan_member_clan_b
        - Priority 4: clan_leader_clan
        - Fallback: "None"
     3. Role:
-       - "leader": if clan_leader_clan is non-empty AND matches the primary clan
+       - "leader": if clan_leader_clan is valid AND (no clan_a OR matches clan_a OR matches extracted clan)
        - "officer": if admin_points > 0 or (0 < admin_rank <= 100)
+       - Preserves explicit administrative roles ('admin', 'council', 'leader', 'co-leader', 'system', 'officer')
        - Default: "member"
     """
     if not isinstance(account_data, dict):
         return "", "None", "member"
 
-    import re
     username = str(account_data.get("username") or "").strip()
 
-    clan_a = str(account_data.get("clan_member_clan_a") or "").strip()
-    clan_b = str(account_data.get("clan_member_clan_b") or "").strip()
-    clan_leader_clan = str(account_data.get("clan_leader_clan") or "").strip()
+    clan_a = clean_clan_tag(account_data.get("clan_member_clan_a"))
+    clan_b = clean_clan_tag(account_data.get("clan_member_clan_b"))
+    clan_leader_clan = clean_clan_tag(account_data.get("clan_leader_clan"))
 
-    # 1. Clan extraction with corrected priority
+    # 1. Clan extraction with robust Unicode & emoji support
     clan = ""
     if clan_a:
         clan = clan_a
     elif username:
-        match = re.search(r"\[([a-zA-Z0-9_\-]{1,7})\]", username)
-        if match:
-            clan = match.group(1).strip()
+        tag_from_name = extract_clan_tag(username)
+        if tag_from_name:
+            clan = tag_from_name
     if not clan and clan_b:
         clan = clan_b
     if not clan and clan_leader_clan:
@@ -237,21 +317,25 @@ def extract_profile_metadata(account_data: Dict[str, Any]) -> Tuple[str, str, st
     if not clan:
         clan = "None"
 
-    # 2. Strict role determination
-    role = "member"
+    # 2. Strict role determination with Unicode-safe comparison
     admin_points = account_data.get("admin_points", 0) or 0
     admin_rank = account_data.get("admin_rank", 0) or 0
+    existing_role = str(account_data.get("role") or "").strip().lower()
 
     is_actual_leader = bool(clan_leader_clan) and (
         not clan_a
-        or clan_leader_clan.upper() == clan_a.upper()
-        or clan.upper() == clan_leader_clan.upper()
+        or clans_match(clan_leader_clan, clan_a)
+        or clans_match(clan_leader_clan, clan)
     )
 
     if is_actual_leader:
         role = "leader"
     elif admin_points > 0 or (0 < admin_rank <= 100):
         role = "officer"
+    elif existing_role in ("admin", "council", "leader", "co-leader", "system", "officer"):
+        role = existing_role
+    else:
+        role = "member"
 
     display_name = username or ""
     return display_name, clan, role

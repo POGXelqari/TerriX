@@ -38,6 +38,8 @@ class TestRequirementAttestation(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.db = db
+        db.register_or_get_account("B8bbq", display_name="B8bbq Clan Founder")
+        db.credit_deposit("B8bbq", 50000, "tx_seed_b8bbq_attestation")
         cls.server = HTTPServer(("127.0.0.1", 0), CBMHealthHandler)
         cls.port = cls.server.server_port
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)

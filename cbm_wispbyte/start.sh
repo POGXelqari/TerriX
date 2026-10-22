@@ -13,9 +13,9 @@ export GOMAXPROCS=1
 export PYTHONUNBUFFERED=1
 
 # 1. Install dependencies only if missing (skips 11s pip multi-thread CPU burst on restarts)
-if ! python3 -c "import dotenv, urllib3, cryptography, jwt, discord" 2>/dev/null; then
-    echo "[*] Installing missing Python dependencies..."
-    pip install -r requirements.txt --no-cache-dir --quiet --disable-pip-version-check
+if ! python3 -c "import dotenv, urllib3, cryptography, jwt, discord, nacl, davey" 2>/dev/null; then
+    echo "[*] Installing missing Python dependencies (including PyNaCl & davey for Voice)..."
+    pip install -r requirements.txt --no-cache-dir --quiet --disable-pip-version-check 2>/dev/null || pip install -r requirements.txt --break-system-packages --no-cache-dir --quiet --disable-pip-version-check
 else
     echo "[*] Python dependencies verified (cached in .local)."
 fi
@@ -35,6 +35,11 @@ if ! command -v cloudflared &> /dev/null && [ ! -f "bin/cloudflared" ]; then
         curl -sL "$DL_URL" -o "bin/cloudflared.tmp" && mv "bin/cloudflared.tmp" "bin/cloudflared" && chmod +x "bin/cloudflared" && echo "[+] Background cloudflared binary ready."
     ) &
 fi
+
+# 2b. Harden file permissions on backend source, database, and cryptographic secrets
+ulimit -c 0 2>/dev/null || true
+chmod 600 .env cbm_secret.key *.db *.sql 2>/dev/null || true
+chmod 600 *.py 2>/dev/null || true
 
 # 3. Supervised AutoMod Launch (Isolated background execution)
 if [ -f "run_automod.py" ] && python3 -c "import os; from dotenv import load_dotenv; load_dotenv(); exit(0 if os.getenv('DISCORD_BOT_TOKEN') else 1)" 2>/dev/null; then

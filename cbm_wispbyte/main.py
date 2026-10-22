@@ -16,6 +16,7 @@ Features:
 import os
 import sys
 import io
+import html
 import time
 import signal
 import subprocess
@@ -33,6 +34,7 @@ import base64
 import gc
 import re
 import secrets
+import random
 import uuid
 try:
     import jwt
@@ -50,13 +52,13 @@ if hasattr(sys.stdout, 'reconfigure'):
         pass
 
 # Import local CBM modules
-from db_layer import CBMDatabase
+from db_layer import CBMDatabase, is_privileged_role, PRIVILEGED_ROLES
 from deposit_daemon import CBMDepositDaemon
 from loan_engine import CBMLoanEngine
 from withdrawal_worker import CBMWithdrawalWorker
 from account_manager import CBMAccountManager
 from tunnel_manager import CloudflareTunnelManager
-from gold_api_client import TerritorialGoldClient, extract_profile_metadata
+from gold_api_client import TerritorialGoldClient, extract_profile_metadata, clean_clan_tag, clans_match, extract_clan_tag
 from rate_limiter import rate_limiter
 from chat_engine import chat_engine, CUSTOM_STICKERS, check_message_safety, is_toxic_content, verdict_cache
 import crypto_util
@@ -66,8 +68,75 @@ from enterprise_economy import CBMEconomicEngine
 from oidc_client import OIDCClient, OIDCValidationError
 from ai_service import ai_service, NvidiaKimiService, NvidiaAIError, load_cbm_env
 from status_engine import CBMStatusEngine
+import unicodedata
 
 load_cbm_env()
+
+
+def check_clan_requirement(db_inst: Any, account: str, required_clan: str, extra_payload: Optional[Dict[str, Any]] = None) -> bool:
+    """
+    Checks if an account satisfies a clan requirement.
+    Matches against:
+    - account string itself (e.g. '[👑] Alice', 'Alice')
+    - Database record: clan_tag, display_name, account_name, primary_territorial_account
+    - All account aliases and linked payment methods
+    - Request extra_payload: 'clan', 'clan_tag', 'player_name', 'name', 'username', 'display_name'
+    Uses Unicode NFKC normalization, strips variation selectors (\\ufe0f), and handles case folding
+    so emoji clan tags (e.g. 👑, ⚔️, ⚡), Cyrillic, and symbols match accurately.
+    """
+    if not required_clan:
+        return True
+    req_clean = clean_clan_tag(required_clan)
+    if not req_clean:
+        return True
+
+    candidates = set()
+    if account:
+        candidates.add(str(account).strip())
+
+    # 1. Fetch DB record
+    raw = db_inst._get_account_raw(account) if hasattr(db_inst, "_get_account_raw") else None
+    if raw:
+        for k in ("clan_tag", "display_name", "account_name", "primary_territorial_account"):
+            v = raw.get(k)
+            if v and isinstance(v, str) and v.strip():
+                candidates.add(v.strip())
+
+    # 2. Fetch all aliases
+    if hasattr(db_inst, "_get_all_account_aliases"):
+        try:
+            for a in db_inst._get_all_account_aliases(account):
+                if a and isinstance(a, str) and a.strip():
+                    candidates.add(a.strip())
+        except Exception:
+            pass
+
+    # 3. Request extra payload
+    if isinstance(extra_payload, dict):
+        for k in ("clan", "clan_tag", "player_name", "name", "display_name", "username"):
+            v = extra_payload.get(k)
+            if v and isinstance(v, str) and v.strip():
+                candidates.add(v.strip())
+
+    # 4. Check each candidate
+    req_norm = req_clean.casefold()
+    for cand in candidates:
+        cand_clean = clean_clan_tag(cand)
+        if cand_clean and clans_match(req_clean, cand_clean):
+            return True
+
+        extracted = extract_clan_tag(cand)
+        if extracted and clans_match(req_clean, extracted):
+            return True
+
+        norm_cand = unicodedata.normalize("NFKC", cand)
+        norm_cand = re.sub(r"[\ufe00-\ufe0f\u200b-\u200d\u2060\ufeff]", "", norm_cand).casefold()
+        if f"[{req_norm}]" in norm_cand:
+            return True
+        if f"[{req_norm} " in norm_cand or f" {req_norm}]" in norm_cand:
+            return True
+
+    return False
 
 PORT = int(os.environ.get("SERVER_PORT") or os.environ.get("PORT") or 10093)
 VAULT_ACCOUNT = os.environ.get("CBM_VAULT_ACCOUNT", "DdcBC")
@@ -243,6 +312,20 @@ def ensure_programmatic_assets():
             _fetch_canonical_asset_background(fname, meta)
 
 _STATIC_CACHE = {}
+_GUNFIGHT_LOBBY_PEERS: Dict[str, Dict[str, Any]] = {}
+_GUNFIGHT_ROOMS: Dict[str, Dict[str, Any]] = {}
+_GUNFIGHT_ROOM_RELAY: Dict[str, List[Dict[str, Any]]] = {}
+_GUNFIGHT_ROOM_PLAYERS_STATE: Dict[str, Dict[str, Any]] = {}
+_GUNFIGHT_ROOM_RATE_LIMIT: Dict[str, float] = {}
+_GUNFIGHT_LOBBY_LOCK = threading.Lock()
+
+def _generate_3_map_vote_options() -> List[Dict[str, str]]:
+    maps = ["Forest", "City", "Mountain"]
+    times = ["Midnight", "Day", "Evening", "Morning"]
+    combos = [{"mapId": m, "timeId": t} for m in maps for t in times]
+    random.shuffle(combos)
+    return combos[:3]
+
 
 def load_static_cache():
     """Pre-loads, digests, and gzip-compresses static assets into RAM at startup."""
@@ -265,7 +348,7 @@ def load_static_cache():
         ("product.html", "text/html; charset=utf-8"),
         ("widget.html", "text/html; charset=utf-8"),
         ("widget.js", "application/javascript; charset=utf-8"),
-        ("cbm_discord_sdk.py", "text/x-python; charset=utf-8"),
+        ("google9828a6bb17c19dc6.html", "text/html; charset=utf-8"),
         ("cbm-logo.png", "image/png"),
         ("cbm-logo-new.png", "image/png"),
         ("cbm-sso-banner.png", "image/png"),
@@ -285,6 +368,10 @@ def load_static_cache():
         ("pwa-installer.js", "application/javascript; charset=utf-8"),
         ("manifest.webmanifest", "application/manifest+json; charset=utf-8"),
         ("download.html", "text/html; charset=utf-8"),
+        ("subscription.html", "text/html; charset=utf-8"),
+        ("privacy.html", "text/html; charset=utf-8"),
+        ("terms.html", "text/html; charset=utf-8"),
+        ("cbm-gunfight.html", "text/html; charset=utf-8"),
     ]
     for fname, ctype in assets:
         fpath = os.path.join(base_dir, fname)
@@ -668,6 +755,7 @@ def is_internal_cbm_function(path: str) -> bool:
         or p == "/api/cbm/treasury/sync"
         or p.startswith("/api/cbm/election")
         or p.startswith("/api/cbm/votes")
+        or p.startswith("/api/cbm/gunfight")
     ):
         return True
     return False
@@ -740,7 +828,7 @@ def verify_turnstile_token(token: str, expected_action: Optional[str] = None, re
     - Action matching expected_action (if configured on widget)
     - Hostname matching approved TURNSTILE_HOSTNAMES allowlist
     """
-    if os.environ.get("CBM_TESTING") == "1" and token and token.startswith("test_turnstile_"):
+    if (os.environ.get("CBM_TESTING") == "1" or os.environ.get("CBM_ENV") == "test") and token and token.startswith("test_turnstile_"):
         return True, None
 
     secret = os.environ.get("TURNSTILE_SECRET", "").strip()
@@ -787,8 +875,138 @@ def verify_turnstile_token(token: str, expected_action: Optional[str] = None, re
 
     return True, None
 
+# Strict allowlist of public static files allowed to be served from the root directory
+ALLOWED_PUBLIC_STATIC_FILES = frozenset({
+    "status.html",
+    "cbm.html",
+    "login.html",
+    "register.html",
+    "donations.html",
+    "rulebook.html",
+    "vault.html",
+    "developer.html",
+    "election.html",
+    "product.html",
+    "widget.html",
+    "widget.js",
+    "google9828a6bb17c19dc6.html",
+    "cbm-logo.png",
+    "cbm-logo-new.png",
+    "cbm-sso-banner.png",
+    "total-vault-assets-icon.png",
+    "unencumbered-reserves-icon.png",
+    "member-liabilities-icon.png",
+    "solvency-ratio-icon.png",
+    "sponsorship-available-icon1.png",
+    "welcome-back-login-icon.png",
+    "you-were-invited-invitation-image-asset.png",
+    "top-donors-icon.png",
+    "developer-platform-icon.png",
+    "painsel-pointing-left.png",
+    "trimcraft.html",
+    "vidtrim.html",
+    "sw.js",
+    "pwa-installer.js",
+    "manifest.webmanifest",
+    "download.html",
+    "subscription.html",
+    "privacy.html",
+    "terms.html",
+    "cbm-gunfight.html",
+})
+
+# Extensions that must NEVER be served over HTTP under any circumstances
+FORBIDDEN_BACKEND_EXTENSIONS = frozenset({
+    ".py", ".pyc", ".pyo", ".pyd", ".pyw",
+    ".db", ".sqlite", ".sqlite3", ".wal", ".shm", ".journal", ".bak",
+    ".sql", ".env", ".key", ".pem", ".crt", ".p12", ".pfx",
+    ".sh", ".bash", ".bat", ".cmd", ".ps1", ".vbs",
+    ".log", ".pid", ".ini", ".cfg", ".conf", ".toml", ".yaml", ".yml",
+    ".lock", ".gitignore", ".dockerignore"
+})
+
+# Sensitive filenames or prefixes that trigger an immediate anti-theft strike
+FORBIDDEN_PATH_TOKENS = frozenset({
+    ".env", ".git", ".svn", ".hg", ".vscode", ".idea", "__pycache__",
+    "cbm_secret.key", "cbm_data.db", "automod.log", "cloudflared.log",
+    "automod.pid", "automod_cooldown.json", "automod_ratelimit.json",
+    "active_ingress_url.txt", "requirements.txt", "readme.md", "start.sh",
+    "main.py", "db_layer.py", "bot.py", "run_automod.py", "crypto_util.py",
+    "ai_service.py", "deposit_daemon.py", "withdrawal_worker.py",
+    "loan_engine.py", "account_manager.py", "tunnel_manager.py",
+    "status_engine.py", "rate_limiter.py", "chat_engine.py", "ad_engine.py",
+    "enterprise_economy.py", "oidc_client.py", "oidc_service.py",
+    "credit_engine.py", "resilient_fetcher.py", "gold_api_client.py",
+    "election_worker.py", "set_pin.py", "reset_b8bbq_pin.py",
+    "setup_supabase.sql", "setup_oidc_and_credits.sql", "setup_ai_sessions.sql"
+})
+
+SCRAPER_USER_AGENTS = (
+    "httrack", "wget", "teleport", "webcopier", "offline explorer",
+    "site sucker", "sitesucker", "blackwidow", "webzip", "cyotek",
+    "nikto", "sqlmap", "dirbuster", "gobuster", "feroxbuster", "nuclei", "ffuf"
+)
+
+PUBLIC_EMBEDDABLE_ASSETS = frozenset({"cbm-sso-banner.png", "cbm-logo.png", "widget.js", "widget.html"})
+
+def normalize_and_inspect_path(raw_path: str) -> Tuple[str, bool, Optional[str]]:
+    """
+    Canonicalizes an incoming HTTP path and detects source-code theft or traversal probes.
+    Returns: (normalized_path, is_malicious_probe, violation_reason)
+    """
+    if not raw_path:
+        return "/", False, None
+
+    # 1. Strip query string and decode percent-encoding (up to 2 passes to catch double-encoding)
+    path_only = raw_path.split("?", 1)[0].split("#", 1)[0]
+    unquoted = urllib.parse.unquote(urllib.parse.unquote(path_only))
+
+    # 2. Reject null bytes or control characters
+    if "\x00" in unquoted or any(ord(c) < 32 for c in unquoted):
+        return "/", True, "NULL_BYTE_OR_CONTROL_CHAR_INJECTION"
+
+    # 3. Normalize backslashes to forward slashes and collapse duplicate slashes
+    clean = unquoted.replace("\\", "/")
+    while "//" in clean:
+        clean = clean.replace("//", "/")
+
+    # 4. Detect directory traversal sequences
+    segments = [seg for seg in clean.split("/") if seg]
+    for seg in segments:
+        if seg in ("..", ".") or seg.startswith(".."):
+            return "/", True, "DIRECTORY_TRAVERSAL_ATTEMPT"
+        # Block hidden dotfiles/directories except /.well-known/
+        if seg.startswith(".") and seg.lower() != ".well-known":
+            return "/", True, f"HIDDEN_DOTFILE_PROBE:{seg}"
+
+    normalized = "/" + "/".join(segments) if segments else "/"
+    lower_norm = normalized.lower()
+    basename = segments[-1].lower() if segments else ""
+    # Strip Windows alternate data stream specifiers, trailing dots, and trailing spaces
+    clean_base = basename.split("::", 1)[0].rstrip(". ")
+
+    # 5. Allow the single intentional Discord SDK download route
+    if lower_norm in ("/api/cbm/dev/sdk/download", "/cbm_discord_sdk.py", "/sdk/discord", "/download/discord-sdk"):
+        return normalized, False, None
+
+    # 6. Check against forbidden filenames, test suites, and database/key extensions
+    if clean_base in FORBIDDEN_PATH_TOKENS or clean_base.startswith("test_") or clean_base.startswith("reset_") or basename in FORBIDDEN_PATH_TOKENS:
+        return normalized, True, f"SENSITIVE_FILE_PROBE:{clean_base or basename}"
+
+    _, ext = os.path.splitext(clean_base)
+    if ext in FORBIDDEN_BACKEND_EXTENSIONS:
+        return normalized, True, f"FORBIDDEN_EXTENSION_PROBE:{ext}"
+
+    # Catch SQLite sidecar suffixes like cbm_data.db-wal or cbm_data.db.corrupted.bak
+    if ".db-" in clean_base or ".db." in clean_base or ".key" in clean_base or ".env" in clean_base or ".db-" in basename or ".db." in basename or ".key" in basename or ".env" in basename:
+        return normalized, True, f"DATABASE_OR_KEY_ARTIFACT_PROBE:{clean_base or basename}"
+
+    return normalized, False, None
+
 class CBMHealthHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    server_version = "CBM-Security-Gateway"
+    sys_version = ""
     timeout = 3.0  # Fast 3s socket recycling prevents keepalive worker thread starvation
     MAX_KEEPALIVE_REQUESTS = 50
 
@@ -819,13 +1037,15 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         frame_ancestor = "*" if allow_framing else "'self'"
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self' 'unsafe-inline' https://api.dicebear.com https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com https://challenges.cloudflare.com; "
-            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com https://challenges.cloudflare.com; "
-            "connect-src 'self' https://cloudflareinsights.com https://cdn.jsdelivr.net https://*.cloudflareinsights.com https://challenges.cloudflare.com; "
+            "default-src 'self' 'unsafe-inline' https://api.dicebear.com https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net https://static.cloudflareinsights.com https://challenges.cloudflare.com https://www.googletagmanager.com https://unpkg.com; "
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://static.cloudflareinsights.com https://challenges.cloudflare.com https://www.googletagmanager.com https://*.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://unpkg.com https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; "
+            "connect-src 'self' blob: https://cloudflareinsights.com https://cdn.jsdelivr.net https://*.cloudflareinsights.com https://challenges.cloudflare.com https://www.google-analytics.com https://*.google-analytics.com https://analytics.google.com https://*.analytics.google.com https://region1.google-analytics.com https://stats.g.doubleclick.net https://www.googletagmanager.com https://*.googletagmanager.com https://unpkg.com https://*.peerjs.com wss://*.peerjs.com wss: ws:; "
             "frame-src 'self' https://challenges.cloudflare.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "img-src 'self' data: https:; "
-            "font-src 'self' https://fonts.gstatic.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+            "img-src 'self' data: blob: https:; "
+            "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; "
+            "media-src 'self' blob: data:; "
+            "worker-src 'self' blob:; "
             f"frame-ancestors {frame_ancestor};"
         )
         if getattr(self, "close_connection", False):
@@ -836,6 +1056,14 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             self.send_header("Keep-Alive", f"timeout=3, max={req_left}")
 
     def _send_cached_asset(self, asset_key: str, download_filename: Optional[str] = None, allow_framing: bool = False):
+        if asset_key.endswith(".png") and asset_key not in PUBLIC_EMBEDDABLE_ASSETS:
+            referer = self.headers.get("Referer", "").strip()
+            sec_site = self.headers.get("Sec-Fetch-Site", "").strip().lower()
+            if sec_site == "cross-site" or (referer and not is_authorized_first_party_origin(referer)):
+                self.send_response(403)
+                self.end_headers()
+                return
+
         asset = _STATIC_CACHE.get(asset_key)
         if not asset:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -945,6 +1173,15 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             print(f"[!] Error sending cached JSON bytes: {e}")
 
     def _send_file(self, file_path: str, content_type: str = "text/html; charset=utf-8", download_filename: Optional[str] = None, allow_framing: bool = False):
+        # Security: Absolute refusal to serve sensitive backend code, keys, or database files
+        fname = os.path.basename(file_path).lower()
+        clean_name = fname.split("::", 1)[0].rstrip(". ")
+        _, ext = os.path.splitext(clean_name)
+        if clean_name in FORBIDDEN_PATH_TOKENS or ext in FORBIDDEN_BACKEND_EXTENSIONS or clean_name.startswith(".") or ".db" in clean_name or ".key" in clean_name or ".env" in clean_name:
+            if clean_name != "cbm_discord_sdk.py":
+                self.send_error(403, "Access Forbidden")
+                return
+
         if not os.path.exists(file_path):
             self.send_error(404, "Asset not found")
             return
@@ -971,6 +1208,16 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
     def _stream_binary_file(self, file_path: str, content_type: str = "application/octet-stream", download_filename: Optional[str] = None, sha256_hash: Optional[str] = None):
         """Streams binary distribution files in 64 KB chunks to minimize memory footprint and prevent OOM on large payloads."""
+        fname = os.path.basename(file_path).lower()
+        clean_name = fname.split("::", 1)[0].rstrip(". ")
+        _, ext = os.path.splitext(clean_name)
+        if clean_name in FORBIDDEN_PATH_TOKENS or ext in FORBIDDEN_BACKEND_EXTENSIONS or clean_name.startswith(".") or ".db" in clean_name or ".key" in clean_name or ".env" in clean_name:
+            return self._send_json(403, {
+                "status": "error",
+                "error": "forbidden_resource",
+                "message": "Access to backend source code, configuration secrets, and internal database files is strictly prohibited."
+            })
+
         if not os.path.isfile(file_path):
             return self._send_json(404, {
                 "status": "error",
@@ -1060,6 +1307,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             body = json.dumps(data).encode("utf-8")
             self.send_response(status_code)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Disposition", "inline")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, private")
             self.send_header("Pragma", "no-cache")
@@ -1105,6 +1353,426 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             pass
         except Exception as e:
             print(f"[!] Error sending JSON response: {e}")
+
+    def _is_html_client_request(self) -> bool:
+        """Determines if the requesting client expects an interactive HTML response rather than JSON."""
+        req_path = getattr(self, "path", "").split("?")[0].rstrip("/")
+        if req_path.startswith("/api/") or req_path.startswith("/api/v1/") or req_path.startswith("/download/"):
+            return False
+        accept = (self.headers.get("Accept") or "").lower()
+        if "application/json" in accept and "text/html" not in accept:
+            return False
+        if self.headers.get("X-Requested-With"):
+            return False
+        if "text/html" in accept or "application/xhtml+xml" in accept or "*/*" in accept or not accept:
+            return True
+        ext = os.path.splitext(req_path)[1].lower()
+        if ext and ext not in (".html", ".htm"):
+            return False
+        return True
+
+    def _render_natural_language_error_html(self, status_code: int, title: str, message: str, hint: str, path: str, error_code: Optional[str] = None) -> bytes:
+        """Renders a standalone, responsive PayPal-dark error page with natural language explanation, legal references, and navigation."""
+        safe_path = html.escape(path or "/")
+        safe_title = html.escape(title or f"HTTP {status_code} Error")
+        safe_message = html.escape(message or "An unexpected condition occurred.")
+        safe_hint = html.escape(hint or "Please verify your request parameters or return to the main dashboard.")
+        safe_error_code = html.escape(error_code or "error")
+
+        status_descriptions = {
+            400: "Bad Request",
+            401: "Unauthorized",
+            403: "Access Forbidden",
+            404: "Page Not Found",
+            405: "Method Not Allowed",
+            413: "Payload Too Large",
+            429: "Rate Limit Exceeded",
+            500: "Server Error",
+            502: "Bad Gateway",
+            503: "Service Unavailable",
+        }
+        status_name = status_descriptions.get(status_code, "System Notice")
+        is_warning = "warning" if status_code < 500 else ""
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){{dataLayer.push(arguments);}}
+    gtag('js', new Date());
+    gtag('config', 'G-QCMCPSK0CF');
+  </script>
+  <meta name="google-site-verification" content="QgBuTq0ptINqSWSbw-GSVHOvHGL-xz1iaApSi4oIC1Y" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="error-code" content="{safe_error_code}">
+  <title>{safe_title} ({status_code}) — Clan Bank Manager</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {{
+      --bg: #080d16;
+      --panel: #111927;
+      --panel-2: #162235;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-yellow: #ffc439;
+      --paypal-yellow-hover: #e0ac2b;
+      --danger: #ff5252;
+      --warning: #ffb300;
+      --success: #00cf92;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+    }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.6;
+    }}
+    a {{ color: var(--paypal-blue); text-decoration: none; transition: color 0.15s; }}
+    a:hover {{ text-decoration: underline; color: #3395ff; }}
+    header.nav-header {{
+      background: rgba(14, 22, 38, 0.98);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 20px;
+    }}
+    .nav-inner {{
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }}
+    .brand {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: #fff;
+      font-weight: 800;
+      text-decoration: none;
+    }}
+    .brand img {{ width: 30px; height: 30px; border-radius: 6px; }}
+    .brand-links {{ display: flex; gap: 16px; font-size: 0.88rem; }}
+    .brand-links a {{ color: var(--text-dim); }}
+    .brand-links a:hover {{ color: #fff; text-decoration: none; }}
+    main.error-container {{
+      flex: 1;
+      max-width: 780px;
+      width: 100%;
+      margin: 40px auto;
+      padding: 0 20px;
+    }}
+    .error-card {{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 36px 32px;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.4);
+    }}
+    .badge-bar {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }}
+    .status-badge {{
+      display: inline-block;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: rgba(255, 82, 82, 0.15);
+      color: #ff7b7b;
+      border: 1px solid rgba(255, 82, 82, 0.35);
+    }}
+    .status-badge.warning {{
+      background: rgba(255, 179, 0, 0.15);
+      color: var(--paypal-yellow);
+      border-color: rgba(255, 179, 0, 0.35);
+    }}
+    .error-title {{
+      font-size: 1.85rem;
+      font-weight: 800;
+      color: #ffffff;
+      margin-bottom: 12px;
+      letter-spacing: -0.4px;
+    }}
+    .error-msg {{
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }}
+    .hint-box {{
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--paypal-yellow);
+      border-radius: var(--radius-sm);
+      padding: 16px 18px;
+      margin-bottom: 28px;
+    }}
+    .hint-label {{
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--paypal-yellow);
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }}
+    .hint-text {{
+      font-size: 0.92rem;
+      color: #e2e8f0;
+    }}
+    .btn-row {{
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 30px;
+    }}
+    .btn-action {{
+      padding: 10px 18px;
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s;
+    }}
+    .btn-primary {{
+      background: var(--paypal-blue);
+      color: #ffffff;
+    }}
+    .btn-primary:hover {{
+      background: var(--paypal-blue-hover);
+      text-decoration: none;
+    }}
+    .btn-secondary {{
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      color: #cbd5e1;
+    }}
+    .btn-secondary:hover {{
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      text-decoration: none;
+    }}
+    .legal-card {{
+      background: rgba(0, 112, 224, 0.06);
+      border: 1px solid rgba(0, 112, 224, 0.2);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }}
+    .legal-card a {{
+      font-weight: 600;
+    }}
+    footer.site-footer {{
+      background: #060b13;
+      border-top: 1px solid var(--border);
+      padding: 24px 20px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-top: auto;
+    }}
+    .footer-inner {{
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+    }}
+    .footer-links {{ display: flex; gap: 16px; }}
+    .footer-links a {{ color: var(--text-muted); }}
+    .footer-links a:hover {{ color: #ffffff; }}
+  </style>
+</head>
+<body>
+  <header class="nav-header">
+    <div class="nav-inner">
+      <a href="/cbm.html" class="brand">
+        <img src="/cbm-logo.png" alt="CBM Logo">
+        <span>Clan Bank Manager</span>
+      </a>
+      <nav class="brand-links">
+        <a href="/cbm.html">Home</a>
+        <a href="/vault.html">Vault</a>
+        <a href="/subscription.html">CBM Plus</a>
+        <a href="/rulebook.html">Rulebook</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="error-container">
+    <div class="error-card">
+      <div class="badge-bar">
+        <span class="status-badge {is_warning}">HTTP {status_code} &bull; {status_name}</span>
+        <span class="error-code-badge" style="display:none;" id="error_code">{safe_error_code}</span>
+      </div>
+      <h1 class="error-title">{safe_title}</h1>
+      <p class="error-msg">{safe_message}</p>
+
+      <div class="hint-box">
+        <div class="hint-label">Resolution Guidance</div>
+        <div class="hint-text">{safe_hint}</div>
+      </div>
+
+      <div class="btn-row">
+        <a href="/cbm.html" class="btn-action btn-primary">Return to CBM Home</a>
+        <a href="/status.html" class="btn-action btn-secondary">Check System Status</a>
+        <a href="/rulebook.html" class="btn-action btn-secondary">Browse Rulebook & Specs</a>
+      </div>
+
+      <div class="legal-card">
+        <strong>Privacy & Policy Notice:</strong> 
+        All network telemetry, request verification, and access logs are handled in strict compliance with our 
+        <a href="/privacy.html">Privacy Policy</a>. By utilizing Clan Bank Manager services and tools, your activity is governed by our 
+        <a href="/terms.html">Terms of Service</a>.
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>© 2026 Clan Bank Manager (CBM). Non-custodial ledger operations.</div>
+      <div class="footer-links">
+        <a href="/terms.html">Terms of Service</a>
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/rulebook.html">Rulebook</a>
+        <a href="/developer.html">Developer API</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
+"""
+        return html_content.encode("utf-8")
+
+    def _send_custom_error(
+        self,
+        status_code: int,
+        message: str,
+        title: Optional[str] = None,
+        hint: Optional[str] = None,
+        error_code: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None
+    ):
+        """Dispatches natural language error responses with direct Privacy Policy and Terms of Service legal references."""
+        default_titles = {
+            400: "Invalid Request Format",
+            401: "Authentication Required",
+            403: "Access Authorization Restricted",
+            404: "Page or Resource Not Found",
+            405: "HTTP Method Not Supported",
+            413: "Payload Size Limit Exceeded",
+            429: "Rate Limit Exceeded",
+            500: "System Service Temporarily Unavailable",
+            502: "Gateway Communication Error",
+            503: "Service Maintenance in Progress"
+        }
+        default_hints = {
+            400: "The server could not interpret your request. Please inspect parameter formats, payload syntax, and data types before retrying.",
+            401: "Please provide a valid Quick Access PIN, member session token, or Developer API Key via 'Authorization: Bearer <key>'.",
+            403: "You do not possess the required permissions or valid invitation referral to perform this operation. Check our Terms of Service.",
+            404: "The requested path does not exist on this server. Verify the URL or return to the CBM homepage.",
+            405: "The requested HTTP verb is not permitted for this endpoint. Review the CBM Developer API documentation at /developer.html.",
+            413: "The request body exceeds the maximum permitted memory threshold. Compress or trim payload size before re-transmitting.",
+            429: "Request frequency exceeded allowable quotas. Pause requests or upgrade to CBM Plus for enhanced Developer API rate limits.",
+            500: "An internal condition occurred. Diagnostics have recorded the event. Please retry shortly.",
+            502: "Upstream synchronization failed to complete. Our daemon will automatically reconcile state on next polling tick.",
+            503: "Server capacity is temporarily constrained under high load. Please retry in a few moments."
+        }
+        default_error_codes = {
+            400: "bad_request",
+            401: "unauthorized",
+            403: "forbidden",
+            404: "not_found",
+            405: "method_not_allowed",
+            413: "payload_too_large",
+            429: "rate_limited",
+            500: "internal_server_error",
+            502: "bad_gateway",
+            503: "service_unavailable"
+        }
+
+        resolved_title = title or default_titles.get(status_code, "System Notice")
+        resolved_hint = hint or default_hints.get(status_code, "Please inspect your request parameters or consult the CBM Rulebook.")
+        resolved_code = error_code or default_error_codes.get(status_code, "error")
+        req_path = getattr(self, "path", "")
+
+        if self._is_html_client_request():
+            html_bytes = self._render_natural_language_error_html(
+                status_code=status_code,
+                title=resolved_title,
+                message=message,
+                hint=resolved_hint,
+                path=req_path,
+                error_code=resolved_code
+            )
+            try:
+                self.send_response(status_code)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Disposition", "inline")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, private")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Content-Length", str(len(html_bytes)))
+                self._apply_security_headers()
+                if headers:
+                    for k, v in headers.items():
+                        self.send_header(k, v)
+                self.end_headers()
+                self.wfile.write(html_bytes)
+                try:
+                    self.wfile.flush()
+                except Exception:
+                    pass
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                pass
+            except Exception as e:
+                print(f"[!] Error transmitting HTML error page: {e}")
+            return
+
+        # API / JSON Response
+        payload = {
+            "status": "error",
+            "code": status_code,
+            "error": resolved_code,
+            "error_code": resolved_code,
+            "title": resolved_title,
+            "message": message,
+            "natural_language_hint": resolved_hint,
+            "path": req_path,
+            "timestamp": time.time(),
+            "legal": {
+                "privacy_policy": "/privacy",
+                "terms_of_service": "/terms",
+                "rulebook": "/rulebook"
+            },
+            "documentation": "/developer.html"
+        }
+        if details:
+            payload["details"] = details
+        return self._send_json(status_code, payload, headers=headers)
 
     def _get_authenticated_user(self) -> Optional[str]:
         """
@@ -1266,7 +1934,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 if auth_user.lower() in (canonical, primary_terri):
                     return True
             auth_raw = db._get_account_raw(auth_user)
-            if auth_raw and auth_raw.get("role") in ("admin", "council", "leader", "officer"):
+            if auth_raw and is_privileged_role(auth_raw.get("role")):
                 return True
 
         # 3. Check PIN
@@ -1424,7 +2092,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         "cost_gold": 500.00
                     }
                 }
-            is_leader = bool(owner_acc and owner_acc.get("role") in ("admin", "council", "leader", "officer"))
+            is_leader = bool(owner_acc and is_privileged_role(owner_acc.get("role")))
             cost_gold = 0.01 if is_leader else 1.00
             cost_cents = int(round(cost_gold * 100))
             key_record["cost_gold"] = cost_gold
@@ -2273,7 +2941,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 if auth_user.lower() in (canonical, primary_terri):
                     return True, None, auth_user, None
             auth_raw = db._get_account_raw(auth_user)
-            if auth_raw and auth_raw.get("role") in ("admin", "council", "leader", "officer"):
+            if auth_raw and is_privileged_role(auth_raw.get("role")):
                 return True, None, auth_user, None
 
         # 3. Access PIN Authentication (Interactive Unlock with Brute-Force Protection)
@@ -2306,8 +2974,39 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         }
 
     def do_OPTIONS(self):
-        parsed = self.path.split("?")
-        path = parsed[0].rstrip("/")
+        client_ip = self._get_client_ip()
+
+        # 1. Global IP Quarantine Check
+        is_banned, ban_rem = rate_limiter.is_ip_banned(client_ip)
+        if is_banned:
+            return self._send_json(403, {
+                "status": "error",
+                "error": "ip_quarantined",
+                "message": "Access denied: Your IP address is under a 24-hour security quarantine due to unauthorized backend probing.",
+                "ban_remaining_seconds": ban_rem
+            }, headers={"Retry-After": str(ban_rem), "Connection": "close"})
+
+        # 2. Block Automated Site-Rippers / Offline Cloners
+        ua_lower = (self.headers.get("User-Agent") or "").lower()
+        if any(bad_ua in ua_lower for bad_ua in SCRAPER_USER_AGENTS):
+            rate_limiter.record_theft_probe(client_ip, self.path, f"SCRAPER_UA:{ua_lower[:40]}", max_strikes=1)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "automated_scraping_prohibited",
+                "message": "Automated site cloning and offline harvesting tools are strictly prohibited."
+            }, headers={"Connection": "close"})
+
+        # 3. Canonical Path Inspection & Anti-Theft Honeypot
+        norm_path, is_probe, probe_reason = normalize_and_inspect_path(self.path)
+        if is_probe:
+            rate_limiter.record_theft_probe(client_ip, self.path, probe_reason)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "forbidden_resource",
+                "message": "Access to backend source code, configuration secrets, and internal database files is strictly prohibited."
+            }, headers={"Connection": "close"})
+
+        path = norm_path.rstrip("/")
 
         if is_cors_bypassed_endpoint(path):
             origin = self.headers.get("Origin", "").strip()
@@ -2365,13 +3064,78 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         except Exception as unhandled:
             print(f"[!] Unhandled error in do_GET: {unhandled}")
             try:
-                self._send_json(500, {"status": "error", "message": "Service temporarily busy. Please retry."})
+                self._send_custom_error(
+                    500,
+                    message="Service is temporarily busy or undergoing automated re-indexing. Please retry.",
+                    title="Service Temporarily Unavailable",
+                    hint="Our automated telemetry daemon has recorded this event. Please retry in a moment or visit our System Status page at /status.html.",
+                    error_code="internal_server_error"
+                )
             except Exception:
                 pass
 
     def _do_GET(self):
+        client_ip = self._get_client_ip()
+
+        # 1. Global IP Quarantine Check
+        is_banned, ban_rem = rate_limiter.is_ip_banned(client_ip)
+        if is_banned:
+            if self._is_html_client_request():
+                return self._send_custom_error(
+                    403,
+                    message="Access denied: Your IP address is under a 24-hour security quarantine due to unauthorized probing.",
+                    title="Access Denied — Security Quarantine",
+                    hint="Our automated security gateway detected repeated probing of restricted system files from your network. Access is restricted for 24 hours.",
+                    error_code="ip_quarantined",
+                    headers={"Retry-After": str(ban_rem), "Connection": "close", "Content-Disposition": "inline"}
+                )
+            return self._send_json(403, {
+                "status": "error",
+                "error": "ip_quarantined",
+                "message": "Access denied: Your IP address is under a 24-hour security quarantine due to unauthorized backend probing.",
+                "ban_remaining_seconds": ban_rem
+            }, headers={"Retry-After": str(ban_rem), "Connection": "close", "Content-Disposition": "inline"})
+
+        # 2. Block Automated Site-Rippers / Offline Cloners
+        ua_lower = (self.headers.get("User-Agent") or "").lower()
+        if any(bad_ua in ua_lower for bad_ua in SCRAPER_USER_AGENTS):
+            rate_limiter.record_theft_probe(client_ip, self.path, f"SCRAPER_UA:{ua_lower[:40]}", max_strikes=1)
+            if self._is_html_client_request():
+                return self._send_custom_error(
+                    403,
+                    message="Automated site cloning and offline harvesting tools are strictly prohibited.",
+                    title="Automated Scraping Prohibited",
+                    hint="Automated site crawlers, offline scrapers, and directory brutes are filtered by the CBM Security Gateway.",
+                    error_code="automated_scraping_prohibited",
+                    headers={"Connection": "close", "Content-Disposition": "inline"}
+                )
+            return self._send_json(403, {
+                "status": "error",
+                "error": "automated_scraping_prohibited",
+                "message": "Automated site cloning and offline harvesting tools are strictly prohibited."
+            }, headers={"Connection": "close", "Content-Disposition": "inline"})
+
+        # 3. Canonical Path Inspection & Anti-Theft Honeypot
+        norm_path, is_probe, probe_reason = normalize_and_inspect_path(self.path)
+        if is_probe:
+            rate_limiter.record_theft_probe(client_ip, self.path, probe_reason)
+            if self._is_html_client_request():
+                return self._send_custom_error(
+                    403,
+                    message="Access to backend source code, configuration secrets, and internal database files is strictly prohibited.",
+                    title="Restricted System Resource",
+                    hint="This resource is private infrastructure. All probe telemetry and source code extraction attempts are automatically logged and quarantined.",
+                    error_code="forbidden_resource",
+                    headers={"Connection": "close", "Content-Disposition": "inline"}
+                )
+            return self._send_json(403, {
+                "status": "error",
+                "error": "forbidden_resource",
+                "message": "Access to backend source code, configuration secrets, and internal database files is strictly prohibited."
+            }, headers={"Connection": "close", "Content-Disposition": "inline"})
+
+        path = norm_path.rstrip("/")
         parsed = self.path.split("?")
-        path = parsed[0].rstrip("/")
         query = parsed[1] if len(parsed) > 1 else ""
         query_dict = urllib.parse.parse_qs(query)
         params = {k: urllib.parse.unquote_plus(v[0]).strip() if v else "" for k, v in query_dict.items()}
@@ -2381,10 +3145,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         if is_internal_cbm_function(path):
             ok_origin, origin_err = self._enforce_domain_origin_policy()
             if not ok_origin:
-                return self._send_json(403, {
-                    "error": "forbidden_origin",
-                    "message": origin_err
-                })
+                return self._send_custom_error(
+                    403,
+                    message=origin_err,
+                    title="Origin Policy Restriction",
+                    hint="This internal endpoint can only be invoked from authorized first-party web origins or verified native client applications. Refer to our Terms of Service.",
+                    error_code="forbidden_origin"
+                )
 
         # 1. Standalone Dedicated HTML Pages (Served directly from In-Memory Pre-Gzipped Cache)
         if path in ("/login", "/login.html"):
@@ -2417,6 +3184,18 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         elif path in ("/vidtrim", "/vidtrim.html"):
             return self._send_cached_asset("vidtrim.html")
 
+        elif path in ("/subscription", "/subscription.html", "/plus", "/plus.html", "/cbm-plus"):
+            return self._send_cached_asset("subscription.html")
+
+        elif path in ("/privacy", "/privacy.html", "/privacy-policy", "/privacy-policy.html"):
+            return self._send_cached_asset("privacy.html")
+
+        elif path in ("/terms", "/terms.html", "/tos", "/terms-of-service", "/terms-of-service.html"):
+            return self._send_cached_asset("terms.html")
+
+        elif path in ("/gunfight", "/gunfight.html", "/cbm-gunfight", "/cbm-gunfight.html", "/arena", "/arena.html"):
+            return self._send_cached_asset("cbm-gunfight.html")
+
         elif path in ("/widget.js", "/widget"):
             return self._send_cached_asset("widget.js")
 
@@ -2424,68 +3203,73 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             return self._send_cached_asset("widget.html", allow_framing=True)
 
         elif path.startswith("/assets/products/") or path.startswith("/assets/patterns/"):
-            if path.startswith("/assets/products/"):
-                sub = "products"
-                fname = path[len("/assets/products/"):].strip("/")
-            else:
-                sub = "patterns"
-                fname = path[len("/assets/patterns/"):].strip("/")
+            sub = "products" if path.startswith("/assets/products/") else "patterns"
+            fname = os.path.basename(path)
+            ext = os.path.splitext(fname)[1].lower()
+            allowed_img_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"}
+            if not fname or ext not in allowed_img_exts or fname.startswith("."):
+                return self._send_json(403, {"status": "error", "message": "Forbidden asset type."})
 
-            if fname and "/" not in fname and "\\" not in fname and not fname.startswith("."):
-                fpath = os.path.join(base_dir, "assets", sub, fname)
-                if not os.path.isfile(fpath):
-                    fpath = os.path.join(base_dir, "assets", "products", fname)
-                if not os.path.isfile(fpath):
-                    fpath = os.path.join(base_dir, "assets", "patterns", fname)
-                if not os.path.isfile(fpath):
-                    fpath = os.path.join(os.path.dirname(base_dir), "assets", sub, fname)
+            assets_root = os.path.realpath(os.path.join(base_dir, "assets"))
+            candidate = os.path.realpath(os.path.join(assets_root, sub, fname))
+            if os.path.commonpath([candidate, assets_root]) != assets_root:
+                rate_limiter.record_theft_probe(client_ip, self.path, "ASSET_PATH_TRAVERSAL")
+                return self._send_json(403, {"status": "error", "message": "Invalid path."})
 
-                # Programmatic DB fallback: check if asset is stored in database
-                if not os.path.isfile(fpath) and db:
-                    db_asset = db.get_asset(fname)
-                    if db_asset and db_asset.get("data"):
-                        target_dir = os.path.join(base_dir, "assets", sub)
-                        os.makedirs(target_dir, exist_ok=True)
-                        fpath = os.path.join(target_dir, fname)
-                        try:
-                            with open(fpath, "wb") as f:
-                                f.write(db_asset["data"])
-                        except Exception:
-                            pass
+            fpath = candidate
+            if not os.path.isfile(fpath):
+                fpath = os.path.realpath(os.path.join(assets_root, "products", fname))
+            if not os.path.isfile(fpath):
+                fpath = os.path.realpath(os.path.join(assets_root, "patterns", fname))
+            if not os.path.isfile(fpath):
+                fpath = os.path.realpath(os.path.join(os.path.dirname(base_dir), "assets", sub, fname))
 
-                # Programmatic On-Demand Remote Fallback: fetch canonical assets if missing from disk & DB
-                if not os.path.isfile(fpath) and fname in CANONICAL_REMOTE_ASSETS:
-                    meta = CANONICAL_REMOTE_ASSETS[fname]
-                    for url in meta.get("urls", []):
-                        try:
-                            req = urllib.request.Request(url, headers={"User-Agent": "CBM-AssetManager/2.0"})
-                            with urllib.request.urlopen(req, timeout=5.0) as resp:
-                                if resp.status == 200:
-                                    fetched_data = resp.read()
-                                    if fetched_data:
-                                        target_dir = os.path.join(base_dir, "assets", sub)
-                                        os.makedirs(target_dir, exist_ok=True)
-                                        fpath = os.path.join(target_dir, fname)
-                                        with open(fpath, "wb") as f:
-                                            f.write(fetched_data)
-                                        if db:
-                                            db.save_asset(fname, sub, meta["mime"], fetched_data)
-                                        break
-                        except Exception:
-                            pass
+            # Programmatic DB fallback: check if asset is stored in database
+            if not os.path.isfile(fpath) and db:
+                db_asset = db.get_asset(fname)
+                if db_asset and db_asset.get("data"):
+                    target_dir = os.path.join(base_dir, "assets", sub)
+                    os.makedirs(target_dir, exist_ok=True)
+                    fpath = os.path.join(target_dir, fname)
+                    try:
+                        with open(fpath, "wb") as f:
+                            f.write(db_asset["data"])
+                    except Exception:
+                        pass
 
-                if os.path.isfile(fpath):
-                    ext = os.path.splitext(fname)[1].lower()
-                    mimes = {
-                        ".png": "image/png",
-                        ".jpg": "image/jpeg",
-                        ".jpeg": "image/jpeg",
-                        ".webp": "image/webp",
-                        ".gif": "image/gif",
-                        ".svg": "image/svg+xml",
-                        ".avif": "image/avif"
-                    }
-                    return self._send_file(fpath, content_type=mimes.get(ext, "application/octet-stream"))
+            # Programmatic On-Demand Remote Fallback: fetch canonical assets if missing from disk & DB
+            if not os.path.isfile(fpath) and fname in CANONICAL_REMOTE_ASSETS:
+                meta = CANONICAL_REMOTE_ASSETS[fname]
+                for url in meta.get("urls", []):
+                    try:
+                        req = urllib.request.Request(url, headers={"User-Agent": "CBM-AssetManager/2.0"})
+                        with urllib.request.urlopen(req, timeout=5.0) as resp:
+                            if resp.status == 200:
+                                fetched_data = resp.read()
+                                if fetched_data:
+                                    target_dir = os.path.join(base_dir, "assets", sub)
+                                    os.makedirs(target_dir, exist_ok=True)
+                                    fpath = os.path.join(target_dir, fname)
+                                    with open(fpath, "wb") as f:
+                                        f.write(fetched_data)
+                                    if db:
+                                        db.save_asset(fname, sub, meta["mime"], fetched_data)
+                                    break
+                    except Exception:
+                        pass
+
+            if os.path.isfile(fpath):
+                ext = os.path.splitext(fname)[1].lower()
+                mimes = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                    ".gif": "image/gif",
+                    ".svg": "image/svg+xml",
+                    ".avif": "image/avif"
+                }
+                return self._send_file(fpath, content_type=mimes.get(ext, "application/octet-stream"))
             return self._send_json(404, {"status": "error", "message": "Asset image not found."})
 
         # Discord Bot SDK Download
@@ -3097,7 +3881,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not acc:
                 return self._send_json(404, {"status": "error", "error": "account_not_found", "message": f"Account '{user}' not found."})
             is_active = db.is_cbm_plus_active(acc)
-            is_lifetime = (user.lower() in ("b8bbq", "admin")) or (acc.get("role") in ("admin", "council", "leader", "system"))
+            is_lifetime = (user.lower() in ("b8bbq", "admin")) or is_privileged_role(acc.get("role"))
             until_ts = acc.get("cbm_plus_until") or (4102444800.0 if is_lifetime else None)
             until_iso = None
             if until_ts:
@@ -3116,7 +3900,121 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "cbm_plus_until": until_ts,
                 "cbm_plus_until_iso": until_iso,
                 "role": acc.get("role", "member"),
-                "cost_gold": 0.0 if is_lifetime else 500.00
+                "cost_gold": 0.0 if is_lifetime else 500.00,
+                "plans": db.get_cbm_plus_plans()
+            })
+
+        elif path == "/api/cbm/subscription/plans":
+            return self._send_json(200, {
+                "status": "ok",
+                "base_monthly_gold": 500.00,
+                "plans": db.get_cbm_plus_plans()
+            })
+
+        elif path == "/api/cbm/gunfight/vip-status":
+            user = self._get_authenticated_user() or params.get("account_name") or params.get("user")
+            if not user:
+                return self._send_json(200, {
+                    "status": "ok",
+                    "cbm_plus": False,
+                    "vip_pass_cost_gold": 50.00,
+                    "authenticated": False
+                })
+            acc = db.get_account(user)
+            if not acc:
+                return self._send_json(200, {
+                    "status": "ok",
+                    "cbm_plus": False,
+                    "vip_pass_cost_gold": 50.00,
+                    "authenticated": False
+                })
+            is_plus = db.is_cbm_plus_active(acc)
+            return self._send_json(200, {
+                "status": "ok",
+                "account_name": user,
+                "cbm_plus": is_plus,
+                "vip_pass_cost_gold": 50.00,
+                "authenticated": True,
+                "deposited_gold": acc.get("deposited_gold", 0.0)
+            })
+
+        elif path in ("/api/cbm/gunfight/lobby/peers", "/api/cbm/gunfight/lobby/active"):
+            mode = params.get("mode", "")
+            req_room = (params.get("room") or params.get("roomId") or "").strip()
+            now = time.time()
+            with _GUNFIGHT_LOBBY_LOCK:
+                active = [
+                    {
+                        "peerId": pid,
+                        "name": p["name"],
+                        "mode": p["mode"],
+                        "roomId": p.get("roomId", "public-ffa"),
+                        "isHost": p.get("isHost", False),
+                        "isAnon": p.get("isAnon", True),
+                        "charId": p["charId"],
+                        "gunId": p["gunId"],
+                        "teamSize": p.get("teamSize", 4),
+                        "lastSeen": p["last_seen"]
+                    }
+                    for pid, p in _GUNFIGHT_LOBBY_PEERS.items()
+                    if now - p.get("last_seen", 0) <= 12.0
+                    and (not mode or p.get("mode") == mode)
+                    and (not req_room or p.get("roomId", "").lower() == req_room.lower())
+                ]
+            return self._send_json(200, {"status": "ok", "activePeers": active})
+
+        elif path == "/api/cbm/gunfight/lobby/stats":
+            now = time.time()
+            with _GUNFIGHT_LOBBY_LOCK:
+                active = [
+                    p for pid, p in _GUNFIGHT_LOBBY_PEERS.items()
+                    if now - p.get("last_seen", 0) <= 12.0
+                ]
+                modes: Dict[str, int] = {}
+                rooms: Dict[str, int] = {}
+                anon_count = 0
+                for p in active:
+                    m = p.get("mode", "FFA")
+                    r = p.get("roomId", "public-ffa")
+                    modes[m] = modes.get(m, 0) + 1
+                    rooms[r] = rooms.get(r, 0) + 1
+                    if p.get("isAnon"):
+                        anon_count += 1
+            return self._send_json(200, {
+                "status": "ok",
+                "totalOnline": len(active),
+                "anonymousOnline": anon_count,
+                "modes": modes,
+                "roomCount": len(rooms)
+            })
+
+        elif path == "/api/cbm/gunfight/lobby/room-info":
+            room_code = (params.get("code") or params.get("room") or params.get("roomId") or "").strip()
+            if not room_code:
+                return self._send_json(400, {"status": "error", "message": "Room code required."})
+            now = time.time()
+            with _GUNFIGHT_LOBBY_LOCK:
+                meta = _GUNFIGHT_ROOMS.get(room_code.upper())
+                active_in_room = [
+                    p for pid, p in _GUNFIGHT_LOBBY_PEERS.items()
+                    if now - p.get("last_seen", 0) <= 12.0 and p.get("roomId", "").lower() == room_code.lower()
+                ]
+            if not meta and not active_in_room:
+                return self._send_json(404, {"status": "error", "message": f"Room '{room_code}' not found or has expired."})
+            return self._send_json(200, {
+                "status": "ok",
+                "roomId": room_code.upper(),
+                "playerCount": len(active_in_room),
+                "roomMeta": meta or {},
+                "players": [
+                    {
+                        "peerId": p["peerId"],
+                        "name": p["name"],
+                        "isHost": p.get("isHost", False),
+                        "isAnon": p.get("isAnon", True)
+                    }
+                    for p in active_in_room
+                ]
             })
 
         elif path.startswith("/api/v1/tools/vidtrim/render-status/") or path == "/api/v1/tools/vidtrim/render-status" or path == "/api/v1/tools/vidtrim/status":
@@ -3196,13 +4094,18 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 if not room or room.is_ended:
                     return self._send_json(404, {"status": "error", "message": "Chatroom has ended or does not exist."})
 
-                # Security: Prevent path traversal
+                # Security: Prevent path traversal and backend asset probing
                 safe_name = os.path.basename(filename)
+                clean_name = safe_name.split("::", 1)[0].rstrip(". ")
+                _, ext = os.path.splitext(clean_name)
+                ext = ext.lower()
+                if clean_name in FORBIDDEN_PATH_TOKENS or ext in FORBIDDEN_BACKEND_EXTENSIONS or clean_name.startswith(".") or ".db" in clean_name or ".key" in clean_name or ".env" in clean_name:
+                    return self._send_json(403, {"status": "error", "error": "forbidden_resource", "message": "Access restricted."}, headers={"Connection": "close", "Content-Disposition": "inline"})
+
                 file_path = os.path.join(room.storage_dir, safe_name)
                 if not os.path.isfile(file_path):
                     return self._send_json(404, {"status": "error", "message": "File not found."})
 
-                ext = os.path.splitext(safe_name)[1].lower()
                 mimes = {
                     ".png": "image/png",
                     ".jpg": "image/jpeg",
@@ -3225,6 +4128,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
                     self.send_response(200)
                     self.send_header("Content-Type", content_type)
+                    self.send_header("Content-Disposition", "inline")
                     self.send_header("Content-Length", str(len(data)))
                     self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
                     self.send_header("Access-Control-Allow-Origin", "*")
@@ -3305,6 +4209,23 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "timestamp": time.time(),
                 "macro": macro,
                 "loan_risk": loan_risk
+            })
+
+        elif path == "/api/cbm/treasury/idle-deposits":
+            min_days_param = params.get("min_days")
+            try:
+                min_days = float(min_days_param) if min_days_param else 30.0
+            except Exception:
+                min_days = 30.0
+            min_idle_secs = min_days * 86400.0
+            idle_list = db.get_unassociated_idle_deposits(min_idle_seconds=min_idle_secs)
+            total_idle_gold = round(sum(d.get("deposited_gold", 0.0) for d in idle_list), 2)
+            return self._send_json(200, {
+                "status": "ok",
+                "policy_idle_days": min_days,
+                "count": len(idle_list),
+                "total_idle_gold": total_idle_gold,
+                "unassociated_idle_deposits": idle_list
             })
 
         elif path.startswith("/api/cbm/products/"):
@@ -3945,6 +4866,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "email": email,
                 "email_verified": bool(email),
                 "avatar_url": acc.get("avatar_url") if acc else None,
+                "clan_tag": acc.get("clan_tag", "ANTI-OG") if acc else "None",
                 "clan_role": acc.get("role", "member") if acc else "member",
                 "client_id": tok_record.get("client_id")
             }
@@ -4112,38 +5034,54 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        # 6. Fallback: Serve existing static file from local directory if present
+        # 6. Strict Allowlist Fallback: NEVER serve arbitrary files from disk
         clean_path = path.lstrip("/")
-        if clean_path and "/" not in clean_path:
-            local_static = os.path.join(os.path.dirname(os.path.abspath(__file__)), clean_path)
-            if os.path.isfile(local_static):
-                ext = os.path.splitext(clean_path)[1].lower()
-                mimes = {
-                    ".html": "text/html; charset=utf-8",
-                    ".png": "image/png",
-                    ".jpg": "image/jpeg",
-                    ".jpeg": "image/jpeg",
-                    ".ico": "image/x-icon",
-                    ".svg": "image/svg+xml",
-                    ".css": "text/css; charset=utf-8",
-                    ".js": "application/javascript; charset=utf-8",
-                    ".json": "application/json",
-                    ".sql": "text/plain; charset=utf-8",
-                    ".txt": "text/plain; charset=utf-8"
-                }
-                self.send_response(200)
-                self.send_header("Content-Type", mimes.get(ext, "application/octet-stream"))
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.end_headers()
-                with open(local_static, "rb") as f:
-                    self.wfile.write(f.read())
-                return
+        if clean_path in ALLOWED_PUBLIC_STATIC_FILES:
+            return self._send_cached_asset(clean_path)
 
-        return self._send_json(404, {"status": "error", "message": "Not found"})
+        return self._send_custom_error(
+            404,
+            message=f"The requested path '{path or '/'}' was not found on Clan Bank Manager.",
+            title="Page or Resource Not Found",
+            hint="Please verify the URL or return to the CBM homepage. Our services operate under our Privacy Policy and Terms of Service.",
+            error_code="resource_not_found"
+        )
 
     def do_POST(self):
+        client_ip = self._get_client_ip()
+
+        # 1. Global IP Quarantine Check
+        is_banned, ban_rem = rate_limiter.is_ip_banned(client_ip)
+        if is_banned:
+            return self._send_json(403, {
+                "status": "error",
+                "error": "ip_quarantined",
+                "message": "Access denied: Your IP address is under a 24-hour security quarantine due to unauthorized backend probing.",
+                "ban_remaining_seconds": ban_rem
+            }, headers={"Retry-After": str(ban_rem), "Connection": "close", "Content-Disposition": "inline"})
+
+        # 2. Block Automated Site-Rippers / Offline Cloners
+        ua_lower = (self.headers.get("User-Agent") or "").lower()
+        if any(bad_ua in ua_lower for bad_ua in SCRAPER_USER_AGENTS):
+            rate_limiter.record_theft_probe(client_ip, self.path, f"SCRAPER_UA:{ua_lower[:40]}", max_strikes=1)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "automated_scraping_prohibited",
+                "message": "Automated site cloning and offline harvesting tools are strictly prohibited."
+            }, headers={"Connection": "close", "Content-Disposition": "inline"})
+
+        # 3. Canonical Path Inspection & Anti-Theft Honeypot
+        norm_path, is_probe, probe_reason = normalize_and_inspect_path(self.path)
+        if is_probe:
+            rate_limiter.record_theft_probe(client_ip, self.path, probe_reason)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "forbidden_resource",
+                "message": "Access to backend source code, configuration secrets, and internal database files is strictly prohibited."
+            }, headers={"Connection": "close", "Content-Disposition": "inline"})
+
+        path = norm_path.rstrip("/")
         parsed = self.path.split("?")
-        path = parsed[0].rstrip("/")
         params = {k: v[0] for k, v in urllib.parse.parse_qs(parsed[1]).items()} if len(parsed) > 1 else {}
 
         # 1. Payload size boundaries (Anti-DoS / OOM protection)
@@ -4157,10 +5095,22 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
         except (ValueError, TypeError):
-            return self._send_json(400, {"status": "error", "message": "Invalid Content-Length header."})
+            return self._send_custom_error(
+                400,
+                message="The 'Content-Length' header was malformed or non-integer.",
+                title="Malformed Header",
+                hint="Verify your client sends a valid numerical Content-Length header.",
+                error_code="invalid_content_length"
+            )
 
         if length < 0:
-            return self._send_json(400, {"status": "error", "message": "Negative Content-Length header is not permitted."})
+            return self._send_custom_error(
+                400,
+                message="Negative Content-Length header is not permitted.",
+                title="Invalid Header Value",
+                hint="Content-Length must be zero or a positive integer.",
+                error_code="negative_content_length"
+            )
 
         if length > max_allowed_len:
             try:
@@ -4168,7 +5118,14 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     _ = self.rfile.read(length)
             except Exception:
                 pass
-            return self._send_json(413, {"status": "error", "message": f"Payload Too Large: Maximum permitted request payload is {max_allowed_len // 1024}KB."}, headers={"Connection": "close"})
+            return self._send_custom_error(
+                413,
+                message=f"Payload Too Large: Maximum permitted request payload is {max_allowed_len // 1024}KB.",
+                title="Payload Size Limit Exceeded",
+                hint=f"Your request exceeded the {max_allowed_len // 1024}KB ceiling. Please compress or paginate your request. Refer to /developer.html and our Terms of Service.",
+                error_code="payload_too_large",
+                headers={"Connection": "close"}
+            )
 
         try:
             raw_body = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
@@ -4292,23 +5249,37 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
             uname = body.get("username", "").strip()
             pwd = body.get("password", "").strip()
-            avatar = body.get("avatar_url", "").strip()
-            terri = body.get("primary_territorial_account", "").strip()
+            avatar = (body.get("avatar_url") or "").strip()
+            if not avatar and uname:
+                avatar = f"https://api.dicebear.com/7.x/identicon/svg?seed={uname}"
+            terri = (body.get("primary_territorial_account") or body.get("terri_account") or body.get("terri_acc") or "").strip()
             terri_pwd = body.get("territorial_password", "").strip()
             pin = body.get("pin")
             inviter_ref = (body.get("referral_code") or body.get("ref") or "").strip()
             prospect_tok = self._get_request_prospect_token(body)
             direct_code = (body.get("invite_code") or body.get("invite") or body.get("code") or "").strip()
 
-            # If direct invite code is provided, bind it
+            # If direct invite code is provided, bind it with base referral URL validation
             if direct_code:
+                if not inviter_ref:
+                    return self._send_json(400, {
+                        "status": "error",
+                        "error": "missing_base_referral",
+                        "message": "A base referral sponsor (?ref=<sponsor>) is required for the invite code to be valid."
+                    })
                 if not prospect_tok:
                     prospect_tok = f"pr_{secrets.token_urlsafe(16)}"
-                t_ok, t_msg, t_code = db.track_invite_prospect(prospect_tok, direct_code, self._get_client_ip_hash())
-                if not t_ok and t_code == "duplicate_inviter_code":
-                    return self._send_json(409, {
+                t_ok, t_msg, t_code = db.track_invite_prospect(prospect_tok, direct_code, self._get_client_ip_hash(), base_ref=inviter_ref)
+                if not t_ok:
+                    if t_code == "duplicate_inviter_code":
+                        return self._send_json(409, {
+                            "status": "error",
+                            "error": "duplicate_inviter_code",
+                            "message": t_msg
+                        })
+                    return self._send_json(400, {
                         "status": "error",
-                        "error": "duplicate_inviter_code",
+                        "error": t_code,
                         "message": t_msg
                     })
 
@@ -4327,10 +5298,26 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "message": "No valid invitation found."
                 })
 
-            if not uname or not pwd or not avatar or not terri or not pin:
+            # Base referral URL enforcement: an invite code is only valid with a matching base referral URL
+            if not inviter_ref:
                 return self._send_json(400, {
                     "status": "error",
-                    "message": "username, password, avatar_url, primary_territorial_account, and pin are required."
+                    "error": "missing_base_referral",
+                    "message": "A base referral sponsor (?ref=<sponsor>) is required for the invite code to be valid."
+                })
+
+            matching_inviters = [v for v in valid_inviters if v["inviter_account"].lower() == inviter_ref.lower()]
+            if not matching_inviters:
+                return self._send_json(400, {
+                    "status": "error",
+                    "error": "invalid_base_referral",
+                    "message": f"Referral sponsor '{inviter_ref}' does not match the sponsor of the linked invite code."
+                })
+
+            if not uname or not pwd or not terri or not pin:
+                return self._send_json(400, {
+                    "status": "error",
+                    "message": "username, password, primary_territorial_account, and pin are required."
                 })
 
             pin_clean = str(pin).strip()
@@ -4376,11 +5363,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         db.register_referral(inviter_ref, uname)
                     except Exception:
                         pass
+                hydrated_acc = db.get_account(uname) or acc
                 session_tok = create_session_token(uname)
                 cookie_str = f"cbm_session={session_tok}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800"
                 return self._send_json(
                     200,
-                    {"status": "ok", "message": msg, "account": acc, "session_token": session_tok},
+                    {"status": "ok", "message": msg, "account": hydrated_acc, "session_token": session_tok},
                     headers={"Set-Cookie": cookie_str}
                 )
             else:
@@ -4402,7 +5390,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not ok:
                 return self._send_json(400, {"status": "error", "message": msg})
             code_id = inv_rec["code_id"]
-            invite_url = f"https://{WISPBYTE_SUBDOMAIN}/register.html?invite={code_id}"
+            invite_url = f"https://{WISPBYTE_SUBDOMAIN}/register?ref={urllib.parse.quote(user)}&invite={code_id}"
             return self._send_json(200, {
                 "status": "ok",
                 "message": msg,
@@ -4415,13 +5403,20 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/cbm/invites/track":
             invite_code = (body.get("invite_code") or body.get("invite") or body.get("code") or "").strip()
+            base_ref = (body.get("ref") or body.get("referral_code") or "").strip()
             prospect_tok = (body.get("prospect_token") or self._get_request_prospect_token(body) or "").strip()
             if not prospect_tok:
                 prospect_tok = f"pr_{secrets.token_urlsafe(16)}"
             if not invite_code:
                 return self._send_json(400, {"status": "error", "message": "invite_code parameter required."})
+            if not base_ref:
+                return self._send_json(400, {
+                    "status": "error",
+                    "error": "missing_base_referral",
+                    "message": "A base referral URL (?ref=<sponsor>) is required for this invite code to be valid."
+                })
             ip_hash = self._get_client_ip_hash()
-            ok, msg, err_code = db.track_invite_prospect(prospect_tok, invite_code, client_ip_hash=ip_hash)
+            ok, msg, err_code = db.track_invite_prospect(prospect_tok, invite_code, client_ip_hash=ip_hash, base_ref=base_ref)
             cookie_hdr = f"cbm_prospect_token={prospect_tok}; Path=/; SameSite=Lax; Max-Age=2592000"
             if not ok:
                 if err_code == "duplicate_inviter_code":
@@ -4436,6 +5431,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                         "error": "not_found",
                         "message": msg
                     }, headers={"Set-Cookie": cookie_hdr})
+                elif err_code in ("missing_base_referral", "invalid_base_referral"):
+                    return self._send_json(400, {
+                        "status": "error",
+                        "error": err_code,
+                        "message": msg
+                    }, headers={"Set-Cookie": cookie_hdr})
                 else:
                     return self._send_json(400, {
                         "status": "error",
@@ -4446,7 +5447,8 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "message": msg,
                 "prospect_token": prospect_tok,
-                "invite_code": invite_code
+                "invite_code": invite_code,
+                "ref": base_ref
             }, headers={"Set-Cookie": cookie_hdr})
 
         elif path == "/api/cbm/invites/revoke":
@@ -4474,6 +5476,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 months = 1
             if months < 1 or months > 24:
                 return self._send_json(400, {"status": "error", "message": "months must be between 1 and 24."})
+            plan = db.calculate_cbm_plus_cost(months)
             ok, msg, until_epoch = db.subscribe_cbm_plus_from_balance(user, months=months)
             if not ok:
                 return self._send_json(402, {"status": "error", "error": "insufficient_funds", "message": msg})
@@ -4482,7 +5485,12 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "message": msg,
                 "account_name": user,
                 "cbm_plus_until": until_epoch,
-                "months": months
+                "months": months,
+                "cost_gold": plan["cost_gold"],
+                "base_gold": plan["base_gold"],
+                "savings_gold": plan["savings_gold"],
+                "discount_percent": plan["discount_percent"],
+                "is_annual": plan["is_annual"]
             })
 
         elif path == "/api/cbm/subscription/declare-slip":
@@ -4490,23 +5498,435 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             pin = body.get("pin")
             if not user or not self._is_account_authorized(user, pin=pin):
                 return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required."})
-            ok, msg, slip_data = db.create_pending_subscription(user, amount_gold=500.0)
+            try:
+                months = int(body.get("months", 1))
+            except (ValueError, TypeError):
+                months = 1
+            if months < 1 or months > 24:
+                return self._send_json(400, {"status": "error", "message": "months must be between 1 and 24."})
+
+            plan = db.calculate_cbm_plus_cost(months)
+            ok, msg, slip_data = db.create_pending_subscription(user, months=months)
             if not ok:
                 return self._send_json(400, {"status": "error", "message": msg})
             vault_acc = db.get_treasury().get("vault_account_name", "DdcBC")
+            cost_gold = plan["cost_gold"]
             return self._send_json(200, {
                 "status": "ok",
                 "message": msg,
                 "slip": slip_data,
                 "subscription_id": slip_data.get("id") if isinstance(slip_data, dict) else slip_data,
-                "required_amount_gold": 500.0,
+                "months": months,
+                "required_amount_gold": cost_gold,
+                "base_amount_gold": plan["base_gold"],
+                "savings_gold": plan["savings_gold"],
+                "discount_percent": plan["discount_percent"],
+                "is_annual": plan["is_annual"],
                 "instructions": {
                     "vault_account": vault_acc,
-                    "exact_amount_gold": 500.0,
+                    "exact_amount_gold": cost_gold,
                     "window_minutes": 15,
-                    "transfer_instruction": f"Send exactly 500.00 Gold in Territorial.io to player '{vault_acc}' within 15 minutes."
+                    "transfer_instruction": f"Send exactly {cost_gold:.2f} Gold in Territorial.io to player '{vault_acc}' within 15 minutes."
                 }
             })
+
+        # --- Gunfight Arena Rewards API (POST) ---
+        elif path == "/api/cbm/gunfight/claim-reward":
+            is_anon = bool(body.get("isAnon", False))
+            user = self._get_authenticated_user() or body.get("account_name")
+            pin = body.get("pin")
+            if is_anon or not user or not self._is_account_authorized(user, pin=pin):
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required. Anonymous guest operatives are not eligible for gold rewards."})
+
+            try:
+                reward_gold = float(body.get("reward_gold", 0))
+            except (ValueError, TypeError):
+                reward_gold = 0.0
+
+            nonce = str(body.get("nonce") or "").strip()
+            ok, msg, reward_data = db.claim_gunfight_war_chest_reward(user, reward_gold=reward_gold, nonce=nonce)
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": msg})
+            return self._send_json(200, {
+                "status": "ok",
+                "message": msg,
+                "reward": reward_data
+            })
+
+        elif path == "/api/cbm/gunfight/unlock-vip":
+            user = self._get_authenticated_user() or body.get("account_name")
+            pin = body.get("pin")
+            if not user or not self._is_account_authorized(user, pin=pin):
+                return self._send_json(401, {"status": "error", "error": "unauthorized", "message": "Authentication required to unlock VIP Bundle."})
+
+            try:
+                cost_gold = float(body.get("cost_gold", 50.0))
+            except (ValueError, TypeError):
+                cost_gold = 50.0
+
+            ok, msg, vip_data = db.unlock_gunfight_vip_pass(user, cost_gold=cost_gold)
+            if not ok:
+                return self._send_json(400, {"status": "error", "message": msg, "data": vip_data})
+            return self._send_json(200, {
+                "status": "ok",
+                "message": msg,
+                "vip": vip_data
+            })
+
+        elif path == "/api/cbm/gunfight/lobby/heartbeat":
+            peer_id = str(body.get("peerId") or body.get("peer_id") or "").strip()
+            if not peer_id:
+                return self._send_json(400, {"status": "error", "message": "peerId required."})
+            name = str(body.get("name") or "Operative").strip()[:32]
+            mode = str(body.get("mode") or "FFA").strip()[:16].upper()
+            room_id = str(body.get("roomId") or body.get("room_id") or f"public-{mode.lower()}").strip()[:64]
+            is_host = bool(body.get("isHost", False))
+            is_anon = bool(body.get("isAnon", True))
+            in_match = bool(body.get("inMatch", False))
+            vote_idx = body.get("voteIdx")
+            team_size = int(body.get("teamSize") or 4)
+
+            if is_anon:
+                char_id = "alfred"
+                gun_id = "hk_usp9"
+            else:
+                char_id = str(body.get("charId") or "alfred").strip()[:32]
+                gun_id = str(body.get("gunId") or "hk_usp9").strip()[:32]
+
+            now = time.time()
+            with _GUNFIGHT_LOBBY_LOCK:
+                stale = [pid for pid, data in _GUNFIGHT_LOBBY_PEERS.items() if now - data.get("last_seen", 0) > 15.0]
+                for pid in stale:
+                    _GUNFIGHT_LOBBY_PEERS.pop(pid, None)
+
+                _GUNFIGHT_LOBBY_PEERS[peer_id] = {
+                    "peerId": peer_id,
+                    "name": name,
+                    "mode": mode,
+                    "roomId": room_id,
+                    "isHost": is_host,
+                    "isAnon": is_anon,
+                    "charId": char_id,
+                    "gunId": gun_id,
+                    "teamSize": team_size,
+                    "inMatch": in_match,
+                    "last_seen": now
+                }
+
+                is_custom = not room_id.lower().startswith("public-")
+                r_code = room_id.upper()
+
+                if is_custom:
+                    if r_code not in _GUNFIGHT_ROOMS:
+                        _GUNFIGHT_ROOMS[r_code] = {
+                            "roomId": r_code,
+                            "hostPeerId": peer_id if is_host else "",
+                            "hostName": name if is_host else "Host Operative",
+                            "mode": mode,
+                            "teamSize": team_size,
+                            "created": now,
+                            "last_activity": now,
+                            "isAnon": is_anon,
+                            "lobbyState": "IN_MATCH" if in_match else "WAITING",
+                            "mapVoteOptions": [],
+                            "mapVotes": {},
+                            "deployAt": 0.0,
+                            "winningMap": None
+                        }
+                    room = _GUNFIGHT_ROOMS[r_code]
+                    room["last_activity"] = now
+
+                    # If this peer claims host or is the established host
+                    if is_host or room.get("hostPeerId") == peer_id or not room.get("hostPeerId"):
+                        room["hostPeerId"] = peer_id
+                        room["hostName"] = name
+                        room["mode"] = mode
+                        room["teamSize"] = team_size
+                        is_host = True
+                        _GUNFIGHT_LOBBY_PEERS[peer_id]["isHost"] = True
+                        if in_match:
+                            room["lobbyState"] = "IN_MATCH"
+                    else:
+                        # Non-host guest adopts room's authoritative mode & team size
+                        mode = room.get("mode", mode)
+                        team_size = room.get("teamSize", team_size)
+                        _GUNFIGHT_LOBBY_PEERS[peer_id]["mode"] = mode
+                        _GUNFIGHT_LOBBY_PEERS[peer_id]["teamSize"] = team_size
+
+                    # Record vote submission if provided
+                    if vote_idx is not None and room.get("lobbyState") == "VOTING":
+                        try:
+                            room["mapVotes"][peer_id] = int(vote_idx)
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Custom room active peers: match solely by roomId
+                    active = [
+                        {
+                            "peerId": pid,
+                            "name": p["name"],
+                            "mode": room.get("mode", p["mode"]),
+                            "roomId": p.get("roomId", ""),
+                            "isHost": (pid == room.get("hostPeerId")) or p.get("isHost", False),
+                            "isAnon": p.get("isAnon", True),
+                            "charId": p["charId"],
+                            "gunId": p["gunId"],
+                            "teamSize": room.get("teamSize", p.get("teamSize", 4)),
+                            "inMatch": p.get("inMatch", False),
+                            "lastSeen": p["last_seen"]
+                        }
+                        for pid, p in _GUNFIGHT_LOBBY_PEERS.items()
+                        if pid != peer_id and p.get("roomId", "").lower() == room_id.lower()
+                    ]
+
+                    # Minimum players for countdown in custom rooms:
+                    # FFA: min 2, max 10
+                    # TEAMS: min 2, max teamSize
+                    # RANKED: min 2, max 2
+                    total_in_room = len(active) + 1
+                    min_needed = 2
+                    if mode == "TEAMS":
+                        min_needed = min(2, team_size)
+                    elif mode == "RANKED":
+                        min_needed = 2
+                    else:
+                        min_needed = 2
+
+                    # Evaluate countdown threshold on server
+                    if room.get("lobbyState") == "WAITING":
+                        if total_in_room >= min_needed:
+                            room["lobbyState"] = "VOTING"
+                            room["mapVoteOptions"] = _generate_3_map_vote_options()
+                            room["deployAt"] = now + 10.0
+                            room["mapVotes"] = {}
+                            room["winningMap"] = None
+                    elif room.get("lobbyState") == "VOTING":
+                        if total_in_room < min_needed:
+                            room["lobbyState"] = "WAITING"
+                            room["mapVoteOptions"] = []
+                            room["deployAt"] = 0.0
+                            room["mapVotes"] = {}
+                            room["winningMap"] = None
+                        elif now >= room.get("deployAt", 0.0):
+                            # Tally votes and pick winning map
+                            votes = room.get("mapVotes", {})
+                            tallies = [0, 0, 0]
+                            for v in votes.values():
+                                if 0 <= v < 3:
+                                    tallies[v] += 1
+                            winning_idx = 0
+                            max_t = -1
+                            for idx, t in enumerate(tallies):
+                                if t > max_t:
+                                    max_t = t
+                                    winning_idx = idx
+                            opts = room.get("mapVoteOptions") or _generate_3_map_vote_options()
+                            room["winningMap"] = opts[winning_idx] if opts else {"mapId": "Forest", "timeId": "Midnight"}
+                            room["lobbyState"] = "IN_MATCH"
+
+                    room_meta = {
+                        "mode": room.get("mode", mode),
+                        "teamSize": room.get("teamSize", team_size),
+                        "hostPeerId": room.get("hostPeerId", ""),
+                        "lobbyState": room.get("lobbyState", "WAITING"),
+                        "mapVoteOptions": room.get("mapVoteOptions", []),
+                        "mapVotes": room.get("mapVotes", {}),
+                        "deployAt": room.get("deployAt", 0.0),
+                        "winningMap": room.get("winningMap")
+                    }
+                else:
+                    # Public matchmaking pool
+                    room_meta = {
+                        "mode": mode,
+                        "teamSize": team_size,
+                        "hostPeerId": "",
+                        "lobbyState": "WAITING",
+                        "mapVoteOptions": [],
+                        "mapVotes": {},
+                        "deployAt": 0.0,
+                        "winningMap": None
+                    }
+                    active = [
+                        {
+                            "peerId": pid,
+                            "name": p["name"],
+                            "mode": p["mode"],
+                            "roomId": p.get("roomId", ""),
+                            "isHost": p.get("isHost", False),
+                            "isAnon": p.get("isAnon", True),
+                            "charId": p["charId"],
+                            "gunId": p["gunId"],
+                            "teamSize": p.get("teamSize", 4),
+                            "inMatch": p.get("inMatch", False),
+                            "lastSeen": p["last_seen"]
+                        }
+                        for pid, p in _GUNFIGHT_LOBBY_PEERS.items()
+                        if pid != peer_id and p.get("roomId", "").lower() == room_id.lower() and p.get("mode", "").upper() == mode.upper()
+                    ]
+
+            return self._send_json(200, {
+                "status": "ok",
+                "myPeerId": peer_id,
+                "roomId": room_id,
+                "isHost": is_host,
+                "roomMode": room_meta.get("mode", mode),
+                "teamSize": room_meta.get("teamSize", team_size),
+                "roomMeta": room_meta,
+                "activePeers": active,
+                "serverTs": now
+            })
+
+        elif path == "/api/cbm/gunfight/lobby/vote":
+            peer_id = str(body.get("peerId") or "").strip()
+            room_id = str(body.get("roomId") or "").strip().upper()
+            try:
+                vote_idx = int(body.get("voteIdx", 0))
+            except (ValueError, TypeError):
+                vote_idx = 0
+
+            if not peer_id or not room_id:
+                return self._send_json(400, {"status": "error", "message": "peerId and roomId required."})
+
+            with _GUNFIGHT_LOBBY_LOCK:
+                room = _GUNFIGHT_ROOMS.get(room_id)
+                if room and room.get("lobbyState") == "VOTING":
+                    if "mapVotes" not in room or not isinstance(room["mapVotes"], dict):
+                        room["mapVotes"] = {}
+                    room["mapVotes"][peer_id] = vote_idx
+                    return self._send_json(200, {"status": "ok", "mapVotes": room["mapVotes"]})
+            return self._send_json(200, {"status": "ok", "mapVotes": {}})
+
+        elif path == "/api/cbm/gunfight/room/sync":
+            peer_id = str(body.get("peerId") or "").strip()
+            room_id = str(body.get("roomId") or "").strip().upper()
+            try:
+                last_seq = int(body.get("lastSeq") or 0)
+            except (ValueError, TypeError):
+                last_seq = 0
+            player_state = body.get("playerState")
+            events = body.get("events") or []
+
+            if not peer_id or not room_id:
+                return self._send_json(400, {"status": "error", "message": "peerId and roomId required."})
+
+            now = time.time()
+            with _GUNFIGHT_LOBBY_LOCK:
+                if room_id not in _GUNFIGHT_ROOM_RELAY:
+                    _GUNFIGHT_ROOM_RELAY[room_id] = []
+                if room_id not in _GUNFIGHT_ROOM_PLAYERS_STATE:
+                    _GUNFIGHT_ROOM_PLAYERS_STATE[room_id] = {}
+
+                # Ingest local player's state snapshot if provided
+                if player_state and isinstance(player_state, dict):
+                    st = dict(player_state)
+                    st["lastUpdate"] = now
+                    st["peerId"] = peer_id
+                    _GUNFIGHT_ROOM_PLAYERS_STATE[room_id][peer_id] = st
+
+                # Ingest new events
+                room_events = _GUNFIGHT_ROOM_RELAY[room_id]
+                current_seq = room_events[-1]["seq"] if room_events else 0
+                for ev in events:
+                    if isinstance(ev, dict):
+                        current_seq += 1
+                        ev_copy = dict(ev)
+                        ev_copy["seq"] = current_seq
+                        ev_copy["ts"] = now
+                        ev_copy["senderId"] = peer_id
+                        room_events.append(ev_copy)
+
+                # Prune buffer: retain last 80 events or events from last 25 seconds
+                if len(room_events) > 80:
+                    _GUNFIGHT_ROOM_RELAY[room_id] = [e for e in room_events[-60:] if now - e.get("ts", 0) < 25.0]
+
+                # Pending events for this peer
+                pending_events = [e for e in _GUNFIGHT_ROOM_RELAY[room_id] if e["seq"] > last_seq and e["senderId"] != peer_id]
+
+                # Other active players' state snapshots (updated within last 8 seconds)
+                other_players = {
+                    pid: p for pid, p in _GUNFIGHT_ROOM_PLAYERS_STATE[room_id].items()
+                    if pid != peer_id and now - p.get("lastUpdate", 0) < 8.0
+                }
+
+                max_seq = _GUNFIGHT_ROOM_RELAY[room_id][-1]["seq"] if _GUNFIGHT_ROOM_RELAY[room_id] else last_seq
+
+            return self._send_json(200, {
+                "status": "ok",
+                "maxSeq": max_seq,
+                "players": other_players,
+                "events": pending_events,
+                "serverTs": now
+            })
+
+        elif path == "/api/cbm/gunfight/lobby/create-room":
+            peer_id = str(body.get("peerId") or body.get("peer_id") or "").strip()
+            name = str(body.get("name") or "Host Operative").strip()[:32]
+            mode = str(body.get("mode") or "FFA").strip()[:16].upper()
+            team_size = int(body.get("teamSize") or 4)
+            is_anon = bool(body.get("isAnon", True))
+            custom_code = str(body.get("customCode") or body.get("roomId") or "").strip()
+
+            client_ip = self.client_address[0] if self.client_address else "127.0.0.1"
+            rate_key = f"{client_ip}:{peer_id}" if peer_id else client_ip
+            now = time.time()
+
+            # Enforce 8-second creation cooldown for anonymous users
+            with _GUNFIGHT_LOBBY_LOCK:
+                last_created = _GUNFIGHT_ROOM_RATE_LIMIT.get(rate_key, 0)
+                if is_anon and (now - last_created < 8.0):
+                    wait_sec = max(1, int(8.0 - (now - last_created)) + 1)
+                    return self._send_json(429, {
+                        "status": "error",
+                        "message": f"Room creation cooldown active for anonymous operatives. Please wait {wait_sec}s."
+                    })
+                _GUNFIGHT_ROOM_RATE_LIMIT[rate_key] = now
+
+                # Generate clean unique room code (or sanitize custom)
+                if custom_code:
+                    clean_code = re.sub(r'[^A-Za-z0-9\-]', '', custom_code).upper()[:16]
+                    if len(clean_code) < 3:
+                        clean_code = "GF-" + "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4))
+                else:
+                    clean_code = "GF-" + "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(4))
+
+                _GUNFIGHT_ROOMS[clean_code] = {
+                    "roomId": clean_code,
+                    "hostPeerId": peer_id,
+                    "hostName": name,
+                    "mode": mode,
+                    "teamSize": team_size,
+                    "created": now,
+                    "last_activity": now,
+                    "isAnon": is_anon,
+                    "lobbyState": "WAITING",
+                    "mapVoteOptions": [],
+                    "mapVotes": {},
+                    "deployAt": 0.0,
+                    "winningMap": None
+                }
+
+            return self._send_json(200, {
+                "status": "ok",
+                "roomId": clean_code,
+                "isHost": True,
+                "mode": mode,
+                "teamSize": team_size,
+                "message": f"Room {clean_code} created successfully."
+            })
+
+        elif path == "/api/cbm/gunfight/lobby/leave":
+            peer_id = str(body.get("peerId") or body.get("peer_id") or "").strip()
+            if peer_id:
+                with _GUNFIGHT_LOBBY_LOCK:
+                    removed = _GUNFIGHT_LOBBY_PEERS.pop(peer_id, None)
+                    # Clean up empty rooms hosted by this peer
+                    if removed and removed.get("isHost"):
+                        r_id = removed.get("roomId", "").upper()
+                        if r_id in _GUNFIGHT_ROOMS and _GUNFIGHT_ROOMS[r_id].get("hostPeerId") == peer_id:
+                            _GUNFIGHT_ROOMS.pop(r_id, None)
+                            _GUNFIGHT_ROOM_RELAY.pop(r_id, None)
+                            _GUNFIGHT_ROOM_PLAYERS_STATE.pop(r_id, None)
+            return self._send_json(200, {"status": "ok"})
 
         # --- TrimCraft Pro & Video Trimmer APIs (POST) ---
         elif path == "/api/v1/tools/trimcraft/bounds":
@@ -4966,7 +6386,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 return self._send_json(400, {"status": "error", "message": "Missing required fields: admin_username and claim_id."})
 
             admin_acc = db.get_account(admin_user)
-            if not admin_acc or admin_acc.get("role") not in ("admin", "officer", "council"):
+            if not admin_acc or not is_privileged_role(admin_acc.get("role")):
                 return self._send_json(403, {"status": "forbidden", "message": "Only Clan Bank officers and administrators can settle election claims."})
 
             if db.has_account_pin(admin_user):
@@ -5149,6 +6569,21 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     "message": "Failed to sync live vault balance from Territorial.io API.",
                     "details": audit
                 })
+
+        # 1d. Treasury automated 30-day idle deposit sweep to unencumbered reserves
+        elif path == "/api/cbm/treasury/sweep-idle":
+            days_override = body.get("max_idle_days") if isinstance(body, dict) else None
+            try:
+                max_days = float(days_override) if days_override is not None else 30.0
+            except Exception:
+                max_days = 30.0
+            max_idle_secs = max_days * 86400.0
+            sweep_res = db.sweep_idle_unassociated_deposits(max_idle_seconds=max_idle_secs)
+            return self._send_json(200, {
+                "status": "ok",
+                "message": f"Swept {sweep_res['swept_count']} unassociated idle deposit(s) into unencumbered reserves ({sweep_res['total_converted_gold']} Gold).",
+                "sweep_result": sweep_res
+            })
 
         # 2. Link Payment Method (Strictly Non-Custodial via Transaction Ledger)
         elif path == "/api/cbm/link-payment-method":
@@ -5644,11 +7079,11 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     required_clan = "KILR"
 
                 if required_clan:
-                    has_clan = f"[{required_clan.upper()}]" in account.upper()
+                    has_clan = check_clan_requirement(db, account, required_clan, extra_payload=payload)
                     if has_clan:
                         client_verified = True
                         if isinstance(payload, dict):
-                            payload.setdefault("clan", required_clan)
+                            payload.setdefault("clan", clean_clan_tag(required_clan) or required_clan)
 
                 if not client_verified:
                     req_msg = f"Requires clan tag [{required_clan}]" if required_clan else "Client verification requirement not met."
@@ -6188,16 +7623,11 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     required_clan = "KILR"
 
                 if required_clan:
-                    aliases = db._get_all_account_aliases(account)
-                    if isinstance(attestation_data, dict):
-                        p_name = attestation_data.get("player_name") or attestation_data.get("name")
-                        if p_name and p_name not in aliases:
-                            aliases.append(str(p_name))
-                    has_tag = any(f"[{required_clan.upper()}]" in a.upper() for a in aliases)
+                    has_tag = check_clan_requirement(db, account, required_clan, extra_payload=attestation_data)
                     if not has_tag:
                         client_verified = False
                     elif client_verified and isinstance(attestation_data, dict):
-                        attestation_data.setdefault("clan", required_clan)
+                        attestation_data.setdefault("clan", clean_clan_tag(required_clan) or required_clan)
 
                 if not client_verified:
                     req_msg = f"Requires clan tag [{required_clan}] in player handle." if required_clan else "Client attestation requirement not satisfied."
@@ -6314,9 +7744,27 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             if not account_name:
                 return self._send_json(400, {"status": "error", "message": "account_name is required."})
             stats = db.get_referral_stats(account_name) if hasattr(db, "get_referral_stats") else {}
-            # Build invite link
+            # Build invite link with active invite code if available
             ref_code = account_name
-            invite_link = f"/register?ref={urllib.parse.quote(ref_code)}"
+            active_invite = None
+            try:
+                conn_r = db._get_sqlite_conn(row_factory=True)
+                cur_r = conn_r.cursor()
+                cur_r.execute("""
+                    SELECT code_id FROM cbm_invites
+                    WHERE LOWER(inviter_account) = LOWER(?) AND is_revoked = 0 AND uses_count < max_uses
+                    ORDER BY created_at DESC LIMIT 1
+                """, (account_name,))
+                inv_row = cur_r.fetchone()
+                if inv_row:
+                    active_invite = inv_row["code_id"]
+            except Exception:
+                pass
+
+            if active_invite:
+                invite_link = f"/register?ref={urllib.parse.quote(ref_code)}&invite={active_invite}"
+            else:
+                invite_link = f"/register?ref={urllib.parse.quote(ref_code)}"
             return self._send_json(200, {
                 "status": "ok",
                 "account": account_name,
@@ -6620,7 +8068,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     return self._send_json(401, {"status": "unauthorized", "message": "Admin authentication required."})
 
                 raw_admin = db._get_account_raw(operator)
-                if not raw_admin or raw_admin.get("role") not in ("leader", "system", "admin", "co-leader"):
+                if not raw_admin or not is_privileged_role(raw_admin.get("role")):
                     return self._send_json(403, {"status": "forbidden", "message": "Only clan administrators can manage the chat whitelist."})
 
                 if not token_auth_user and not db.verify_account_pin(operator, admin_pin):
@@ -6647,7 +8095,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                     return self._send_json(401, {"status": "unauthorized", "message": "Admin authentication required."})
 
                 raw_admin = db._get_account_raw(operator)
-                if not raw_admin or raw_admin.get("role") not in ("leader", "system", "admin", "co-leader"):
+                if not raw_admin or not is_privileged_role(raw_admin.get("role")):
                     return self._send_json(403, {"status": "forbidden", "message": "Only clan administrators can manage the chat whitelist."})
 
                 if not token_auth_user and not db.verify_account_pin(operator, admin_pin):
@@ -6756,6 +8204,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "auth_time": int(code_record.get("created_at", now_ts)),
                 "preferred_username": code_record["account_name"],
                 "display_name": disp_name,
+                "clan_tag": acc.get("clan_tag", "ANTI-OG") if acc else "None",
                 "clan_role": acc.get("role", "member") if acc else "member"
             }
             if acc and acc.get("email"):
@@ -6813,6 +8262,7 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
                 "email": email,
                 "email_verified": bool(email),
                 "avatar_url": acc.get("avatar_url") if acc else None,
+                "clan_tag": acc.get("clan_tag", "ANTI-OG") if acc else "None",
                 "clan_role": acc.get("role", "member") if acc else "member",
                 "client_id": tok_record.get("client_id")
             }
@@ -6858,7 +8308,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             })
 
         else:
-            return self._send_json(404, {"status": "error", "message": "Not found"})
+            return self._send_custom_error(
+                404,
+                message=f"The POST endpoint '{path}' was not found on Clan Bank Manager.",
+                title="Endpoint Not Found",
+                hint="Please consult the CBM Developer API documentation at /developer.html for valid endpoints and schema definitions.",
+                error_code="endpoint_not_found"
+            )
 
     def do_DELETE(self):
         try:
@@ -6866,13 +8322,51 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         except Exception as unhandled:
             print(f"[!] Unhandled error in do_DELETE: {unhandled}")
             try:
-                self._send_json(500, {"status": "error", "message": "Service temporarily busy. Please retry."})
+                self._send_custom_error(
+                    500,
+                    message="Service is temporarily busy or undergoing automated re-indexing. Please retry.",
+                    title="Service Temporarily Unavailable",
+                    hint="Our automated telemetry daemon has recorded this event. Please retry in a moment or visit our System Status page at /status.html.",
+                    error_code="internal_server_error"
+                )
             except Exception:
                 pass
 
     def _do_DELETE(self):
+        client_ip = self._get_client_ip()
+
+        # 1. Global IP Quarantine Check
+        is_banned, ban_rem = rate_limiter.is_ip_banned(client_ip)
+        if is_banned:
+            return self._send_json(403, {
+                "status": "error",
+                "error": "ip_quarantined",
+                "message": "Access denied: Your IP address is under a 24-hour security quarantine due to unauthorized backend probing.",
+                "ban_remaining_seconds": ban_rem
+            }, headers={"Retry-After": str(ban_rem), "Connection": "close"})
+
+        # 2. Block Automated Site-Rippers / Offline Cloners
+        ua_lower = (self.headers.get("User-Agent") or "").lower()
+        if any(bad_ua in ua_lower for bad_ua in SCRAPER_USER_AGENTS):
+            rate_limiter.record_theft_probe(client_ip, self.path, f"SCRAPER_UA:{ua_lower[:40]}", max_strikes=1)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "automated_scraping_prohibited",
+                "message": "Automated site cloning and offline harvesting tools are strictly prohibited."
+            }, headers={"Connection": "close"})
+
+        # 3. Canonical Path Inspection & Anti-Theft Honeypot
+        norm_path, is_probe, probe_reason = normalize_and_inspect_path(self.path)
+        if is_probe:
+            rate_limiter.record_theft_probe(client_ip, self.path, probe_reason)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "forbidden_resource",
+                "message": "Access to backend source code, configuration secrets, and internal database files is strictly prohibited."
+            }, headers={"Connection": "close"})
+
+        path = norm_path.rstrip("/")
         parsed = self.path.split("?")
-        path = parsed[0].rstrip("/")
 
         if path.startswith("/api/v1/ai/sessions/"):
             session_id = path[len("/api/v1/ai/sessions/"):].strip("/")
@@ -6881,7 +8375,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             session_id = path[len("/api/cbm/ai/sessions/"):].strip("/")
             return self._handle_ai_session_delete(session_id, is_v1_api=False)
 
-        return self._send_json(404, {"error": "endpoint_not_found", "message": f"DELETE route '{path}' does not exist."}, is_dev_api=is_cors_bypassed_endpoint(path))
+        return self._send_custom_error(
+            404,
+            message=f"DELETE route '{path}' does not exist on this server.",
+            title="DELETE Endpoint Not Found",
+            hint="Consult /developer.html for supported deletion routes.",
+            error_code="endpoint_not_found"
+        )
 
     def do_PATCH(self):
         try:
@@ -6889,24 +8389,74 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
         except Exception as unhandled:
             print(f"[!] Unhandled error in do_PATCH: {unhandled}")
             try:
-                self._send_json(500, {"status": "error", "message": "Service temporarily busy. Please retry."})
+                self._send_custom_error(
+                    500,
+                    message="Service is temporarily busy or undergoing automated re-indexing. Please retry.",
+                    title="Service Temporarily Unavailable",
+                    hint="Our automated telemetry daemon has recorded this event. Please retry in a moment or visit our System Status page at /status.html.",
+                    error_code="internal_server_error"
+                )
             except Exception:
                 pass
 
     def _do_PATCH(self):
+        client_ip = self._get_client_ip()
+
+        # 1. Global IP Quarantine Check
+        is_banned, ban_rem = rate_limiter.is_ip_banned(client_ip)
+        if is_banned:
+            return self._send_json(403, {
+                "status": "error",
+                "error": "ip_quarantined",
+                "message": "Access denied: Your IP address is under a 24-hour security quarantine due to unauthorized backend probing.",
+                "ban_remaining_seconds": ban_rem
+            }, headers={"Retry-After": str(ban_rem), "Connection": "close"})
+
+        # 2. Block Automated Site-Rippers / Offline Cloners
+        ua_lower = (self.headers.get("User-Agent") or "").lower()
+        if any(bad_ua in ua_lower for bad_ua in SCRAPER_USER_AGENTS):
+            rate_limiter.record_theft_probe(client_ip, self.path, f"SCRAPER_UA:{ua_lower[:40]}", max_strikes=1)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "automated_scraping_prohibited",
+                "message": "Automated site cloning and offline harvesting tools are strictly prohibited."
+            }, headers={"Connection": "close"})
+
+        # 3. Canonical Path Inspection & Anti-Theft Honeypot
+        norm_path, is_probe, probe_reason = normalize_and_inspect_path(self.path)
+        if is_probe:
+            rate_limiter.record_theft_probe(client_ip, self.path, probe_reason)
+            return self._send_json(403, {
+                "status": "error",
+                "error": "forbidden_resource",
+                "message": "Access to backend source code, configuration secrets, and internal database files is strictly prohibited."
+            }, headers={"Connection": "close"})
+
+        path = norm_path.rstrip("/")
         parsed = self.path.split("?")
-        path = parsed[0].rstrip("/")
 
         try:
             length = int(self.headers.get("Content-Length", 0))
         except (ValueError, TypeError):
-            return self._send_json(400, {"status": "error", "message": "Invalid Content-Length header."})
+            return self._send_custom_error(
+                400,
+                message="The 'Content-Length' header was malformed or non-integer.",
+                title="Malformed Header",
+                hint="Verify your client sends a valid numerical Content-Length header.",
+                error_code="invalid_content_length"
+            )
 
         try:
             raw_body = self.rfile.read(length).decode("utf-8", errors="replace") if length > 0 else "{}"
             body = json.loads(raw_body) if raw_body.strip() else {}
         except Exception:
-            return self._send_json(400, {"status": "error", "message": "Invalid JSON in PATCH body."})
+            return self._send_custom_error(
+                400,
+                message="The payload could not be parsed as valid JSON.",
+                title="Invalid JSON Format",
+                hint="Inspect the PATCH payload body to ensure valid JSON syntax.",
+                error_code="invalid_json"
+            )
 
         if path.startswith("/api/v1/ai/sessions/"):
             session_id = path[len("/api/v1/ai/sessions/"):].strip("/")
@@ -6915,7 +8465,13 @@ class CBMHealthHandler(BaseHTTPRequestHandler):
             session_id = path[len("/api/cbm/ai/sessions/"):].strip("/")
             return self._handle_ai_session_update(session_id, body, is_v1_api=False)
 
-        return self._send_json(404, {"error": "endpoint_not_found", "message": f"PATCH route '{path}' does not exist."}, is_dev_api=is_cors_bypassed_endpoint(path))
+        return self._send_custom_error(
+            404,
+            message=f"PATCH route '{path}' does not exist on this server.",
+            title="PATCH Endpoint Not Found",
+            hint="Consult /developer.html for supported mutation routes.",
+            error_code="endpoint_not_found"
+        )
 
     def log_message(self, format, *args):
         # Suppress routine health check log spam
@@ -7068,8 +8624,15 @@ def _terminate_pid_tree(pid: int):
 
 
 def _resolve_automod_python_bin() -> str:
+    # 1. Fast in-process check: if current interpreter already has discord imported
     try:
-        res = subprocess.run([sys.executable, "-c", "import discord"], capture_output=True, timeout=3)
+        import discord
+        return sys.executable
+    except ImportError:
+        pass
+
+    try:
+        res = subprocess.run([sys.executable, "-c", "import discord"], capture_output=True, timeout=10)
         if res.returncode == 0:
             return sys.executable
     except Exception:
@@ -7079,15 +8642,23 @@ def _resolve_automod_python_bin() -> str:
     if sys.platform == "win32":
         candidates = [
             r"C:\Users\a2b\AppData\Local\Programs\Python\Python312\python.exe",
+            r"C:\Users\a2b\AppData\Local\hermes\hermes-agent\venv\Scripts\python.exe",
+            "python",
+            "python3"
+        ]
+    else:
+        candidates = [
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
             "python3",
             "python"
         ]
-    else:
-        candidates = ["python3", "python"]
 
     for cand in candidates:
+        if cand == sys.executable:
+            continue
         try:
-            res = subprocess.run([cand, "-c", "import discord"], capture_output=True, timeout=3)
+            res = subprocess.run([cand, "-c", "import discord"], capture_output=True, timeout=10)
             if res.returncode == 0:
                 return cand
         except Exception:
@@ -7113,6 +8684,11 @@ def start_automod_daemon() -> bool:
             if _is_pid_alive(existing_pid):
                 print(f"[+] Active AutoMod Discord Bot detected (PID {existing_pid}). Retaining instance.")
                 return True
+            else:
+                try:
+                    os.remove(pid_file)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -7151,6 +8727,21 @@ def stop_automod_daemon():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     pid_file = os.path.join(base_dir, "automod.pid")
 
+    target_pid = None
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, "r", encoding="utf-8") as f:
+                target_pid = int(f.read().strip())
+        except Exception:
+            pass
+
+    if target_pid is None and _AUTOMOD_PROCESS:
+        target_pid = _AUTOMOD_PROCESS.pid
+
+    # First terminate entire process tree while intact
+    if target_pid:
+        _terminate_pid_tree(target_pid)
+
     if _AUTOMOD_PROCESS and _AUTOMOD_PROCESS.poll() is None:
         try:
             _AUTOMOD_PROCESS.terminate()
@@ -7160,15 +8751,9 @@ def stop_automod_daemon():
                 _AUTOMOD_PROCESS.kill()
         except Exception:
             pass
-        _AUTOMOD_PROCESS = None
+    _AUTOMOD_PROCESS = None
 
     if os.path.exists(pid_file):
-        try:
-            with open(pid_file, "r", encoding="utf-8") as f:
-                bot_pid = int(f.read().strip())
-            _terminate_pid_tree(bot_pid)
-        except Exception:
-            pass
         try:
             os.remove(pid_file)
         except Exception:
@@ -7256,6 +8841,10 @@ def main():
                     db.prune_expired_ai_sessions()
                 except Exception:
                     pass
+                try:
+                    db.sweep_idle_unassociated_deposits()
+                except Exception as sweep_err:
+                    print(f"[!] Background idle deposit sweep notice: {sweep_err}")
             time.sleep(30)
         except (KeyboardInterrupt, SystemExit):
             break

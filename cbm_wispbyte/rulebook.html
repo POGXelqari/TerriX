@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-QCMCPSK0CF');
+  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CBM Rulebook & Technical Specification — Territorial.io</title>
@@ -384,6 +393,8 @@
         <div class="rule-title">2. Unencumbered Reserve Segregation</div>
         <div class="rule-desc">
           Clan operational war chests, liquidity pools, and lending facilities must derive exclusively from <em>unencumbered capital</em> (donations and loan penalty yields) where <span class="mono-accent">Liabilities Created == 0</span>.
+          <br><br>
+          Inbound gold deposited from a Territorial.io account that sits idle without being associated with a registered CBM Account for <strong>30 consecutive days</strong> is automatically converted into permanent unencumbered clan reserves.
         </div>
       </div>
 

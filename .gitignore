@@ -49,6 +49,7 @@ Thumbs.db
 
 # Scratch scripts & temporary development files
 scratch/
+ignored/
 
 # Large single-session HTML dumps
 conversation_viewer_*.html

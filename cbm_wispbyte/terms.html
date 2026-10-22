@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-QCMCPSK0CF');
+  </script>
+  <meta name="google-site-verification" content="QgBuTq0ptINqSWSbw-GSVHOvHGL-xz1iaApSi4oIC1Y" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service — Clan Bank Manager (CBM)</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <meta name="description" content="Clan Bank Manager (CBM) Terms of Service. Clear operational standards, non-custodial telemetry, CBM Plus subscription rules, and fair usage guidelines.">
+  <style>
+    :root {
+      /* PayPal Dark Mode Design Tokens */
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-yellow: #ffc439;
+      --paypal-yellow-hover: #e0ac2b;
+      --success: #00cf92;
+      --danger: #ea3943;
+      
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --maxw: 1040px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: var(--paypal-blue);
+      text-decoration: none;
+      transition: color 0.15s ease;
+    }
+    a:hover {
+      text-decoration: underline;
+      color: #3395ff;
+    }
+
+    /* Navigation Header */
+    header.pp-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(14, 22, 38, 0.98);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-container {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+    .brand-group:hover {
+      text-decoration: none;
+    }
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: var(--radius-sm);
+    }
+    .brand-text {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+      color: #ffffff;
+    }
+    .brand-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      background: rgba(255, 196, 57, 0.15);
+      color: var(--paypal-yellow);
+      border: 1px solid rgba(255, 196, 57, 0.35);
+      padding: 2px 7px;
+      border-radius: var(--radius-pill);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .nav-link {
+      color: var(--text-dim);
+      font-size: 0.88rem;
+      font-weight: 500;
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      transition: all 0.15s;
+    }
+    .nav-link:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.05);
+      text-decoration: none;
+    }
+    .nav-link.active {
+      color: var(--paypal-yellow);
+      background: rgba(255, 196, 57, 0.1);
+      font-weight: 600;
+    }
+
+    /* Main Container */
+    main.content-area {
+      flex: 1;
+      max-width: var(--maxw);
+      width: 100%;
+      margin: 0 auto;
+      padding: 36px 20px 60px;
+    }
+
+    .terms-hero {
+      margin-bottom: 32px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 24px;
+    }
+    .terms-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--paypal-yellow);
+      background: rgba(255, 196, 57, 0.12);
+      border: 1px solid rgba(255, 196, 57, 0.3);
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      margin-bottom: 12px;
+    }
+    .terms-title {
+      font-size: 2.2rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #ffffff;
+      margin-bottom: 10px;
+    }
+    .terms-meta {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    /* Summary Card */
+    .summary-card {
+      background: var(--panel);
+      border: 1px solid var(--border-bright);
+      border-left: 4px solid var(--paypal-yellow);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      margin-bottom: 36px;
+    }
+    .summary-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .summary-text {
+      font-size: 0.92rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* Section Cards */
+    .terms-section {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 28px 30px;
+      margin-bottom: 24px;
+    }
+    .section-num {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #58a6ff;
+      background: rgba(0, 112, 224, 0.15);
+      border: 1px solid rgba(0, 112, 224, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .section-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 14px;
+      letter-spacing: -0.3px;
+    }
+    .section-body {
+      font-size: 0.94rem;
+      color: var(--text-dim);
+      line-height: 1.7;
+    }
+    .section-body p {
+      margin-bottom: 14px;
+    }
+    .section-body p:last-child {
+      margin-bottom: 0;
+    }
+
+    .feature-list {
+      list-style: none;
+      margin: 12px 0;
+    }
+    .feature-list li {
+      position: relative;
+      padding-left: 24px;
+      margin-bottom: 10px;
+      font-size: 0.92rem;
+      color: var(--text-dim);
+    }
+    .feature-list li::before {
+      content: "✓";
+      position: absolute;
+      left: 6px;
+      color: var(--success);
+      font-weight: bold;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* Footer */
+    footer.site-footer {
+      background: #060b13;
+      border-top: 1px solid var(--border);
+      padding: 30px 20px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .footer-inner {
+      max-width: var(--maxw);
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-links {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .footer-links a {
+      color: var(--text-dim);
+    }
+    .footer-links a:hover {
+      color: #ffffff;
+    }
+
+    @media (max-width: 768px) {
+      .terms-title {
+        font-size: 1.7rem;
+      }
+      .nav-links {
+        display: none;
+      }
+      .terms-section {
+        padding: 20px 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navigation -->
+  <header class="pp-nav">
+    <div class="nav-container">
+      <a href="/cbm.html" class="brand-group">
+        <img src="/cbm-logo.png" alt="CBM Logo" class="brand-logo">
+        <span class="brand-text">Clan Bank Manager</span>
+        <span class="brand-badge">Terms</span>
+      </a>
+      <nav class="nav-links">
+        <a href="/cbm.html" class="nav-link">Home</a>
+        <a href="/terms.html" class="nav-link active">Terms of Service</a>
+        <a href="/privacy.html" class="nav-link">Privacy Policy</a>
+        <a href="/rulebook.html" class="nav-link">Rulebook</a>
+        <a href="/vault.html" class="nav-link">Vault</a>
+        <a href="/subscription.html" class="nav-link">CBM Plus</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Content -->
+  <main class="content-area">
+    <div class="terms-hero">
+      <div class="terms-tag">📜 Community & Service Agreement</div>
+      <h1 class="terms-title">Clan Bank Manager Terms of Service</h1>
+      <div class="terms-meta">
+        <span><strong>Effective Date:</strong> October 18, 2026</span>
+        <span>&bull;</span>
+        <span><strong>Version:</strong> 2.4</span>
+        <span>&bull;</span>
+        <span><strong>Governing Specification:</strong> CBM Protocol v2.4</span>
+      </div>
+    </div>
+
+    <!-- Summary Callout -->
+    <div class="summary-card">
+      <div class="summary-title">
+        <span>⚖️</span> Service Agreement Summary
+      </div>
+      <div class="summary-text">
+        By accessing Clan Bank Manager (cbm.wispbyte.org) or integrating with our Developer APIs, you agree to these Terms of Service. 
+        CBM is an independent, community-driven, non-custodial treasury ledger designed to support fair clan bank management in Territorial.io. 
+        <strong>"Gold" tracked on this platform represents in-game score points and match assets; it is not legal tender, money, or a financial investment.</strong>
+      </div>
+    </div>
+
+    <!-- Section 1 -->
+    <div class="terms-section">
+      <span class="section-num">Article 1</span>
+      <h2 class="section-title">Acceptance of Terms & Eligibility</h2>
+      <div class="section-body">
+        <p>
+          These Terms of Service constitute a legally binding agreement between you ("Member", "Developer", or "Visitor") and Clan Bank Manager ("CBM", "we", or "us"). 
+          Accessing the website, registering a member account, linking a Territorial.io handle, creating invite codes, or issuing API requests signifies your unconditional acceptance of these Terms, our <a href="/privacy.html"><strong>Privacy Policy</strong></a>, and the technical standards set forth in our <a href="/rulebook.html"><strong>Rulebook</strong></a>.
+        </p>
+      </div>
+    </div>
+
+    <!-- Section 2 -->
+    <div class="terms-section">
+      <span class="section-num">Article 2</span>
+      <h2 class="section-title">Nature of Service & In-Game Virtual Currency</h2>
+      <div class="section-body">
+        <p>
+          Clan Bank Manager operates an algorithmic, non-custodial bookkeeping ledger to track Gold contributions, clan loans, marketplace escrow, and war-chest reserves:
+        </p>
+        <ul class="feature-list">
+          <li><strong>Virtual Currency Scope:</strong> "Gold" refers strictly to the in-game currency and points mechanism native to Territorial.io. Gold has no cash value, is not convertible into fiat currency, and is not an investment product, bank account, or security.</li>
+          <li><strong>Non-Custodial Telemetry:</strong> CBM does not hold game account custody. Inbound deposits are recognized by scanning public match transfers to the designated central vault handle (<code>DdcBC</code>).</li>
+          <li><strong>Full Reserve Backing:</strong> All ledger-recorded member liabilities are backed 100% by central vault assets. Clan leadership cannot withdraw member-deposited balances for speculative purposes.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Section 3 -->
+    <div class="terms-section">
+      <span class="section-num">Article 3</span>
+      <h2 class="section-title">Account Registration, Access PINs & Security</h2>
+      <div class="section-body">
+        <p>
+          Members are solely responsible for safeguarding their authentication credentials:
+        </p>
+        <ul class="feature-list">
+          <li><strong>Quick Access PIN:</strong> Your 4–8 digit PIN authorizes high-privilege operations including balance withdrawals, loan requests, transfer slips, and marketplace purchases. Do not disclose your PIN to any third party.</li>
+          <li><strong>Invite Codes &amp; Sponsorship Stakes:</strong> To prevent spam and maintain clan solvency, generating invite codes requires an unallocated deposit balance (50.00 Gold per prospective invitee). Sponsoring members are debited 50.00 Gold upon successful invitee registration, which is converted 100% into permanent clan reserves.</li>
+          <li><strong>Single Account Integrity:</strong> Players may not forge match logs, generate fraudulent deposit claims, or create fake accounts to manipulate community voting or donor leaderboards.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Section 4 -->
+    <div class="terms-section">
+      <span class="section-num">Article 4</span>
+      <h2 class="section-title">CBM Plus Memberships & Subscription Terms</h2>
+      <div class="section-body">
+        <p>
+          CBM Plus is a premium tier providing extended utility tools (TrimCraft Pro, VidTrim Hardware Studio, v1 Developer API Platform, and verified badges):
+        </p>
+        <ul class="feature-list">
+          <li><strong>Monthly & Annual Plans:</strong> CBM Plus is available for 500.00 Gold per month, or via the 12-Month Annual Plan at 4,800.00 Gold per year (400.00 Gold/month effective rate, delivering a 20% savings).</li>
+          <li><strong>Direct Balance & Intent Slips:</strong> Subscriptions can be paid instantly from existing deposited balances or generated via a 15-minute in-game transfer intent slip.</li>
+          <li><strong>Reserves Conversion:</strong> 100% of all subscription fees flow directly into the central unencumbered clan reserves to back ecosystem liquidity. Administrative skimming is strictly prohibited.</li>
+          <li><strong>Expiration & Access:</strong> Upon subscription term expiration, accounts revert to standard membership status without penalty or loss of deposited funds.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Section 5 -->
+    <div class="terms-section">
+      <span class="section-num">Article 5</span>
+      <h2 class="section-title">Developer Platform (v1) & Fair Use Policy</h2>
+      <div class="section-body">
+        <p>
+          Developers utilizing our REST APIs and webhooks must abide by programmatic fair-use quotas:
+        </p>
+        <ul class="feature-list">
+          <li><strong>Rate Limits:</strong> Standard developer keys are permitted up to 60 requests per minute. CBM Plus keys enjoy elevated throughput of up to 300 requests per minute.</li>
+          <li><strong>Prohibited API Behaviors:</strong> Attempting to flood ledger endpoints, scraping private chat sessions, bypassing Cloudflare security headers, or transmitting malformed binary payloads is grounds for immediate key revocation.</li>
+          <li><strong>Attribution:</strong> Applications displaying public CBM ledger telemetry must attribute Clan Bank Manager with a backlink to <code>cbm.wispbyte.org</code>.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Section 6 -->
+    <div class="terms-section">
+      <span class="section-num">Article 6</span>
+      <h2 class="section-title">Prohibited Conduct & Anti-Abuse Standards</h2>
+      <div class="section-body">
+        <p>
+          The following activities are strictly prohibited and will result in permanent ledger disqualification:
+        </p>
+        <ul class="feature-list">
+          <li>Injecting fraudulent, spoofed, or replayed match transfer records into the reconciliation daemon.</li>
+          <li>Exploiting software vulnerabilities, race conditions, or unhandled exceptions to double-spend balances.</li>
+          <li>Harassment, impersonation of clan officers, or distribution of malware through marketplace or chat media attachments.</li>
+          <li>Circumventing bot-mitigation systems, including Cloudflare Turnstile human-verification gates.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Section 7 -->
+    <div class="terms-section">
+      <span class="section-num">Article 7</span>
+      <h2 class="section-title">Disclaimers & Limitation of Liability</h2>
+      <div class="section-body">
+        <p>
+          Clan Bank Manager is provided on an "AS-IS" and "AS-AVAILABLE" basis without warranties of any kind. 
+          CBM is not affiliated with, endorsed by, or operated by the creators or publishers of Territorial.io. 
+          We shall not be liable for any in-game balance losses, game server downtime, upstream protocol modifications, network failures, or member credential compromises resulting from member negligence.
+        </p>
+      </div>
+    </div>
+
+    <!-- Section 8 -->
+    <div class="terms-section">
+      <span class="section-num">Article 8</span>
+      <h2 class="section-title">Privacy Policy Reference & Amendments</h2>
+      <div class="section-body">
+        <p>
+          Your use of the platform is also governed by our <a href="/privacy.html"><strong>Privacy Policy</strong></a>, which details our data minimization practices, zero-cookie policy, and Google Tag performance telemetry.
+        </p>
+        <p>
+          We reserve the right to amend these Terms and the <a href="/rulebook.html"><strong>CBM Rulebook</strong></a> to reflect platform upgrades or security improvements. Material updates will be announced via community announcements and updated revision dates on this page.
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>© 2026 Clan Bank Manager (CBM). Non-custodial ledger operations.</div>
+      <div class="footer-links">
+        <a href="/rulebook.html">Rulebook & Specs</a>
+        <a href="/terms.html" style="color:var(--paypal-yellow);">Terms of Service</a>
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/vault.html">Vault Telemetry</a>
+        <a href="/developer.html">Developer API</a>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

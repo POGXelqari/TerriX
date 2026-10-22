@@ -199,7 +199,7 @@ def test_http_endpoint_integration():
         except urllib.error.HTTPError as err:
             assert err.code == 403
             err_body = json.loads(err.read().decode("utf-8"))
-            assert err_body["error"] == "ip_banned"
+            assert err_body["error"] in ("ip_banned", "ip_quarantined")
         print("[+] Subsequent request from banned IP -> 403 Forbidden (Enforced)")
 
         # 8. Request from different IP (203.0.113.99) should succeed

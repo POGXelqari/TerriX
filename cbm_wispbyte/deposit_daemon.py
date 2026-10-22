@@ -206,6 +206,15 @@ class CBMDepositDaemon:
         # Initial live check against Territorial.io API
         self.sync_live_vault()
 
+        # Initial sweep of idle unassociated deposits (30-day policy)
+        if hasattr(self.db, "sweep_idle_unassociated_deposits"):
+            try:
+                init_res = self.db.sweep_idle_unassociated_deposits(max_idle_seconds=30 * 86400.0)
+                if init_res.get("swept_count", 0) > 0:
+                    print(f"[+] Automated Idle Reserve Conversion: Converted {init_res['total_converted_gold']} Gold from {init_res['swept_count']} unassociated territorial account(s) on startup.")
+            except Exception as init_sweep_err:
+                print(f"[!] Startup idle deposit sweep notice: {init_sweep_err}")
+
         while self.running:
             try:
                 count = self.poll_once()
@@ -230,6 +239,17 @@ class CBMDepositDaemon:
                 # Periodically re-verify vault balance against live API (every 30 cycles ~ 7.5 min)
                 if self._poll_count % 30 == 0:
                     self.sync_live_vault()
+
+                # Periodically sweep unassociated idle deposits sitting >= 30 days into unencumbered reserves (every 20 cycles ~ 5-10 min)
+                if self._poll_count % 20 == 0 and hasattr(self.db, "sweep_idle_unassociated_deposits"):
+                    try:
+                        res = self.db.sweep_idle_unassociated_deposits(max_idle_seconds=30 * 86400.0)
+                        if res.get("swept_count", 0) > 0:
+                            print(f"[+] Automated Idle Reserve Conversion: Converted {res['total_converted_gold']} Gold from {res['swept_count']} unassociated territorial account(s) to unencumbered reserves.")
+                            if self.invalidate_caches_cb:
+                                self.invalidate_caches_cb()
+                    except Exception as sweep_err:
+                        print(f"[!] Daemon idle deposit sweep notice: {sweep_err}")
 
                 # Periodically synchronize state from Supabase to maintain 100% parity (every 10 cycles ~ 2.5 min)
                 if self._poll_count % 10 == 0 and hasattr(self.db, "sync_all_from_supabase"):

@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-QCMCPSK0CF');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CBM Plus Subscription – Clan Bank Manager</title>
+  <link rel="icon" type="image/png" href="/cbm-logo.png">
+  <meta name="theme-color" content="#080d16">
+  <style>
+    :root {
+      --bg: #080d16;
+      --bg-surface: #0e1626;
+      --panel: #131d31;
+      --panel-2: #18253e;
+      --panel-hover: #1e2e4c;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-bright: rgba(255, 255, 255, 0.16);
+      --text: #ffffff;
+      --text-dim: #9aa8be;
+      --text-muted: #62718a;
+      --paypal-blue: #0070e0;
+      --paypal-blue-hover: #005ea6;
+      --paypal-yellow: #ffc439;
+      --paypal-gold: #d4a017;
+      --success: #00cf92;
+      --danger: #ea3943;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 18px;
+      --radius-pill: 9999px;
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    header.site-header {
+      background: rgba(14, 22, 38, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .header-inner {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: #fff;
+    }
+    .logo-img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+    }
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .brand-tag {
+      font-size: 0.72rem;
+      color: var(--paypal-yellow);
+      background: rgba(255, 196, 57, 0.12);
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      font-weight: 600;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .nav-link {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .nav-link:hover { color: #fff; }
+    .btn-nav {
+      background: var(--panel-2);
+      border: 1px solid var(--border-bright);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-nav:hover {
+      background: var(--panel-hover);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    main.page-main {
+      flex: 1;
+      max-width: 1140px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 40px 20px 60px;
+    }
+
+    .hero-section {
+      text-align: center;
+      max-width: 760px;
+      margin: 0 auto 36px;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      background: rgba(255, 196, 57, 0.12);
+      color: var(--paypal-yellow);
+      border: 1px solid rgba(255, 196, 57, 0.3);
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+      margin-bottom: 16px;
+    }
+    .hero-title {
+      font-size: 2.35rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #ffffff 40%, #c4d7ec 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* Current Subscription Status Banner */
+    .status-banner {
+      background: var(--panel);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-md);
+      padding: 16px 20px;
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .status-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .status-icon {
+      font-size: 1.8rem;
+    }
+    .status-label {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    .status-val {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .pill {
+      font-size: 0.75rem;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .pill-active { background: rgba(0, 207, 146, 0.15); color: var(--success); border: 1px solid rgba(0, 207, 146, 0.3); }
+    .pill-lifetime { background: rgba(255, 196, 57, 0.15); color: var(--paypal-yellow); border: 1px solid rgba(255, 196, 57, 0.3); }
+    .pill-inactive { background: rgba(255, 255, 255, 0.08); color: var(--text-dim); border: 1px solid var(--border); }
+
+    /* Layout Grid */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-bottom: 40px;
+    }
+    @media (max-width: 860px) {
+      .pricing-grid { grid-template-columns: 1fr; }
+    }
+
+    .plan-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.3);
+    }
+    .plan-card.featured {
+      border-color: rgba(0, 112, 224, 0.45);
+      background: linear-gradient(180deg, rgba(0, 112, 224, 0.08) 0%, var(--bg-surface) 100%);
+    }
+    .plan-header {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+    }
+    .plan-title {
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+    .plan-desc {
+      font-size: 0.88rem;
+      color: var(--text-dim);
+    }
+    .price-box {
+      margin-top: 16px;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .price-num {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--paypal-yellow);
+    }
+    .price-unit {
+      font-size: 1.05rem;
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+
+    .features-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 28px;
+      flex: 1;
+    }
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 0.92rem;
+      color: #e2e8f0;
+      line-height: 1.4;
+    }
+    .feature-check {
+      color: var(--success);
+      font-weight: 800;
+      font-size: 1rem;
+      line-height: 1.3;
+    }
+    .feature-dim {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Checkout / Payment Forms Card */
+    .checkout-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-lg);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+    }
+    .checkout-tabs {
+      display: flex;
+      background: var(--panel);
+      padding: 4px;
+      border-radius: var(--radius-md);
+      margin-bottom: 24px;
+      gap: 4px;
+    }
+    .checkout-tab {
+      flex: 1;
+      padding: 10px 14px;
+      border: none;
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 0.88rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+    .checkout-tab.active {
+      background: var(--paypal-blue);
+      color: #fff;
+    }
+
+    .checkout-pane { display: none; }
+    .checkout-pane.active { display: block; }
+
+    .form-group {
+      margin-bottom: 18px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+    .form-input, .form-select {
+      width: 100%;
+      background: var(--panel);
+      border: 1px solid var(--border-bright);
+      border-radius: var(--radius-sm);
+      padding: 11px 14px;
+      font-size: 0.92rem;
+      color: #fff;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--paypal-blue);
+    }
+    .form-hint {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 5px;
+    }
+
+    .duration-chips {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 540px) {
+      .duration-chips {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    .duration-chip {
+      position: relative;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 6px 8px 6px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .duration-chip:hover {
+      border-color: rgba(255, 196, 57, 0.5);
+    }
+    .duration-chip.active {
+      border-color: var(--paypal-yellow);
+      background: rgba(255, 196, 57, 0.12);
+      box-shadow: 0 0 12px rgba(255, 196, 57, 0.15);
+    }
+    .duration-chip .chip-months {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .duration-chip .chip-price {
+      font-size: 0.78rem;
+      color: var(--paypal-yellow);
+      margin-top: 3px;
+      font-weight: 600;
+    }
+    .duration-chip .chip-monthly {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+    .chip-save-badge {
+      position: absolute;
+      top: -9px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #00cfa9;
+      color: #06111f;
+      font-size: 0.62rem;
+      font-weight: 800;
+      padding: 1px 7px;
+      border-radius: 999px;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .chip-save-badge.annual-best {
+      background: #ffc439;
+      color: #000;
+      box-shadow: 0 2px 8px rgba(255, 196, 57, 0.4);
+    }
+
+    .cost-summary {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      margin-bottom: 20px;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.88rem;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .summary-row.total {
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      margin-top: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: var(--paypal-blue);
+      border: none;
+      color: #fff;
+      padding: 13px;
+      border-radius: var(--radius-sm);
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-submit:hover:not(:disabled) {
+      background: var(--paypal-blue-hover);
+    }
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .alert-box {
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-size: 0.86rem;
+      margin-bottom: 18px;
+      display: none;
+    }
+    .alert-error {
+      background: rgba(234, 57, 67, 0.15);
+      border: 1px solid rgba(234, 57, 67, 0.35);
+      color: #ff9da4;
+    }
+    .alert-success {
+      background: rgba(0, 207, 146, 0.15);
+      border: 1px solid rgba(0, 207, 146, 0.35);
+      color: #55efc4;
+    }
+
+    /* In-game Slip Instruction Box */
+    .slip-box {
+      background: var(--panel);
+      border: 1px solid rgba(255, 196, 57, 0.3);
+      border-radius: var(--radius-md);
+      padding: 20px;
+      margin-top: 14px;
+      display: none;
+    }
+    .slip-step {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .step-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--paypal-yellow);
+      color: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+    .countdown-timer {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--paypal-yellow);
+      text-align: center;
+      margin: 12px 0;
+      font-family: monospace;
+    }
+
+    footer.site-footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 20px;
+      background: var(--bg-surface);
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    footer a { color: var(--text-dim); text-decoration: none; }
+    footer a:hover { color: #fff; }
+  </style>
+</head>
+<body>
+
+  <!-- Site Header -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="/cbm.html" class="brand-link">
+        <img src="/cbm-logo.png" alt="CBM" class="logo-img">
+        <div>
+          <span class="brand-title">Clan Bank Manager</span>
+          <span class="brand-tag">Plus Portal</span>
+        </div>
+      </a>
+      <nav class="nav-links">
+        <a href="/cbm.html" class="nav-link">Dashboard</a>
+        <a href="/developer.html" class="nav-link">Developer API</a>
+        <a href="/trimcraft.html" class="nav-link">TrimCraft Pro</a>
+        <a href="/vidtrim.html" class="nav-link">VidTrim</a>
+        <a href="/rulebook.html" class="nav-link">Rulebook</a>
+        <span id="navAuthSlot"></span>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page-main">
+    <section class="hero-section">
+      <div class="hero-badge">⭐ Enterprise Membership Rail</div>
+      <h1 class="hero-title">Upgrade to CBM Plus</h1>
+      <p class="hero-subtitle">
+        Unlock high-throughput programmatic APIs, TrimCraft Pro clipping, hardware video processing,
+        enterprise store listings, and exclusive war-chest telemetry.
+      </p>
+    </section>
+
+    <!-- Account Status Banner -->
+    <div class="status-banner" id="statusBanner">
+      <div class="status-info">
+        <div class="status-icon">⭐</div>
+        <div>
+          <div class="status-label">Membership Status for <span id="bannerAccountName" style="color:#fff;">Guest</span></div>
+          <div class="status-val" id="bannerStatusText">Checking active status...</div>
+        </div>
+      </div>
+      <div id="bannerPillSlot">
+        <span class="pill pill-inactive">Standard</span>
+      </div>
+    </div>
+
+    <!-- Alert Box -->
+    <div id="alertBox" class="alert-box"></div>
+
+    <div class="pricing-grid">
+      <!-- Plan Features Column -->
+      <div class="plan-card featured">
+        <div class="plan-header">
+          <div class="plan-title">
+            <span>⭐ CBM Plus Member</span>
+          </div>
+          <p class="plan-desc">Comprehensive tier for active clan leaders, developers, and media creators.</p>
+          <div class="price-box">
+            <span class="price-num">500.00</span>
+            <span class="price-unit">Gold / month</span>
+          </div>
+          <div style="margin-top: 12px; display: inline-flex; align-items: center; gap: 8px; background: rgba(0, 207, 169, 0.12); border: 1px solid rgba(0, 207, 169, 0.35); border-radius: 999px; padding: 5px 14px; font-size: 0.82rem; color: #00cfa9;">
+            <span style="font-weight: 700;">Annual Plan: 400.00 Gold/mo</span>
+            <span style="background: #00cfa9; color: #06111f; border-radius: 999px; padding: 2px 7px; font-size: 0.7rem; font-weight: 800;">SAVE 20%</span>
+          </div>
+        </div>
+
+        <ul class="features-list">
+          <li class="feature-item">
+            <span class="feature-check">✓</span>
+            <div>
+              <strong>TrimCraft Pro Media Clipper</strong>
+              <div class="feature-dim">Unlimited canvas resolution, high-precision frame cropping, and batch WEBP exports.</div>
+            </div>
+          </li>
+          <li class="feature-item">
+            <span class="feature-check">✓</span>
+            <div>
+              <strong>VidTrim Hardware Studio</strong>
+              <div class="feature-dim">Multi-track hardware video trimming, custom watermark overlays, and server-side MP4 generation.</div>
+            </div>
+          </li>
+          <li class="feature-item">
+            <span class="feature-check">✓</span>
+            <div>
+              <strong>Developer API Platform (v1)</strong>
+              <div class="feature-dim">Create unlimited API keys, stream public transactions, register OAuth apps, and build bots.</div>
+            </div>
+          </li>
+          <li class="feature-item">
+            <span class="feature-check">✓</span>
+            <div>
+              <strong>Marketplace Merchant Privileges</strong>
+              <div class="feature-dim">List clan products, skins, maps, and automated services with integrated escrow settlement.</div>
+            </div>
+          </li>
+          <li class="feature-item">
+            <span class="feature-check">✓</span>
+            <div>
+              <strong>AI Financial Copilot & Session Memory</strong>
+              <div class="feature-dim">High-capacity LLM queries, war-chest solvency analytics, and persistent AI chat threads.</div>
+            </div>
+          </li>
+          <li class="feature-item">
+            <span class="feature-check">✓</span>
+            <div>
+              <strong>Verified Gold Telemetry & Discord Role</strong>
+              <div class="feature-dim">⭐ CBM+ badge shown across all bank ledgers, top-donor profiles, and Discord community servers.</div>
+            </div>
+          </li>
+          <li class="feature-item">
+            <span class="feature-check">✓</span>
+            <div>
+              <strong>100% Clan Bank Unencumbered Reserves</strong>
+              <div class="feature-dim">All subscription fees directly reinforce central clan solvency without administrative skimming.</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Subscription Settlement Column -->
+      <div class="checkout-card">
+        <div class="checkout-tabs">
+          <button type="button" class="checkout-tab active" id="tabBalance" onclick="switchTab('balance')">Pay from Balance</button>
+          <button type="button" class="checkout-tab" id="tabSlip" onclick="switchTab('slip')">In-Game Direct Transfer</button>
+        </div>
+
+        <!-- Tab 1: Balance Payment -->
+        <div id="paneBalance" class="checkout-pane active">
+          <form id="balanceForm" onsubmit="handleBalanceSubscribe(event)">
+            <div class="form-group">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <label style="margin-bottom:0;">Select Subscription Plan</label>
+                <span style="font-size:0.75rem; color:#00cfa9; font-weight:600;">Annual Plan Saves 20%</span>
+              </div>
+              <div class="duration-chips">
+                <div class="duration-chip" data-months="1" onclick="setDuration(1)">
+                  <div class="chip-months">1 Month</div>
+                  <div class="chip-price">500.00 G</div>
+                  <div class="chip-monthly">500.00 G/mo</div>
+                </div>
+                <div class="duration-chip" data-months="3" onclick="setDuration(3)">
+                  <span class="chip-save-badge">Save 5%</span>
+                  <div class="chip-months">3 Months</div>
+                  <div class="chip-price">1,425.00 G</div>
+                  <div class="chip-monthly">475.00 G/mo</div>
+                </div>
+                <div class="duration-chip" data-months="6" onclick="setDuration(6)">
+                  <span class="chip-save-badge">Save 10%</span>
+                  <div class="chip-months">6 Months</div>
+                  <div class="chip-price">2,700.00 G</div>
+                  <div class="chip-monthly">450.00 G/mo</div>
+                </div>
+                <div class="duration-chip active" data-months="12" onclick="setDuration(12)">
+                  <span class="chip-save-badge annual-best">Save 20% • Best Value</span>
+                  <div class="chip-months">12 Months</div>
+                  <div class="chip-price">4,800.00 G</div>
+                  <div class="chip-monthly">400.00 G/mo</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="balAccount">CBM Username</label>
+              <input type="text" id="balAccount" class="form-input" placeholder="e.g. B8bbq" required autocomplete="username">
+            </div>
+
+            <div class="form-group">
+              <label for="balPin">Quick Access PIN <span style="color:#ff858d;">*</span></label>
+              <input type="password" id="balPin" class="form-input" placeholder="4 to 8 digits" inputmode="numeric" maxlength="8" pattern="[0-9]{4,8}" autocomplete="off" required>
+              <p class="form-hint">Your 4–8 digit authorization PIN.</p>
+            </div>
+
+            <div class="cost-summary">
+              <div class="summary-row">
+                <span>Selected Plan</span>
+                <span id="sumDuration">12 Months (Annual Plan)</span>
+              </div>
+              <div class="summary-row" id="sumBaseRow" style="display:flex;">
+                <span>Standard Value</span>
+                <span id="sumBasePrice" style="text-decoration:line-through; color:var(--text-dim);">6,000.00 Gold</span>
+              </div>
+              <div class="summary-row" id="sumSavingsRow" style="color:#00cfa9; font-weight:600; display:flex;">
+                <span id="sumSavingsLabel">Annual Savings (20% OFF)</span>
+                <span id="sumSavings">-1,200.00 Gold</span>
+              </div>
+              <div class="summary-row">
+                <span>Effective Rate</span>
+                <span id="sumEffectiveRate">400.00 Gold / month</span>
+              </div>
+              <div class="summary-row total">
+                <span>Total Due</span>
+                <span id="sumTotal" style="color:var(--paypal-yellow);">4,800.00 Gold</span>
+              </div>
+            </div>
+
+            <button type="submit" id="btnSubmitBalance" class="btn-submit">
+              <span>Activate CBM Plus Now</span>
+            </button>
+          </form>
+        </div>
+
+        <!-- Tab 2: In-Game Slip Payment -->
+        <div id="paneSlip" class="checkout-pane">
+          <p style="font-size:0.86rem; color:var(--text-dim); margin-bottom:16px;">
+            Don't have funds in your CBM deposited balance? Generate an in-game 15-minute transfer intent slip and send Gold directly from your Territorial.io client.
+          </p>
+
+          <form id="slipForm" onsubmit="handleDeclareSlip(event)">
+            <div class="form-group">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <label style="margin-bottom:0;">Select Plan Duration</label>
+                <span style="font-size:0.75rem; color:#00cfa9; font-weight:600;">Annual Slip Saves 20%</span>
+              </div>
+              <div class="duration-chips">
+                <div class="duration-chip" data-months="1" onclick="setDuration(1)">
+                  <div class="chip-months">1 Month</div>
+                  <div class="chip-price">500.00 G</div>
+                  <div class="chip-monthly">500.00 G/mo</div>
+                </div>
+                <div class="duration-chip" data-months="3" onclick="setDuration(3)">
+                  <span class="chip-save-badge">Save 5%</span>
+                  <div class="chip-months">3 Months</div>
+                  <div class="chip-price">1,425.00 G</div>
+                  <div class="chip-monthly">475.00 G/mo</div>
+                </div>
+                <div class="duration-chip" data-months="6" onclick="setDuration(6)">
+                  <span class="chip-save-badge">Save 10%</span>
+                  <div class="chip-months">6 Months</div>
+                  <div class="chip-price">2,700.00 G</div>
+                  <div class="chip-monthly">450.00 G/mo</div>
+                </div>
+                <div class="duration-chip active" data-months="12" onclick="setDuration(12)">
+                  <span class="chip-save-badge annual-best">Save 20% • Best Value</span>
+                  <div class="chip-months">12 Months</div>
+                  <div class="chip-price">4,800.00 G</div>
+                  <div class="chip-monthly">400.00 G/mo</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="slipAccount">CBM Username</label>
+              <input type="text" id="slipAccount" class="form-input" placeholder="e.g. B8bbq" required autocomplete="username">
+            </div>
+
+            <div class="form-group">
+              <label for="slipPin">Quick Access PIN <span style="color:#ff858d;">*</span></label>
+              <input type="password" id="slipPin" class="form-input" placeholder="4 to 8 digits" inputmode="numeric" maxlength="8" pattern="[0-9]{4,8}" autocomplete="off" required>
+            </div>
+
+            <button type="submit" id="btnSubmitSlip" class="btn-submit" style="background:var(--paypal-yellow); color:#000;">
+              <span>Generate 15-Minute Payment Slip</span>
+            </button>
+          </form>
+
+          <div id="slipDisplayBox" class="slip-box">
+            <h4 style="font-size:1.05rem; color:#fff; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+              <span>🕒</span> In-Game Payment Slip Active
+            </h4>
+            <div class="countdown-timer" id="slipTimer">15:00</div>
+
+            <div class="slip-step">
+              <div class="step-num">1</div>
+              <div style="font-size:0.86rem; color:#cbd5e1;">
+                Open <strong>Territorial.io</strong> and log in to your registered in-game account.
+              </div>
+            </div>
+
+            <div class="slip-step">
+              <div class="step-num">2</div>
+              <div style="font-size:0.86rem; color:#cbd5e1;">
+                Send exactly <strong style="color:var(--paypal-yellow);" id="slipTargetAmount">500.00 Gold</strong> to bank vault player handle:
+                <div style="background:rgba(0,0,0,0.3); padding:8px 12px; border-radius:6px; margin-top:6px; font-family:monospace; font-size:1rem; font-weight:700; color:#fff; display:flex; justify-content:space-between; align-items:center;">
+                  <span id="slipVaultTarget">DdcBC</span>
+                  <button type="button" class="btn-nav" style="padding:2px 8px; font-size:0.75rem;" onclick="copyVaultTarget()">Copy</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="slip-step">
+              <div class="step-num">3</div>
+              <div style="font-size:0.86rem; color:#cbd5e1;">
+                Wait for the daemon to poll the ledger. The system checks every 5 seconds.
+                <div id="slipPollStatus" style="font-size:0.78rem; color:#00cf92; margin-top:4px;">● Polling ledger for incoming transfer...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div style="max-width:1140px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+      <div>© 2026 Clan Bank Manager (CBM). Non-custodial ledger operations.</div>
+      <div style="display:flex; gap:16px;">
+        <a href="/rulebook.html">Rulebook & Specs</a>
+        <a href="/vault.html">Vault Telemetry</a>
+        <a href="/developer.html">Developer API</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    let selectedMonths = 12;
+    let pollInterval = null;
+    let slipTimeLeft = 900;
+    let timerInterval = null;
+
+    const PLANS = {
+      1: { months: 1, label: '1 Month', costGold: 500.0, baseGold: 500.0, savingsGold: 0.0, discountPct: 0, monthlyGold: 500.0, isAnnual: false },
+      3: { months: 3, label: '3 Months', costGold: 1425.0, baseGold: 1500.0, savingsGold: 75.0, discountPct: 5, monthlyGold: 475.0, isAnnual: false },
+      6: { months: 6, label: '6 Months', costGold: 2700.0, baseGold: 3000.0, savingsGold: 300.0, discountPct: 10, monthlyGold: 450.0, isAnnual: false },
+      12: { months: 12, label: '12 Months (Annual Plan)', costGold: 4800.0, baseGold: 6000.0, savingsGold: 1200.0, discountPct: 20, monthlyGold: 400.0, isAnnual: true }
+    };
+
+    function showAlert(msg, isError = true) {
+      const b = document.getElementById('alertBox');
+      b.className = 'alert-box ' + (isError ? 'alert-error' : 'alert-success');
+      b.textContent = msg;
+      b.style.display = 'block';
+      window.scrollTo({ top: b.offsetTop - 80, behavior: 'smooth' });
+    }
+
+    function hideAlert() {
+      document.getElementById('alertBox').style.display = 'none';
+    }
+
+    function switchTab(mode) {
+      hideAlert();
+      const tabBal = document.getElementById('tabBalance');
+      const tabSlip = document.getElementById('tabSlip');
+      const paneBal = document.getElementById('paneBalance');
+      const paneSlip = document.getElementById('paneSlip');
+
+      if (mode === 'balance') {
+        tabBal.classList.add('active');
+        tabSlip.classList.remove('active');
+        paneBal.classList.add('active');
+        paneSlip.classList.remove('active');
+      } else {
+        tabSlip.classList.add('active');
+        tabBal.classList.remove('active');
+        paneSlip.classList.add('active');
+        paneBal.classList.remove('active');
+      }
+    }
+
+    function setDuration(m) {
+      selectedMonths = m;
+      const plan = PLANS[m] || {
+        months: m,
+        label: `${m} Months`,
+        costGold: m * 500.0,
+        baseGold: m * 500.0,
+        savingsGold: 0.0,
+        discountPct: 0,
+        monthlyGold: 500.0,
+        isAnnual: m >= 12
+      };
+
+      document.querySelectorAll('.duration-chip').forEach(c => {
+        const chipMonths = parseInt(c.getAttribute('data-months'), 10);
+        if (chipMonths === m) {
+          c.classList.add('active');
+        } else {
+          c.classList.remove('active');
+        }
+      });
+
+      document.getElementById('sumDuration').textContent = plan.label;
+      document.getElementById('sumTotal').textContent = `${plan.costGold.toFixed(2)} Gold`;
+      document.getElementById('sumEffectiveRate').textContent = `${plan.monthlyGold.toFixed(2)} Gold / month`;
+
+      const savingsRow = document.getElementById('sumSavingsRow');
+      const baseRow = document.getElementById('sumBaseRow');
+      if (plan.savingsGold > 0) {
+        if (baseRow) {
+          baseRow.style.display = 'flex';
+          document.getElementById('sumBasePrice').textContent = `${plan.baseGold.toFixed(2)} Gold`;
+        }
+        if (savingsRow) {
+          savingsRow.style.display = 'flex';
+          document.getElementById('sumSavingsLabel').textContent = plan.isAnnual ? `Annual Savings (${plan.discountPct}% OFF)` : `Plan Savings (${plan.discountPct}% OFF)`;
+          document.getElementById('sumSavings').textContent = `-${plan.savingsGold.toFixed(2)} Gold`;
+        }
+      } else {
+        if (baseRow) baseRow.style.display = 'none';
+        if (savingsRow) savingsRow.style.display = 'none';
+      }
+
+      // Update button text
+      const btnBal = document.getElementById('btnSubmitBalance');
+      if (btnBal) {
+        btnBal.innerHTML = `<span>Activate CBM Plus — ${plan.costGold.toFixed(2)} Gold</span>`;
+      }
+      const btnSlip = document.getElementById('btnSubmitSlip');
+      if (btnSlip) {
+        btnSlip.innerHTML = `<span>Generate ${m}-Month Payment Slip (${plan.costGold.toFixed(2)} Gold)</span>`;
+      }
+    }
+
+    function copyVaultTarget() {
+      const text = document.getElementById('slipVaultTarget').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        showAlert('Vault account name copied to clipboard!', false);
+      }).catch(() => {});
+    }
+
+    // Auto-check authentication & status on load
+    async function initStatus() {
+      setDuration(12);
+      const savedUser = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user') || '';
+      const savedPin = sessionStorage.getItem('cbm_pin') || '';
+
+      if (savedUser) {
+        document.getElementById('balAccount').value = savedUser;
+        document.getElementById('slipAccount').value = savedUser;
+        document.getElementById('bannerAccountName').textContent = savedUser;
+
+        const navSlot = document.getElementById('navAuthSlot');
+        navSlot.innerHTML = `<span style="font-size:0.82rem; color:var(--text-dim); margin-right:6px;">Signed in as <strong>${savedUser}</strong></span> <button type="button" class="btn-nav" onclick="logout()">Sign Out</button>`;
+      } else {
+        const navSlot = document.getElementById('navAuthSlot');
+        navSlot.innerHTML = `<a href="/login.html" class="btn-nav">Sign In</a>`;
+      }
+
+      if (savedPin) {
+        document.getElementById('balPin').value = savedPin;
+        document.getElementById('slipPin').value = savedPin;
+      }
+
+      if (!savedUser) {
+        document.getElementById('bannerStatusText').textContent = 'Please log in to inspect your CBM Plus membership status.';
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({ account: savedUser });
+        if (savedPin) params.append('pin', savedPin);
+
+        const res = await fetch(`/api/cbm/subscription/status?${params.toString()}`);
+        const data = await res.json();
+        if (res.ok) {
+          renderBannerStatus(data);
+        } else {
+          document.getElementById('bannerStatusText').textContent = 'Standard Member (No active subscription)';
+        }
+      } catch (err) {
+        console.warn('Subscription status check error:', err);
+      }
+    }
+
+    function renderBannerStatus(data) {
+      const txt = document.getElementById('bannerStatusText');
+      const pillSlot = document.getElementById('bannerPillSlot');
+
+      if (data.is_lifetime) {
+        txt.textContent = 'Lifetime CBM Plus Access (Clan Administrator / Privileged Role)';
+        pillSlot.innerHTML = `<span class="pill pill-lifetime">⭐ LIFETIME MEMBER</span>`;
+      } else if (data.cbm_plus_active) {
+        const dateStr = data.cbm_plus_until_iso ? data.cbm_plus_until_iso.split('T')[0] : 'Active';
+        txt.textContent = `Active Subscription — Renews / Expires: ${dateStr}`;
+        pillSlot.innerHTML = `<span class="pill pill-active">⭐ ACTIVE MEMBER</span>`;
+      } else {
+        txt.textContent = 'Standard Membership (No active subscription)';
+        pillSlot.innerHTML = `<span class="pill pill-inactive">Standard</span>`;
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('cbm_session_token');
+      localStorage.removeItem('cbm_user');
+      localStorage.removeItem('cbm_account');
+      sessionStorage.removeItem('cbm_active_user');
+      sessionStorage.removeItem('cbm_pin');
+      window.location.reload();
+    }
+
+    // Submit Balance Subscription
+    async function handleBalanceSubscribe(e) {
+      e.preventDefault();
+      hideAlert();
+
+      const user = document.getElementById('balAccount').value.trim();
+      const pin = document.getElementById('balPin').value.trim();
+      const btn = document.getElementById('btnSubmitBalance');
+
+      if (!user) { showAlert('Please enter your CBM Username.'); return; }
+      if (!pin) { showAlert('Quick Access PIN is required.'); return; }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>Processing Balance Deduction...</span>';
+
+      try {
+        const res = await fetch('/api/cbm/subscription/subscribe-balance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_name: user, pin: pin, months: selectedMonths })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Subscription failed. Please check your deposited balance.');
+        }
+
+        showAlert(data.message || 'CBM Plus successfully activated!', false);
+        sessionStorage.setItem('cbm_pin', pin);
+        sessionStorage.setItem('cbm_active_user', user);
+        localStorage.setItem('cbm_user', user);
+
+        setTimeout(() => { initStatus(); }, 800);
+
+      } catch (err) {
+        showAlert(err.message || 'An error occurred during payment processing.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>Activate CBM Plus Now</span>';
+      }
+    }
+
+    // Declare In-Game Slip Intent
+    async function handleDeclareSlip(e) {
+      e.preventDefault();
+      hideAlert();
+
+      const user = document.getElementById('slipAccount').value.trim();
+      const pin = document.getElementById('slipPin').value.trim();
+      const btn = document.getElementById('btnSubmitSlip');
+
+      if (!user) { showAlert('Please enter your CBM Username.'); return; }
+      if (!pin) { showAlert('Quick Access PIN is required.'); return; }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>Generating In-Game Slip...</span>';
+
+      try {
+        const res = await fetch('/api/cbm/subscription/declare-slip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account_name: user, pin: pin, months: selectedMonths })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || 'Failed to generate in-game slip.');
+        }
+
+        showAlert('Payment slip registered! Please complete in-game transfer.', false);
+        const box = document.getElementById('slipDisplayBox');
+        box.style.display = 'block';
+
+        if (data.instructions) {
+          document.getElementById('slipVaultTarget').textContent = data.instructions.vault_account || 'DdcBC';
+          const disc = data.discount_percent > 0 ? ` (${data.discount_percent}% Annual Savings Applied)` : '';
+          document.getElementById('slipTargetAmount').textContent = `${data.instructions.exact_amount_gold.toFixed(2)} Gold${disc}`;
+        }
+
+        startSlipCountdown(user, pin);
+
+      } catch (err) {
+        showAlert(err.message || 'Slip creation error.');
+      } finally {
+        btn.disabled = false;
+        const plan = PLANS[selectedMonths] || { costGold: selectedMonths * 500.0 };
+        btn.innerHTML = `<span>Generate ${selectedMonths}-Month Payment Slip (${plan.costGold.toFixed(2)} Gold)</span>`;
+      }
+    }
+
+    function startSlipCountdown(user, pin) {
+      if (timerInterval) clearInterval(timerInterval);
+      if (pollInterval) clearInterval(pollInterval);
+
+      slipTimeLeft = 900;
+      const timerEl = document.getElementById('slipTimer');
+
+      timerInterval = setInterval(() => {
+        slipTimeLeft--;
+        if (slipTimeLeft <= 0) {
+          clearInterval(timerInterval);
+          clearInterval(pollInterval);
+          timerEl.textContent = 'EXPIRED';
+          showAlert('In-game payment slip has expired. Please generate a new slip if needed.');
+          return;
+        }
+        const m = Math.floor(slipTimeLeft / 60);
+        const s = slipTimeLeft % 60;
+        timerEl.textContent = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      }, 1000);
+
+      // Poll ledger every 5 seconds
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/cbm/subscription/status?account=${encodeURIComponent(user)}&pin=${encodeURIComponent(pin)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.cbm_plus_active) {
+              clearInterval(timerInterval);
+              clearInterval(pollInterval);
+              showAlert('✓ Payment detected & confirmed! CBM Plus activated successfully.', false);
+              renderBannerStatus(data);
+              document.getElementById('slipDisplayBox').style.display = 'none';
+            }
+          }
+        } catch (_) {}
+      }, 5000);
+    }
+
+    window.addEventListener('DOMContentLoaded', initStatus);
+  </script>
+</body>
+</html>

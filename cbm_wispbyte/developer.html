@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-QCMCPSK0CF');
+  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CBM Developer Platform & Discord SDK — Territorial.io</title>
@@ -709,6 +718,7 @@
       <a href="/download.html" class="nav-link">Downloads</a>
       <a href="#endpoints" class="nav-link active">Endpoints</a>
       <a href="#discord-sdk" class="nav-link">Discord SDK</a>
+      <a href="/subscription" class="nav-link" style="color: var(--accent-gold); font-weight: 700;">⭐ CBM Plus</a>
     </nav>
 
     <div class="header-actions">
@@ -2386,7 +2396,13 @@ async def balance(interaction: discord.Interaction, player_name: str):
           loadKeysTable(acc, pin);
           refreshDeveloperOverview();
         } else {
-          alert('Error: ' + (data.message || 'Failed to generate key.'));
+          if (res.status === 402 || (data.message && data.message.toLowerCase().includes('cbm plus'))) {
+            if (confirm(data.message + '\n\nWould you like to open the CBM Plus Subscription Portal to activate your membership?')) {
+              window.location.href = '/subscription';
+            }
+          } else {
+            alert('Error: ' + (data.message || 'Failed to generate key.'));
+          }
         }
       } catch (e) {
         alert('Network error: ' + e);

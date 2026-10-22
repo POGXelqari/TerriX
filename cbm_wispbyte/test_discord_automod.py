@@ -134,6 +134,7 @@ class TestAutoModMessageInterception(unittest.IsolatedAsyncioTestCase):
         msg.channel = MagicMock()
         msg.channel.id = channel_id
         msg.channel.mention = f"<#{channel_id}>"
+        msg.channel.send = AsyncMock()
 
         msg.author = MagicMock()
         msg.author.id = 123456
@@ -160,17 +161,17 @@ class TestAutoModMessageInterception(unittest.IsolatedAsyncioTestCase):
         msg.delete.assert_not_called()
         self.mock_log_channel.send.assert_not_called()
 
-    async def test_05_bot_and_admin_messages_bypassed(self):
-        """Bots and admins bypass automated content safety."""
+    async def test_05_admin_messages_moderated_regardless_of_permissions(self):
+        """Messages are moderated for everyone regardless of permissions (admins moderated, bots skipped)."""
         # Bot author
         msg_bot = self._create_mock_message(content="k y s", author_bot=True)
         await automod_bot.on_message(msg_bot)
         msg_bot.delete.assert_not_called()
 
-        # Admin author
+        # Admin author must be moderated
         msg_admin = self._create_mock_message(content="k y s", is_admin=True)
         await automod_bot.on_message(msg_admin)
-        msg_admin.delete.assert_not_called()
+        msg_admin.delete.assert_awaited_once()
 
     async def test_06_ignored_channel_and_log_channel_bypassed(self):
         """Messages in ignored channels or the log channel are not filtered."""
@@ -185,29 +186,38 @@ class TestAutoModMessageInterception(unittest.IsolatedAsyncioTestCase):
         msg_log.delete.assert_not_called()
 
     async def test_07_stealth_deletion_and_modlog_dispatch(self):
-        """Offending message is deleted with NO in-channel notice and logged to mod channel."""
+        """Offending message is deleted, in-channel verbal warning is issued tagging user, and logged to mod channel."""
         msg = self._create_mock_message(content="k y s now", channel_id=111)
         await automod_bot.on_message(msg)
 
         # 1. Message must be deleted
         msg.delete.assert_awaited_once()
 
-        # 2. In-channel message must NOT be sent (no msg.channel.send call)
-        self.assertFalse(hasattr(msg.channel, "send") and msg.channel.send.called)
+        # 2. In-channel verbal warning is sent tagging the user
+        msg.channel.send.assert_awaited_once()
+        sent_warning = msg.channel.send.call_args[0][0]
+        self.assertIn(msg.author.mention, sent_warning)
 
         # 3. Log channel must receive rich embed report
         self.mock_log_channel.send.assert_awaited_once()
         call_kwargs = self.mock_log_channel.send.call_args.kwargs
         embed = call_kwargs.get("embed")
         self.assertIsNotNone(embed)
-        self.assertEqual(embed.title, "🚫 Content Removed by CBM AutoMod")
         self.assertIn("Slur / Toxic Language", embed.description)
 
         # 4. Audit log is stored in SQLite
         logs = self.test_db.get_audit_logs(999)
         self.assertEqual(len(logs), 1)
         self.assertEqual(logs[0]["channel_id"], 111)
-        self.assertEqual(logs[0]["action_taken"], "SILENT_PURGE")
+        self.assertEqual(logs[0]["action_taken"], "VERBAL_WARNING")
+
+    async def test_08_edited_message_moderated_for_all_users(self):
+        """Edited messages are intercepted and moderated via on_message_edit regardless of permissions."""
+        msg_before = self._create_mock_message(content="clean message", is_admin=True)
+        msg_after = self._create_mock_message(content="k y s edited", is_admin=True)
+        await automod_bot.on_message_edit(msg_before, msg_after)
+        msg_after.delete.assert_awaited_once()
+        self.mock_log_channel.send.assert_awaited()
 
 
 if __name__ == "__main__":

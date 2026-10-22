@@ -53,11 +53,20 @@ def _configure_sqlite_pragmas(conn: sqlite3.Connection):
     conn.execute("PRAGMA foreign_keys = ON;")
 
 
+PRIVILEGED_ROLES = {"admin", "council", "leader", "co-leader", "officer", "system"}
+
+def is_privileged_role(role: Optional[str]) -> bool:
+    """Returns True if the role holds staff/executive/administrative privileges in CBM."""
+    if not role:
+        return False
+    return str(role).strip().lower() in PRIVILEGED_ROLES
+
+
 def is_cbm_plus_active(account_dict: Optional[Dict[str, Any]]) -> bool:
     """Evaluates whether an account holds an active CBM Plus subscription or root privilege."""
     if not account_dict:
         return False
-    if account_dict.get("role") in ("admin", "council", "leader", "system"):
+    if is_privileged_role(account_dict.get("role")):
         return True
     until = account_dict.get("cbm_plus_until")
     if not until:
@@ -945,12 +954,17 @@ class CBMDatabase:
                 account_name TEXT NOT NULL,
                 amount_gold REAL NOT NULL DEFAULT 500.0,
                 amount_cents INTEGER NOT NULL DEFAULT 50000,
+                months INTEGER NOT NULL DEFAULT 1,
                 status TEXT NOT NULL DEFAULT 'PENDING',
                 tx_hash TEXT,
                 created_at REAL NOT NULL,
                 expires_at REAL NOT NULL
             )
         """)
+        try:
+            cur.execute("ALTER TABLE cbm_pending_subscriptions ADD COLUMN months INTEGER DEFAULT 1")
+        except Exception:
+            pass
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_pending_sub_acc ON cbm_pending_subscriptions(account_name, status);")
 
         cur.execute("""
@@ -2271,6 +2285,13 @@ class CBMDatabase:
         tagless_nfkc = re.sub(r'^[\[\(].*?[\]\)]\s*', '', nfkc).strip()
         _add(tagless_nfkc)
 
+        # Clan tag stripped from end (e.g. Player [PRIME] or Player [👑])
+        tagless_trailing_raw = re.sub(r'\s*[\[\(].*?[\]\)]$', '', unquoted).strip()
+        _add(tagless_trailing_raw)
+
+        tagless_trailing_nfkc = re.sub(r'\s*[\[\(].*?[\]\)]$', '', nfkc).strip()
+        _add(tagless_trailing_nfkc)
+
         # 4. Emojis and decorative symbols stripped
         symbolless_raw = re.sub(r'[^\w\s\-]', '', tagless_raw).strip()
         _add(symbolless_raw)
@@ -2470,10 +2491,26 @@ class CBMDatabase:
         safe.pop("salt", None)
         safe.pop("password_hash", None)
         safe.pop("password_salt", None)
+        canonical = safe.get("account_name") or account_name
+        safe["account_name"] = canonical
+        safe["display_name"] = safe.get("display_name") or canonical
+        safe["avatar_url"] = safe.get("avatar_url") or f"https://api.dicebear.com/7.x/identicon/svg?seed={canonical}"
+        safe["clan_tag"] = safe.get("clan_tag") or "ANTI-OG"
+        safe["role"] = safe.get("role") or "member"
+        dep_c = int(safe.get("deposited_cents") or 0)
+        tot_dep_c = int(safe.get("total_deposited_cents") or 0)
+        tot_w_c = int(safe.get("total_withdrawn_cents") or 0)
+        safe["deposited_cents"] = dep_c
+        safe["deposited_gold"] = round(dep_c / 100.0, 2)
+        safe["total_deposited_cents"] = tot_dep_c
+        safe["total_deposited_gold"] = round(tot_dep_c / 100.0, 2)
+        safe["total_withdrawn_cents"] = tot_w_c
+        safe["total_withdrawn_gold"] = round(tot_w_c / 100.0, 2)
         safe["has_pin"] = bool(raw.get("pin_hash"))
         safe["has_password"] = bool(raw.get("password_hash"))
-        safe["primary_territorial_account"] = raw.get("primary_territorial_account")
-        safe["is_verified"] = self.is_account_verified(safe.get("account_name", account_name))
+        safe["primary_territorial_account"] = raw.get("primary_territorial_account") or ""
+        safe["is_verified"] = self.is_account_verified(canonical)
+        safe["is_delinquent"] = bool(safe.get("is_delinquent"))
         safe["cbm_plus_until"] = raw.get("cbm_plus_until")
         safe["cbm_plus_active"] = self.is_cbm_plus_active(raw)
         return safe
@@ -2486,7 +2523,7 @@ class CBMDatabase:
         aliases = {clean}
         raw = self._get_account_raw(clean)
         if raw:
-            for k in ("account_name", "display_name", "primary_territorial_account"):
+            for k in ("account_name", "display_name", "primary_territorial_account", "clan_tag"):
                 v = raw.get(k)
                 if v and isinstance(v, str) and v.strip():
                     aliases.add(v.strip())
@@ -2855,9 +2892,10 @@ class CBMDatabase:
             INSERT INTO cbm_accounts (
                 account_name, display_name, avatar_url, clan_tag, role,
                 password_hash, password_salt, primary_territorial_account,
-                pin_hash, salt, is_verified, created_at, updated_at
+                pin_hash, salt, is_verified, deposited_cents, total_deposited_cents, total_withdrawn_cents,
+                created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, 0, ?, ?)
             ON CONFLICT(account_name) DO UPDATE SET
                 display_name = excluded.display_name,
                 avatar_url = excluded.avatar_url,
@@ -2868,6 +2906,9 @@ class CBMDatabase:
                 primary_territorial_account = excluded.primary_territorial_account,
                 pin_hash = COALESCE(excluded.pin_hash, cbm_accounts.pin_hash),
                 salt = COALESCE(excluded.salt, cbm_accounts.salt),
+                deposited_cents = COALESCE(cbm_accounts.deposited_cents, 0),
+                total_deposited_cents = COALESCE(cbm_accounts.total_deposited_cents, 0),
+                total_withdrawn_cents = COALESCE(cbm_accounts.total_withdrawn_cents, 0),
                 is_verified = 1,
                 updated_at = excluded.updated_at
         """, (uname, final_disp, avatar, clan_tag, role, pwd_hash, pwd_salt, terri, pin_hash, pin_salt, now, now))
@@ -2903,9 +2944,11 @@ class CBMDatabase:
         if display_name:
             updates["display_name"] = str(display_name).strip()
         if clan_tag:
-            updates["clan_tag"] = str(clan_tag).strip()
+            from gold_api_client import clean_clan_tag
+            cleaned_tag = clean_clan_tag(clan_tag)
+            updates["clan_tag"] = cleaned_tag or str(clan_tag).strip()
         if role:
-            updates["role"] = str(role).strip()
+            updates["role"] = str(role).strip().lower()
         if primary_territorial_account:
             updates["primary_territorial_account"] = str(primary_territorial_account).strip()
 
@@ -4394,6 +4437,188 @@ class CBMDatabase:
             "created_at": now
         }
         return True, f"Successfully contributed {amount_gold:.2f} Gold to the Clan War Chest!", donation_info
+
+    def get_unassociated_idle_deposits(self, min_idle_seconds: float = 30 * 86400.0) -> List[Dict[str, Any]]:
+        """
+        Retrieves all territorial accounts with deposited gold that are not associated with any
+        registered/verified CBM Account and have been idle for at least min_idle_seconds (default 30 days).
+        """
+        now = time.time()
+        conn = self._get_sqlite_conn()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT a.account_name, a.display_name, a.deposited_cents, a.total_deposited_cents, a.created_at, a.updated_at
+            FROM cbm_accounts a
+            WHERE a.deposited_cents > 0
+              AND LOWER(a.account_name) NOT IN ('treasury', 'war_chest', 'bank', 'vault', 'reserves', 'admin')
+              AND COALESCE(a.is_verified, 0) = 0
+              AND (a.password_hash IS NULL OR a.password_hash = '')
+              AND (a.pin_hash IS NULL OR a.pin_hash = '')
+              AND NOT EXISTS (
+                  SELECT 1 FROM cbm_payment_methods pm
+                  JOIN cbm_accounts m ON pm.cbm_username = m.account_name COLLATE NOCASE
+                  WHERE pm.territorial_account_name = a.account_name COLLATE NOCASE
+                    AND (COALESCE(m.is_verified, 0) = 1 OR (m.password_hash IS NOT NULL AND m.password_hash != '') OR (m.pin_hash IS NOT NULL AND m.pin_hash != ''))
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM cbm_accounts m
+                  WHERE m.primary_territorial_account = a.account_name COLLATE NOCASE
+                    AND m.account_name != a.account_name
+                    AND (COALESCE(m.is_verified, 0) = 1 OR (m.password_hash IS NOT NULL AND m.password_hash != '') OR (m.pin_hash IS NOT NULL AND m.pin_hash != ''))
+              )
+        """)
+        rows = cur.fetchall()
+
+        results = []
+        for r in rows:
+            acc_name = r[0]
+            disp_name = r[1]
+            dep_cents = r[2]
+            total_dep_cents = r[3]
+            created_at = float(r[4] or 0.0)
+            updated_at = float(r[5] or 0.0)
+
+            cur.execute("SELECT MAX(created_at) FROM cbm_ledger WHERE account_name = ? COLLATE NOCASE", (acc_name,))
+            l_row = cur.fetchone()
+            ledger_latest = float(l_row[0] or 0.0) if (l_row and l_row[0]) else 0.0
+
+            last_activity = max(created_at, updated_at, ledger_latest)
+            idle_seconds = max(0.0, now - last_activity)
+
+            if idle_seconds >= min_idle_seconds:
+                results.append({
+                    "account_name": acc_name,
+                    "display_name": disp_name or acc_name,
+                    "deposited_cents": dep_cents,
+                    "deposited_gold": round(dep_cents / 100.0, 2),
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                    "last_activity_at": last_activity,
+                    "idle_seconds": idle_seconds,
+                    "idle_days": round(idle_seconds / 86400.0, 2)
+                })
+        return results
+
+    def sweep_idle_unassociated_deposits(self, max_idle_seconds: float = 30 * 86400.0) -> Dict[str, Any]:
+        """
+        Automatically converts deposited gold from territorial.io accounts sitting idle
+        without being associated with a CBM Account for at least 30 days (max_idle_seconds)
+        into unencumbered clan bank reserves.
+
+        - Decreases member_liabilities_cents by the converted balance.
+        - Increases unencumbered_capital_cents and bank_reserves_cents by the converted balance.
+        - Records an audit ledger entry (UNENCUMBERED_CONVERSION).
+        - Records an irrevocable entry in cbm_donations.
+        - Recomputes treasury metrics and triggers cache invalidation.
+        """
+        now = time.time()
+        candidates = self.get_unassociated_idle_deposits(min_idle_seconds=max_idle_seconds)
+        if not candidates:
+            return {
+                "status": "ok",
+                "swept_count": 0,
+                "total_converted_gold": 0.0,
+                "total_converted_cents": 0,
+                "swept_accounts": []
+            }
+
+        swept = []
+        total_cents = 0
+
+        with self.write_transaction() as (conn, cur):
+            for cand in candidates:
+                acc_name = cand["account_name"]
+                cents = cand["deposited_cents"]
+                gold = cand["deposited_gold"]
+
+                # Double check inside transactional lock
+                cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (acc_name,))
+                row = cur.fetchone()
+                if not row or row[0] != cents or cents <= 0:
+                    continue
+
+                tx_hash = f"idle_reserve_conv_{acc_name}_{int(now)}"
+                ledger_notes = (
+                    f"Automated 30-day unassociated territorial.io idle deposit conversion: "
+                    f"{gold:.2f} Gold converted to unencumbered bank reserves"
+                )
+                clean_msg = (
+                    f"Automated conversion of 30-day idle unassociated territorial.io deposit "
+                    f"({gold:.2f} Gold) to unencumbered clan reserves"
+                )
+
+                # 1. Zero out deposited balance
+                cur.execute("""
+                    UPDATE cbm_accounts
+                    SET deposited_cents = 0, updated_at = ?
+                    WHERE account_name = ? AND deposited_cents = ?
+                """, (now, acc_name, cents))
+
+                if cur.rowcount == 0:
+                    continue
+
+                # 2. Record ledger deduction
+                cur.execute("""
+                    INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                    VALUES (?, 'UNENCUMBERED_CONVERSION', ?, 0, ?, ?, ?)
+                """, (acc_name, -cents, tx_hash, ledger_notes, now))
+
+                # 3. Record in cbm_donations to permanently increase unencumbered reserves
+                donor_disp = f"Unclaimed Deposit ({acc_name})"
+                cur.execute("""
+                    INSERT INTO cbm_donations (donor_name, territorial_account, amount_gold, amount_cents, message, source, tx_hash, is_refundable, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'IDLE_DEPOSIT_EXPIRATION', ?, 0, 'IRREVOCABLE', ?)
+                """, (donor_disp, acc_name, gold, cents, clean_msg, tx_hash, now))
+
+                # 4. Mirror to Supabase queue if active
+                if self.use_supabase:
+                    self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{acc_name}", body={"deposited_cents": 0})
+                    self._enqueue_sb_task("cbm_ledger", method="POST", body={
+                        "account_name": acc_name,
+                        "entry_type": "UNENCUMBERED_CONVERSION",
+                        "amount_cents": -cents,
+                        "balance_after_cents": 0,
+                        "tx_hash": tx_hash,
+                        "notes": ledger_notes
+                    })
+                    self._enqueue_sb_task("cbm_donations", method="POST", body={
+                        "donor_name": donor_disp,
+                        "territorial_account": acc_name,
+                        "amount_gold": gold,
+                        "amount_cents": cents,
+                        "message": clean_msg,
+                        "source": "IDLE_DEPOSIT_EXPIRATION",
+                        "tx_hash": tx_hash,
+                        "is_refundable": False,
+                        "status": "IRREVOCABLE"
+                    })
+
+                swept.append({
+                    "account_name": acc_name,
+                    "converted_gold": gold,
+                    "converted_cents": cents,
+                    "idle_days": cand.get("idle_days", 30.0),
+                    "tx_hash": tx_hash
+                })
+                total_cents += cents
+
+        if swept:
+            self.recompute_treasury()
+            with self._alias_lock:
+                for s in swept:
+                    self._missing_accounts_cache.pop(s["account_name"].lower(), None)
+                    if hasattr(self, "_account_cache") and isinstance(self._account_cache, dict):
+                        self._account_cache.pop(s["account_name"].lower(), None)
+
+        total_gold = round(total_cents / 100.0, 2)
+        return {
+            "status": "ok",
+            "swept_count": len(swept),
+            "total_converted_gold": total_gold,
+            "total_converted_cents": total_cents,
+            "swept_accounts": swept
+        }
 
     def record_direct_donation(
         self,
@@ -9053,29 +9278,41 @@ class CBMDatabase:
     def create_invite_code(self, inviter: str, max_uses: int = 1) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
         """
         Creates a new cryptographically secure invite code.
-        Requires deposited_cents >= max_uses * 2500 (25 Gold per use).
+        Requires deposited_cents - committed_cents >= max_uses * 2500 (25 Gold per use).
         Funds are not deducted upfront, but held as sponsor stake until redemption.
         """
         clean_inviter = (inviter or "").strip()
         if not clean_inviter:
             return False, "Inviter account name is required.", None
 
-        acc = self.get_account(clean_inviter)
-        if not acc:
-            return False, f"Account '{clean_inviter}' not found.", None
-
         max_uses = max(1, int(max_uses))
         required_cents = max_uses * 2500
-        deposited_cents = int(acc.get("deposited_cents", 0) or 0)
-        if deposited_cents < required_cents:
-            avail_gold = deposited_cents / 100.0
-            req_gold = required_cents / 100.0
-            return False, f"Insufficient balance to issue invite(s). Required: {req_gold:.2f} Gold, Available: {avail_gold:.2f} Gold.", None
-
-        code_id = f"inv_{secrets.token_urlsafe(12)}"
-        now = time.time()
 
         with self.write_transaction() as (conn, cur):
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (clean_inviter,))
+            acc_row = cur.fetchone()
+            if not acc_row:
+                return False, f"Account '{clean_inviter}' not found.", None
+            deposited_cents = int(acc_row[0] or 0)
+
+            # Sum unredeemed uses from existing active, non-revoked invite codes
+            cur.execute("""
+                SELECT COALESCE(SUM((max_uses - uses_count) * cost_per_use_cents), 0)
+                FROM cbm_invites
+                WHERE LOWER(inviter_account) = LOWER(?) AND is_revoked = 0 AND uses_count < max_uses
+            """, (clean_inviter,))
+            committed_cents = int(cur.fetchone()[0] or 0)
+            available_cents = max(0, deposited_cents - committed_cents)
+
+            if available_cents < required_cents:
+                avail_gold = available_cents / 100.0
+                req_gold = required_cents / 100.0
+                dep_gold = deposited_cents / 100.0
+                comm_gold = committed_cents / 100.0
+                return False, f"Insufficient balance to issue invite(s). Required: {req_gold:.2f} Gold, Available: {avail_gold:.2f} Gold (Total Deposit: {dep_gold:.2f} Gold, Committed: {comm_gold:.2f} Gold).", None
+
+            code_id = f"inv_{secrets.token_urlsafe(12)}"
+            now = time.time()
             cur.execute("""
                 INSERT INTO cbm_invites (
                     code_id, inviter_account, max_uses, uses_count,
@@ -9112,17 +9349,22 @@ class CBMDatabase:
 
         return True, "Invite code generated successfully.", invite_record
 
-    def track_invite_prospect(self, prospect_token: str, invite_code: str, client_ip_hash: Optional[str] = None) -> Tuple[bool, str, str]:
+    def track_invite_prospect(self, prospect_token: str, invite_code: str, client_ip_hash: Optional[str] = None, base_ref: Optional[str] = None) -> Tuple[bool, str, str]:
         """
         Binds a visitor's prospect token to an active invite code in cbm_invite_prospects.
         Enforces single-settlement invariant: intra-inviter duplication is strictly prohibited (409 Conflict),
         while multi-inviter tracking across distinct inviters is permitted.
+        Enforces base referral sponsor validation: base_ref is required and must match code inviter.
         Returns: (success, message, code)
         """
         clean_token = (prospect_token or "").strip()
         clean_code = (invite_code or "").strip()
+        clean_ref = (base_ref or "").strip()
         if not clean_token or not clean_code:
             return False, "prospect_token and invite_code are required.", "bad_request"
+
+        if not clean_ref:
+            return False, "A base referral URL (?ref=<sponsor>) is required for this invite code to be valid.", "missing_base_referral"
 
         conn = self._get_sqlite_conn(row_factory=True)
         cur = conn.cursor()
@@ -9134,6 +9376,9 @@ class CBMDatabase:
         inv = cur.fetchone()
         if not inv:
             return False, "Invalid invite code.", "not_found"
+
+        if clean_ref.lower() != inv["inviter_account"].lower():
+            return False, f"Invite code does not belong to referral sponsor '{clean_ref}'.", "invalid_base_referral"
 
         if inv["is_revoked"]:
             return False, "This invite code has been revoked by the sponsor.", "not_found"
@@ -9245,6 +9490,7 @@ class CBMDatabase:
             d = dict(r)
             d["cost_per_use_gold"] = d["cost_per_use_cents"] / 100.0
             d["is_revoked"] = bool(d["is_revoked"])
+            d["invite_url"] = f"https://cbm.wispbyte.org/register?ref={urllib.parse.quote(d['inviter_account'])}&invite={d['code_id']}"
             res.append(d)
         return res
 
@@ -9369,7 +9615,7 @@ class CBMDatabase:
         terri_name = (account_dict.get("primary_territorial_account") or "").strip().lower()
         if acc_name in ("b8bbq", "admin") or terri_name == "b8bbq":
             return True
-        if account_dict.get("role") in ("admin", "council", "leader", "system"):
+        if is_privileged_role(account_dict.get("role")):
             return True
         until = account_dict.get("cbm_plus_until")
         if not until:
@@ -9431,8 +9677,103 @@ class CBMDatabase:
 
         return True, f"CBM Plus active until {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(new_until))}", new_until
 
+    @staticmethod
+    def calculate_cbm_plus_cost(months: int = 1) -> Dict[str, Any]:
+        """
+        Calculates CBM Plus subscription pricing with Annual Plan discount tiers:
+        - 1 Month: 500.00 Gold (no discount)
+        - 3 Months: 1,425.00 Gold (5% savings, save 75.00 Gold)
+        - 6 Months: 2,700.00 Gold (10% savings, save 300.00 Gold)
+        - 12 Months (Annual Plan): 4,800.00 Gold (20% savings, save 1,200.00 Gold! Equivalent to 400.00 Gold/mo)
+        - 24 Months: 9,600.00 Gold (20% savings, save 2,400.00 Gold)
+        """
+        months = max(1, int(months))
+        base_cents = months * 50000
+
+        if months >= 12:
+            discount_pct = 20
+            cost_cents = int(round(base_cents * 0.80))
+        elif months >= 6:
+            discount_pct = 10
+            cost_cents = int(round(base_cents * 0.90))
+        elif months >= 3:
+            discount_pct = 5
+            cost_cents = int(round(base_cents * 0.95))
+        else:
+            discount_pct = 0
+            cost_cents = base_cents
+
+        savings_cents = base_cents - cost_cents
+        cost_gold = round(cost_cents / 100.0, 2)
+        savings_gold = round(savings_cents / 100.0, 2)
+        base_gold = round(base_cents / 100.0, 2)
+        monthly_gold = round(cost_gold / months, 2)
+
+        return {
+            "months": months,
+            "cost_cents": cost_cents,
+            "cost_gold": cost_gold,
+            "base_cents": base_cents,
+            "base_gold": base_gold,
+            "savings_cents": savings_cents,
+            "savings_gold": savings_gold,
+            "discount_percent": discount_pct,
+            "effective_monthly_gold": monthly_gold,
+            "is_annual": months >= 12
+        }
+
+    @staticmethod
+    def get_cbm_plus_plans() -> List[Dict[str, Any]]:
+        """Returns standard CBM Plus subscription tiers including Annual Plan with savings."""
+        return [
+            {
+                "months": 1,
+                "name": "1 Month",
+                "cost_gold": 500.0,
+                "base_gold": 500.0,
+                "savings_gold": 0.0,
+                "discount_percent": 0,
+                "monthly_gold": 500.0,
+                "badge": "Standard",
+                "is_annual": False
+            },
+            {
+                "months": 3,
+                "name": "3 Months",
+                "cost_gold": 1425.0,
+                "base_gold": 1500.0,
+                "savings_gold": 75.0,
+                "discount_percent": 5,
+                "monthly_gold": 475.0,
+                "badge": "Save 5%",
+                "is_annual": False
+            },
+            {
+                "months": 6,
+                "name": "6 Months",
+                "cost_gold": 2700.0,
+                "base_gold": 3000.0,
+                "savings_gold": 300.0,
+                "discount_percent": 10,
+                "monthly_gold": 450.0,
+                "badge": "Save 10%",
+                "is_annual": False
+            },
+            {
+                "months": 12,
+                "name": "12 Months (Annual Plan)",
+                "cost_gold": 4800.0,
+                "base_gold": 6000.0,
+                "savings_gold": 1200.0,
+                "discount_percent": 20,
+                "monthly_gold": 400.0,
+                "badge": "Save 20% • Best Value",
+                "is_annual": True
+            }
+        ]
+
     def subscribe_cbm_plus_from_balance(self, account_name: str, months: int = 1) -> Tuple[bool, str, Optional[float]]:
-        """Deducts 500 Gold (50,000 cents) per month directly from balance to activate CBM Plus (free for B8bbq/admins)."""
+        """Deducts discounted plan cost directly from balance to activate CBM Plus (free for B8bbq/admins)."""
         clean = (account_name or "").strip()
         if not clean:
             return False, "account_name required.", None
@@ -9449,9 +9790,15 @@ class CBMDatabase:
             return True, "CBM Administrator account possesses lifetime CBM Plus privileges without payment.", lifetime_until
 
         months = max(1, int(months))
-        cost_cents = months * 50000
+        plan = self.calculate_cbm_plus_cost(months)
+        cost_cents = plan["cost_cents"]
+        cost_gold = plan["cost_gold"]
+        savings_gold = plan["savings_gold"]
+        discount_pct = plan["discount_percent"]
+        discount_str = f" ({discount_pct}% annual savings applied, saved {savings_gold:.2f} Gold)" if discount_pct > 0 else ""
+
         tx_hash = f"sub_bal_{clean}_{int(now)}_{secrets.token_hex(3)}"
-        notes = f"CBM Plus Subscription: {months} month(s) (500G/mo converted to Bank Reserves)"
+        notes = f"CBM Plus Subscription: {months} month(s) ({cost_gold:.2f} Gold{discount_str} converted to Bank Reserves)"
 
         with self.write_transaction() as (conn, cur):
             cur.execute("""
@@ -9463,7 +9810,7 @@ class CBMDatabase:
                 cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (clean,))
                 r = cur.fetchone()
                 avail = (r[0] / 100.0) if r else 0.0
-                return False, f"Insufficient balance. Required: {cost_cents / 100.0:.2f} Gold, Available: {avail:.2f} Gold.", None
+                return False, f"Insufficient balance. Required: {cost_gold:.2f} Gold, Available: {avail:.2f} Gold.", None
 
             cur.execute("SELECT deposited_cents, cbm_plus_until FROM cbm_accounts WHERE account_name = ?", (clean,))
             acc_row = cur.fetchone()
@@ -9519,10 +9866,10 @@ class CBMDatabase:
         )
 
         self.recompute_treasury()
-        return True, f"CBM Plus activated until {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(new_until))}", new_until
+        return True, f"CBM Plus activated until {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(new_until))} ({cost_gold:.2f} Gold)", new_until
 
-    def create_pending_subscription(self, account_name: str, amount_gold: float = 500.0) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Generates a 15-minute in-game transfer intent slip for CBM Plus subscription."""
+    def create_pending_subscription(self, account_name: str, months: int = 1, amount_gold: Optional[float] = None) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """Generates a 15-minute in-game transfer intent slip for CBM Plus subscription with plan savings."""
         clean = (account_name or "").strip()
         acc = self.get_account(clean)
         if not acc:
@@ -9531,21 +9878,28 @@ class CBMDatabase:
         slip_id = f"sub_{secrets.token_hex(8)}"
         now = time.time()
         expires_at = now + 900.0
-        gold_val = float(amount_gold or 500.0)
-        cents_val = int(round(gold_val * 100))
+        months = max(1, int(months))
+        if amount_gold is not None:
+            gold_val = float(amount_gold)
+            cents_val = int(round(gold_val * 100))
+        else:
+            plan = self.calculate_cbm_plus_cost(months)
+            gold_val = plan["cost_gold"]
+            cents_val = plan["cost_cents"]
 
         with self.write_transaction() as (conn, cur):
             cur.execute("""
                 INSERT INTO cbm_pending_subscriptions (
-                    id, account_name, amount_gold, amount_cents, status, created_at, expires_at
-                ) VALUES (?, ?, ?, ?, 'PENDING', ?, ?)
-            """, (slip_id, clean, gold_val, cents_val, now, expires_at))
+                    id, account_name, amount_gold, amount_cents, months, status, created_at, expires_at
+                ) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?)
+            """, (slip_id, clean, gold_val, cents_val, months, now, expires_at))
 
         slip = {
             "id": slip_id,
             "account_name": clean,
             "amount_gold": gold_val,
             "amount_cents": cents_val,
+            "months": months,
             "status": "PENDING",
             "created_at": now,
             "expires_at": expires_at
@@ -9559,6 +9913,7 @@ class CBMDatabase:
                 "account_name": clean,
                 "amount_gold": gold_val,
                 "amount_cents": cents_val,
+                "months": months,
                 "status": "PENDING",
                 "created_at": self._format_iso(now),
                 "expires_at": self._format_iso(expires_at)
@@ -9568,7 +9923,7 @@ class CBMDatabase:
         return True, "Intent slip generated successfully.", slip
 
     def fulfill_pending_subscription(self, slip_id: str, tx_hash: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
-        """Fulfills an in-game subscription intent slip and credits CBM Plus."""
+        """Fulfills an in-game subscription intent slip and credits CBM Plus for the plan duration."""
         clean_id = (slip_id or "").strip()
         now = time.time()
 
@@ -9581,6 +9936,7 @@ class CBMDatabase:
 
         account_name = row["account_name"]
         amount_cents = row["amount_cents"]
+        months_count = row["months"] if "months" in row.keys() and row["months"] else 1
 
         with self.write_transaction() as (w_conn, w_cur):
             w_cur.execute("""
@@ -9600,7 +9956,7 @@ class CBMDatabase:
                 WHERE id = 1
             """, (amount_cents, amount_cents, amount_cents, now))
 
-        self.activate_cbm_plus(account_name, months=1, tx_hash=tx_hash)
+        self.activate_cbm_plus(account_name, months=months_count, tx_hash=tx_hash)
         self.recompute_treasury()
 
         self._enqueue_sb_task(
@@ -9627,14 +9983,15 @@ class CBMDatabase:
         with self.write_transaction() as (conn, cur):
             placeholders = ",".join("?" for _ in candidates)
             cur.execute(f"""
-                SELECT id, account_name, amount_cents, amount_gold
+                SELECT id, account_name, amount_cents, amount_gold, months
                 FROM cbm_pending_subscriptions
                 WHERE account_name IN ({placeholders}) COLLATE NOCASE
                   AND status = 'PENDING'
+                  AND ? >= amount_cents
                   AND expires_at >= ?
                 ORDER BY created_at ASC
                 LIMIT 1
-            """, (*candidates, now))
+            """, (*candidates, amount_cents, now))
             row = cur.fetchone()
             if not row:
                 return None
@@ -9642,6 +9999,7 @@ class CBMDatabase:
             slip_id = row[0]
             slip_account = row[1]
             slip_cents = row[2]
+            slip_months = row[4] if len(row) > 4 and row[4] else 1
 
             cur.execute("""
                 UPDATE cbm_pending_subscriptions
@@ -9664,7 +10022,7 @@ class CBMDatabase:
             acc_row = cur.fetchone()
             current_until = acc_row[0] if acc_row and acc_row[0] else 0.0
             base_time = max(now, float(current_until))
-            new_until = base_time + (30 * 86400.0)
+            new_until = base_time + (slip_months * 30 * 86400.0)
 
             cur.execute("""
                 UPDATE cbm_accounts
@@ -9691,8 +10049,208 @@ class CBMDatabase:
             "id": slip_id,
             "account_name": slip_account,
             "amount_cents": slip_cents,
+            "months": slip_months,
             "tx_hash": tx_id,
             "cbm_plus_until": new_until
         }
+
+    def claim_gunfight_war_chest_reward(
+        self,
+        account_name: str,
+        reward_gold: float,
+        nonce: str
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Atomically credits a verified CBM member with a Gunfight Arena rare War Chest reward
+        drawn from unencumbered bank reserves, with replay protection and daily quota guards.
+        """
+        canonical_name = str(account_name or "").strip()
+        acc = self.get_account(canonical_name)
+        if not acc:
+            return False, f"Account '{canonical_name}' does not exist on CBM public ledger.", {}
+
+        # 1. Validate reward amount: must be within 1.0 to 100.0 Gold
+        try:
+            reward_gold = float(reward_gold)
+        except (ValueError, TypeError):
+            return False, "Invalid reward gold amount.", {}
+
+        if reward_gold < 1.0 or reward_gold > 100.0:
+            return False, "Reward gold must be between 1.00 and 100.00 Gold.", {}
+
+        reward_cents = int(round(reward_gold * 100))
+        clean_nonce = str(nonce or "").strip()
+        if not clean_nonce:
+            clean_nonce = f"gf_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+
+        now = time.time()
+        twenty_four_hours_ago = now - 86400.0
+
+        # 2. Check reserves availability
+        treasury = self.get_treasury()
+        bank_reserves_cents = int(treasury.get("bank_reserves_cents") or 0)
+        if bank_reserves_cents < reward_cents:
+            return False, "Insufficient unencumbered reserves available in central vault to back this reward.", {}
+
+        # 3. Transaction write with replay and quota protection
+        with self.write_transaction() as (conn, cur):
+            # Replay protection: check nonce in cbm_ledger
+            cur.execute("""
+                SELECT id FROM cbm_ledger
+                WHERE tx_hash = ? AND entry_type = 'GUNFIGHT_WAR_CHEST'
+            """, (clean_nonce,))
+            if cur.fetchone():
+                return False, "Replay rejected: This war chest reward has already been claimed.", {}
+
+            # Daily rate limit: maximum 3 war chest claims per account per 24 hours
+            cur.execute("""
+                SELECT COUNT(*) FROM cbm_ledger
+                WHERE account_name = ? AND entry_type = 'GUNFIGHT_WAR_CHEST' AND created_at >= ?
+            """, (canonical_name, twenty_four_hours_ago))
+            recent_claims = cur.fetchone()[0] or 0
+            if recent_claims >= 3:
+                return False, "Daily war chest reward limit (3 claims per 24 hours) reached for this account.", {}
+
+            # Fetch fresh balance
+            cur.execute("SELECT deposited_cents, total_deposited_cents FROM cbm_accounts WHERE account_name = ?", (canonical_name,))
+            row = cur.fetchone()
+            if not row:
+                return False, f"Account '{canonical_name}' not found.", {}
+
+            curr_bal = int(row[0] or 0)
+            curr_total = int(row[1] or 0)
+            new_bal = curr_bal + reward_cents
+            new_total = curr_total + reward_cents
+
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = ?, total_deposited_cents = ?, updated_at = ?
+                WHERE account_name = ?
+            """, (new_bal, new_total, now, canonical_name))
+
+            ledger_note = f"Gunfight P2P Arena Rare War Chest Reward (+{reward_gold:.2f} Gold credited from Unencumbered Reserves)"
+            cur.execute("""
+                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                VALUES (?, 'GUNFIGHT_WAR_CHEST', ?, ?, ?, ?, ?)
+            """, (canonical_name, reward_cents, new_bal, clean_nonce, ledger_note, now))
+
+        self.recompute_treasury()
+
+        self._enqueue_sb_task(
+            "cbm_accounts",
+            method="PATCH",
+            params=f"?account_name=eq.{canonical_name}",
+            body={"deposited_cents": new_bal, "total_deposited_cents": new_total, "updated_at": self._format_iso(now)}
+        )
+        self._enqueue_sb_task(
+            "cbm_ledger",
+            method="POST",
+            body={
+                "account_name": canonical_name,
+                "entry_type": "GUNFIGHT_WAR_CHEST",
+                "amount_cents": reward_cents,
+                "balance_after_cents": new_bal,
+                "tx_hash": clean_nonce,
+                "notes": ledger_note
+            }
+        )
+
+        fresh_treasury = self.get_treasury()
+        return True, f"Successfully credited {reward_gold:.2f} Gold to account '{canonical_name}'!", {
+            "account_name": canonical_name,
+            "reward_gold": reward_gold,
+            "reward_cents": reward_cents,
+            "new_balance_gold": round(new_bal / 100.0, 2),
+            "new_balance_cents": new_bal,
+            "new_reserves_gold": round(fresh_treasury.get("bank_reserves_cents", 0) / 100.0, 2),
+            "tx_hash": clean_nonce,
+            "created_at": now
+        }
+
+    def unlock_gunfight_vip_pass(self, account_name: str, cost_gold: float = 50.0) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Unlocks a 1-match VIP pass for the Ava & SIG P365-380 ROSE VIP Bundle.
+        - Active CBM Plus members get instant free access (0 Gold).
+        - Non-subscribers pay 50 Gold (5,000 cents) from their balance.
+        - 100% of the 50 Gold fee is converted directly to unencumbered bank reserves.
+        """
+        raw = self._get_account_raw(account_name)
+        if not raw:
+            return False, f"Account '{account_name}' not found.", None
+        canonical_name = raw.get("account_name", account_name)
+
+        if self.is_cbm_plus_active(raw):
+            return True, "VIP Bundle unlocked via active CBM Plus subscription.", {
+                "account_name": canonical_name,
+                "cbm_plus": True,
+                "cost_gold": 0.0,
+                "vip_unlocked": True,
+                "message": "Active CBM Plus subscription grants full access to the VIP Bundle."
+            }
+
+        cost_cents = int(round(cost_gold * 100))
+        now = time.time()
+        tx_hash = f"vip_pass_{secrets.token_hex(6)}_{int(now)}"
+
+        with self.write_transaction() as (conn, cur):
+            cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ?", (canonical_name,))
+            row = cur.fetchone()
+            if not row:
+                return False, f"Account '{canonical_name}' not found.", None
+            curr_bal = int(row[0] or 0)
+            if curr_bal < cost_cents:
+                return False, f"Insufficient balance. VIP Bundle 1-match pass requires {cost_gold:.2f} Gold, but your balance is {curr_bal / 100.0:.2f} Gold.", {
+                    "cbm_plus": False,
+                    "cost_gold": cost_gold,
+                    "current_balance_gold": curr_bal / 100.0
+                }
+
+            new_bal = curr_bal - cost_cents
+            cur.execute("""
+                UPDATE cbm_accounts
+                SET deposited_cents = ?, updated_at = ?
+                WHERE account_name = ?
+            """, (new_bal, now, canonical_name))
+
+            ledger_note = f"Gunfight VIP 1-Match Pass: Ava & SIG Sauer P365-380 ROSE (converted to unencumbered bank reserves)"
+            cur.execute("""
+                INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+                VALUES (?, 'GUNFIGHT_VIP_PASS', ?, ?, ?, ?, ?)
+            """, (canonical_name, -cost_cents, new_bal, tx_hash, ledger_note, now))
+
+        self.recompute_treasury()
+
+        self._enqueue_sb_task(
+            "cbm_accounts",
+            method="PATCH",
+            params=f"?account_name=eq.{canonical_name}",
+            body={"deposited_cents": new_bal, "updated_at": self._format_iso(now)}
+        )
+        self._enqueue_sb_task(
+            "cbm_ledger",
+            method="POST",
+            body={
+                "account_name": canonical_name,
+                "entry_type": "GUNFIGHT_VIP_PASS",
+                "amount_cents": -cost_cents,
+                "balance_after_cents": new_bal,
+                "tx_hash": tx_hash,
+                "notes": ledger_note
+            }
+        )
+
+        fresh_treasury = self.get_treasury()
+        return True, f"Successfully unlocked VIP Bundle for 1 match! {cost_gold:.2f} Gold debited and converted to unencumbered reserves.", {
+            "account_name": canonical_name,
+            "cbm_plus": False,
+            "cost_gold": cost_gold,
+            "balance_after_gold": round(new_bal / 100.0, 2),
+            "new_reserves_gold": round(fresh_treasury.get("bank_reserves_cents", 0) / 100.0, 2),
+            "vip_unlocked": True,
+            "tx_hash": tx_hash,
+            "created_at": now
+        }
+
+
 
 

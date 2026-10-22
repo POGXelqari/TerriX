@@ -2,6 +2,37 @@
 <html lang="en">
 
 <head>
+  <script>
+    (function enforceOfficialOrigin() {
+      const allowedHosts = [
+        "cbm.wispbyte.org",
+        "78.154.103.45",
+        "localhost",
+        "127.0.0.1",
+        "tauri.localhost"
+      ];
+      const host = (window.location.hostname || "").toLowerCase();
+      const isAuthorized = allowedHosts.includes(host) ||
+        host.endsWith(".wispbyte.org") ||
+        host.endsWith(".trycloudflare.com");
+      if (!isAuthorized && window.location.protocol.startsWith("http")) {
+        if (document.body) {
+          document.body.innerHTML = "";
+        }
+        window.location.replace("https://cbm.wispbyte.org");
+      }
+    })();
+  </script>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-QCMCPSK0CF');
+  </script>
+  <meta name="google-site-verification" content="QgBuTq0ptINqSWSbw-GSVHOvHGL-xz1iaApSi4oIC1Y" />
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Clan Bank Manager (CBM) — Territorial.io</title>
@@ -1393,6 +1424,20 @@
                 <div class="dropdown-item-sub">Windows EXE, Android APK & PWA</div>
               </div>
             </a>
+            <a href="/gunfight" class="cbm-nav-dropdown-item">
+              <span class="dropdown-item-icon">⚔️</span>
+              <div>
+                <div class="dropdown-item-title">Gunfight Arena</div>
+                <div class="dropdown-item-sub">P2P 1v1 duels & rare war chest rewards</div>
+              </div>
+            </a>
+            <a href="/subscription" class="cbm-nav-dropdown-item">
+              <span class="dropdown-item-icon">⭐</span>
+              <div>
+                <div class="dropdown-item-title">CBM Plus</div>
+                <div class="dropdown-item-sub">Pro tools & API access tier</div>
+              </div>
+            </a>
           </div>
         </div>
 
@@ -1660,6 +1705,22 @@
           <button class="btn-game btn-game-gold btn-game-sm" onclick="switchTab('donations')">
             <span>🎁</span> Open Donations & Honor Roll →
           </button>
+        </div>
+      </div>
+
+      <!-- Gunfight Arena P2P Duels Banner -->
+      <div class="game-panel" style="border: 1px solid rgba(0, 207, 146, 0.25); background: linear-gradient(135deg, rgba(0, 112, 224, 0.08) 0%, rgba(0, 207, 146, 0.08) 100%);">
+        <div class="panel-headline">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <h3 style="color: #00cf92;">Gunfight Arena — Real-Time P2P Duels</h3>
+              <span class="game-badge green">WebRTC Multiplayer</span>
+            </div>
+            <p>Challenge other clan members to real-time 1v1 gunfights. Instant lobby matchmaking, zero latency peer-to-peer data channels, and rare war chest reward drops backed by clan reserves.</p>
+          </div>
+          <a href="/gunfight" class="btn-game btn-game-primary btn-game-sm" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+            <span>⚔️</span> Launch Gunfight Arena →
+          </a>
         </div>
       </div>
     </div>
@@ -3193,7 +3254,7 @@
           }
 
           const createdDate = inv.created_at ? new Date(inv.created_at * 1000).toISOString().split('T')[0] : 'N/A';
-          const inviteUrl = `${window.location.origin}/register.html?invite=${encodeURIComponent(inv.code_id)}`;
+          const inviteUrl = `${window.location.origin}/register?ref=${encodeURIComponent(inv.inviter_account || user)}&invite=${encodeURIComponent(inv.code_id)}`;
 
           return `
             <tr style="border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));">
@@ -3236,7 +3297,8 @@
         const data = await res.json();
         if (res.ok) {
           showToast(`Invite code ${data.code_id} generated!`, 'success');
-          resDiv.innerHTML = `<div class="game-subpanel" style="border-color: var(--game-green);"><strong class="text-green">✓ Created: ${data.code_id}</strong> (${maxUses} uses). <button class="btn-game btn-game-secondary btn-game-sm" style="margin-left:8px;" onclick="copyText('${data.invite_url || (window.location.origin + '/register.html?invite=' + data.code_id)}', 'Copied!')">📋 Copy Invite Link</button></div>`;
+          const fallbackUrl = `${window.location.origin}/register?ref=${encodeURIComponent(user)}&invite=${data.code_id}`;
+          resDiv.innerHTML = `<div class="game-subpanel" style="border-color: var(--game-green);"><strong class="text-green">✓ Created: ${data.code_id}</strong> (${maxUses} uses). <button class="btn-game btn-game-secondary btn-game-sm" style="margin-left:8px;" onclick="copyText('${escapeHtml(data.invite_url || fallbackUrl)}', 'Copied!')">📋 Copy Invite Link</button></div>`;
           loadInvitesList();
         } else {
           resDiv.innerHTML = `<span class="text-red">✗ ${data.message || data.error || 'Failed to create invite code.'}</span>`;
@@ -3351,14 +3413,8 @@
     }
 
     function openCbmPlusModal() {
-      const modal = document.getElementById('modalCbmPlus');
-      if (!modal) return;
-
-      const user = localStorage.getItem('cbm_user') || sessionStorage.getItem('cbm_active_user');
-      if (!user) {
-        showToast('Please sign in to manage CBM Plus membership.', 'error');
-        return;
-      }
+      window.location.href = '/subscription';
+      return;
 
       const badge = document.getElementById('cbmPlusModalBadge');
       const expiry = document.getElementById('cbmPlusModalExpiry');
@@ -3409,7 +3465,9 @@
       const label = document.getElementById('subTotalGoldLabel');
       if (!select || !label) return;
       const m = parseInt(select.value, 10) || 1;
-      label.innerText = (m * 500).toFixed(2);
+      const costs = { 1: 500.0, 3: 1425.0, 6: 2700.0, 12: 4800.0 };
+      const cost = costs[m] || (m >= 12 ? m * 400.0 : m * 500.0);
+      label.innerText = cost.toFixed(2);
     }
 
     async function handleSubscribeBalance(e) {
@@ -4997,9 +5055,9 @@
             </div>
             <select id="subMonthsSelect" class="game-input" onchange="updateSubTotal()">
               <option value="1">1 Month (500.00 Gold)</option>
-              <option value="3">3 Months (1,500.00 Gold)</option>
-              <option value="6">6 Months (3,000.00 Gold)</option>
-              <option value="12">12 Months (6,000.00 Gold)</option>
+              <option value="3">3 Months (1,425.00 Gold - Save 5%)</option>
+              <option value="6">6 Months (2,700.00 Gold - Save 10%)</option>
+              <option value="12" selected>12 Months - Annual Plan (4,800.00 Gold - Save 20%)</option>
             </select>
           </div>
 

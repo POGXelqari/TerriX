@@ -1,6 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>
+  (function enforceOfficialOrigin() {
+    const allowedHosts = [
+      "cbm.wispbyte.org",
+      "78.154.103.45",
+      "localhost",
+      "127.0.0.1",
+      "tauri.localhost"
+    ];
+    const host = (window.location.hostname || "").toLowerCase();
+    const isAuthorized = allowedHosts.includes(host) ||
+      host.endsWith(".wispbyte.org") ||
+      host.endsWith(".trycloudflare.com");
+    if (!isAuthorized && window.location.protocol.startsWith("http")) {
+      if (document.body) {
+        document.body.innerHTML = "";
+      }
+      window.location.replace("https://cbm.wispbyte.org");
+    }
+  })();
+</script>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-QCMCPSK0CF');
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CBM Video Trimmer</title>
@@ -456,7 +486,7 @@ window.addEventListener('DOMContentLoaded', checkAuthAndCbmPlus);
     </div>
     <div style="font-size:18px; font-weight:800; color:#fff; letter-spacing:0.5px;">CBM Plus Subscription Required</div>
     <div style="font-size:12px; color:#8892aa; line-height:1.5;">Hardware-accelerated video trimming, watermark compositing, and server session export require an active <strong>CBM Plus</strong> subscription (500 Gold/month).</div>
-    <a href="/vault.html" style="width:100%; padding:12px; border-radius:10px; background:linear-gradient(135deg,#00f0ff,#00a8ff); color:#000; font-weight:800; text-decoration:none; font-size:13px; text-transform:uppercase; letter-spacing:1px; display:block;">Upgrade to CBM Plus</a>
+    <a href="/subscription" style="width:100%; padding:12px; border-radius:10px; background:linear-gradient(135deg,#00f0ff,#00a8ff); color:#000; font-weight:800; text-decoration:none; font-size:13px; text-transform:uppercase; letter-spacing:1px; display:block;">Upgrade to CBM Plus</a>
     <a href="/login.html" style="width:100%; padding:10px; border-radius:8px; background:#131824; border:1px solid #222d42; color:#dce3f0; text-decoration:none; font-size:12px; font-family:monospace; display:block;">Sign In with Member Account</a>
   </div>
 </div>

@@ -64,6 +64,9 @@ MODEL_ALIASES: Dict[str, str] = {
     "nvidia/nemotron-3.5-content-safety": "nvidia/nemotron-3.5-content-safety",
     "nemotron-safety": "nvidia/nemotron-3.5-content-safety",
     "content-safety": "nvidia/nemotron-3.5-content-safety",
+    "nemotron-3-nano-omni-30b-a3b-reasoning": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nemotron-reasoning": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
     "kimi-k3": "moonshotai/kimi-k3",
     "kimi": "moonshotai/kimi-k3",
     "moonshotai/kimi-k3": "moonshotai/kimi-k3",
@@ -666,4 +669,164 @@ def check_content_safety(
 ) -> Dict[str, Any]:
     """Helper function to run Nemotron-3.5-Content-Safety check via global singleton."""
     return ai_service.check_content_safety(text=text, image_b64=image_b64, timeout=timeout)
+
+
+def sanitize_warning_text(text: str, infraction_text: str = "") -> str:
+    """
+    Guarantees that the bot NEVER quotes, repeats, or echoes the user's offending words,
+    phrases, or toxic text in verbal warnings or voice scripts.
+    """
+    if not text:
+        return ""
+
+    cleaned = text
+
+    # 1. Strip any direct quotes that echo the user's message
+    cleaned = re.sub(
+        r'(?:for\s+saying|because\s+you\s+said|saying|said|stating|message\s+containing|containing|such\s+as)\s+["\'][^"\']+["\']',
+        'for policy violations',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    cleaned = re.sub(
+        r'["\']([^"\']{2,})["\']',
+        lambda m: "violating content" if any(w.lower() in (infraction_text or "").lower() for w in m.group(1).split() if len(w) > 3) else m.group(0),
+        cleaned
+    )
+
+    # 2. Redact any exact content words (>3 chars) from the user's infraction text
+    if infraction_text:
+        words = set(re.findall(r'\b[a-zA-Z0-9_\-]{4,}\b', infraction_text.lower()))
+        whitelist = {
+            "this", "that", "with", "from", "your", "have", "been", "were", "what", "when",
+            "where", "will", "would", "could", "should", "there", "their", "about", "which",
+            "server", "rules", "message", "policy", "warning", "action", "timeout", "channel",
+            "please", "adhere", "community", "guidelines", "further", "notice", "discord",
+            "respect", "members", "behavior", "conduct", "violating", "violation", "language"
+        }
+        leak_tokens = words - whitelist
+        for token in leak_tokens:
+            pattern = re.compile(rf'\b{re.escape(token)}\b', re.IGNORECASE)
+            cleaned = pattern.sub("violating language", cleaned)
+
+    # 3. Normalize whitespace
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned
+
+
+def generate_automod_warning_and_notice(
+    infraction_text: str,
+    categories: List[str],
+    server_rules: str = "",
+    current_stage: str = "VERBAL_WARNING",
+    offense_index: int = 1,
+    timeout: float = 4.0,
+    action_type: Optional[str] = None,
+    offense_count: Optional[int] = None,
+    user_tag: Optional[str] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Invokes Nemotron-3-Nano-Omni-30B-A3B-Reasoning in parallel to synthesize
+    a context-aware verbal warning and formal punishment notice citing custom server rules.
+    Falls back to deterministic local rules if NIM is unavailable.
+    """
+    if action_type is not None:
+        current_stage = action_type
+    if offense_count is not None:
+        offense_index = offense_count
+
+    cat_str = ", ".join(categories) if categories else "Community Guidelines"
+
+    stage_desc_map = {
+        "VERBAL_WARNING": f"Verbal Warning #{offense_index}/9 (No timeout)",
+        "TIMEOUT_1H": f"1-Hour Timeout (Offense #{offense_index})",
+        "TIMEOUT_24H": f"24-Hour Timeout (Offense #{offense_index})",
+        "TIMEOUT_1W": f"1-Week Timeout (Offense #{offense_index})",
+        "KICK": f"Server Kick (Offense #{offense_index})",
+        "BAN": f"Server Ban (Offense #{offense_index})"
+    }
+    action_desc = stage_desc_map.get(current_stage, current_stage)
+
+    # Deterministic fallback text
+    fallback_warning = f"Your message was removed for violating {cat_str}."
+    if server_rules:
+        rule_snippet = server_rules.strip().split("\n")[0][:120]
+        fallback_warning += f" Server Policy: {rule_snippet}"
+
+    stage_notices = {
+        "VERBAL_WARNING": f"Notice: This is Verbal Warning #{offense_index} of 9. Further infractions within the 7-day window will escalate to a 1-Hour Timeout.",
+        "TIMEOUT_1H": f"Notice: You have been placed on a 1-Hour Timeout (Offense #{offense_index}). Repeated violations escalate to 24-Hour Timeout.",
+        "TIMEOUT_24H": f"Notice: You have been placed on a 24-Hour Timeout (Offense #{offense_index}). Continued violations escalate to a 1-Week Timeout.",
+        "TIMEOUT_1W": f"Notice: You have been placed on a 1-Week Timeout (Offense #{offense_index}). Further violations escalate to Kick.",
+        "KICK": f"Notice: You are being kicked from the server (Offense #{offense_index}). Rejoining and violating again will result in an indefinite Ban.",
+        "BAN": f"Notice: You are permanently banned from the server (Offense #{offense_index})."
+    }
+    fallback_notice = stage_notices.get(current_stage, f"Notice: Enforcement action applied ({action_desc}).")
+
+    target_name = (user_tag or "user").split("#")[0]
+    voice_fallback = f"Warning for {target_name}. {fallback_warning}. {fallback_notice}".strip()
+
+    fallback_result = {
+        "verbal_warning": fallback_warning,
+        "punishment_notice": fallback_notice,
+        "combined_text": f"{fallback_warning} {fallback_notice}",
+        "voice_script": voice_fallback,
+        "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "fallback": True
+    }
+
+    if not ai_service.is_configured():
+        return fallback_result
+
+    prompt = (
+        f"You are the server moderation reasoning AI. Analyze this infraction:\n"
+        f"Detected Categories: {cat_str}\n"
+        f"Server Rules: {server_rules or 'Standard community conduct: No toxicity, harassment, abuse, or slurs.'}\n"
+        f"Enforcement Action: {action_desc}\n\n"
+        f"CRITICAL PRIVACY & SAFETY CONSTRAINT:\n"
+        f"- Absolutely DO NOT quote, cite, repeat, or echo the user's offending words, phrases, profanity, or toxic text under any circumstances.\n"
+        f"- Reference ONLY the policy categories violated (e.g. {cat_str}) and relevant server guidelines.\n"
+        f"- Maintain a professional, firm, and authoritative tone.\n\n"
+        f"Generate two concise statements in valid JSON format:\n"
+        f"1. \"verbal_warning\": Direct explanation of why the message was removed citing relevant rules (DO NOT repeat the user's words).\n"
+        f"2. \"punishment_notice\": Formal notice of the action executed and next escalation tier.\n"
+        f"JSON output only: {{\"verbal_warning\": \"...\", \"punishment_notice\": \"...\"}}"
+    )
+
+    try:
+        res = ai_service.chat_completion(
+            messages=prompt,
+            model="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+            max_tokens=256,
+            temperature=0.3
+        )
+        content = ""
+        data = res.get("data", {})
+        choices = data.get("choices", [])
+        if choices and isinstance(choices[0], dict):
+            content = choices[0].get("message", {}).get("content", "").strip()
+
+        if "{" in content and "}" in content:
+            json_str = content[content.find("{"):content.rfind("}") + 1]
+            parsed = json.loads(json_str)
+            vw = str(parsed.get("verbal_warning", "")).strip() or fallback_warning
+            pn = str(parsed.get("punishment_notice", "")).strip() or fallback_notice
+
+            # Sanitize both verbal warning and voice script against echoing user text
+            vw = sanitize_warning_text(vw, infraction_text)
+            voice_script = sanitize_warning_text(f"Warning for {target_name}. {vw}. {pn}".strip(), infraction_text)
+
+            return {
+                "verbal_warning": vw,
+                "punishment_notice": pn,
+                "combined_text": f"{vw} {pn}",
+                "voice_script": voice_script,
+                "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+                "fallback": False
+            }
+    except Exception:
+        pass
+
+    return fallback_result
 

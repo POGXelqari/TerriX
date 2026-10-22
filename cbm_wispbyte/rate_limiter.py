@@ -219,6 +219,40 @@ class CBMRateLimiter:
             requests.append(now)
             return True, 0, False
 
+    def record_theft_probe(self, ip: str, path: str, reason: str, max_strikes: int = 2) -> Tuple[bool, int]:
+        """
+        Records a source-code theft, secret file probe, or path traversal attempt.
+        - Immediate 24-hour ban on critical probes (.env, .key, .db, directory traversal).
+        - 24-hour ban after `max_strikes` probes on any other forbidden extension (.py, .sql, .log).
+        Returns: (is_now_banned: bool, ban_duration_seconds: int)
+        """
+        if not ip or ip in ("127.0.0.1", "::1"):
+            return False, 0
+
+        now = time.time()
+        critical_keywords = ("DIRECTORY_TRAVERSAL", "HIDDEN_DOTFILE", ".env", ".key", ".db", "DATABASE_OR_KEY")
+        is_critical = any(k in reason for k in critical_keywords)
+
+        with self._lock:
+            violations = self._download_violations.setdefault(ip, [])
+            v_cutoff = now - 3600.0
+            violations = [t for t in violations if t >= v_cutoff]
+            violations.append(now)
+            if is_critical:
+                # Critical theft attempt: add penalty strikes to trigger instant ban
+                for _ in range(max_strikes):
+                    violations.append(now)
+            self._download_violations[ip] = violations
+
+            if len(violations) >= max_strikes:
+                ban_until = now + self.IP_BAN_DURATION_SECONDS
+                self._banned_ips[ip] = ban_until
+                print(f"[SECURITY ALERT] IP {ip} BANNED for 24h due to backend theft probe: {path} ({reason})", flush=True)
+                return True, int(self.IP_BAN_DURATION_SECONDS)
+
+            print(f"[SECURITY WARNING] Backend theft probe blocked from IP {ip}: {path} ({reason})", flush=True)
+            return False, 0
+
     def is_ip_banned(self, ip: str) -> Tuple[bool, int]:
         """Checks if an IP is currently banned. Returns (is_banned, remaining_seconds)."""
         if not ip:

@@ -1,6 +1,36 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
+<script>
+  (function enforceOfficialOrigin() {
+    const allowedHosts = [
+      "cbm.wispbyte.org",
+      "78.154.103.45",
+      "localhost",
+      "127.0.0.1",
+      "tauri.localhost"
+    ];
+    const host = (window.location.hostname || "").toLowerCase();
+    const isAuthorized = allowedHosts.includes(host) ||
+      host.endsWith(".wispbyte.org") ||
+      host.endsWith(".trycloudflare.com");
+    if (!isAuthorized && window.location.protocol.startsWith("http")) {
+      if (document.body) {
+        document.body.innerHTML = "";
+      }
+      window.location.replace("https://cbm.wispbyte.org");
+    }
+  })();
+</script>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-QCMCPSK0CF"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-QCMCPSK0CF');
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CBM | TrimCraft Pro</title>
@@ -461,7 +491,7 @@ window.addEventListener('DOMContentLoaded', checkAuthAndCbmPlus);
     <h3 class="text-lg font-bold text-white mb-2">CBM Plus Subscription Required</h3>
     <p class="text-xs text-slate-400 mb-6">TrimCraft Pro high-resolution frame trimming and server batch processing require an active <strong>CBM Plus</strong> membership (500 Gold/month).</p>
     <div class="flex flex-col gap-2.5">
-      <a href="/vault.html" class="w-full py-2.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs tracking-wider uppercase transition">Upgrade to CBM Plus</a>
+      <a href="/subscription" class="w-full py-2.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs tracking-wider uppercase transition">Upgrade to CBM Plus</a>
       <a href="/login.html" class="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 font-mono text-xs transition">Sign In with Member Account</a>
     </div>
   </div>

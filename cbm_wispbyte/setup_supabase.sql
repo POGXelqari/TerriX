@@ -851,7 +851,8 @@ DECLARE
         'cbm_withdrawals', 'cbm_loans', 'cbm_payment_methods', 'cbm_donations',
         'cbm_pending_donations', 'cbm_admin_votes', 'cbm_product_orders', 
         'cbm_referrals', 'cbm_ad_publishers', 'cbm_api_keys', 'cbm_chat_whitelist',
-        'cbm_user_identities'
+        'cbm_user_identities', 'cbm_bot_accounts', 'cbm_bot_investments',
+        'cbm_bot_payout_intents', 'cbm_wars', 'cbm_war_bots', 'cbm_war_events'
     ];
 BEGIN
     -- 1. Configure Public Telemetry Tables (Read-only for public, managed by service_role)
@@ -991,6 +992,101 @@ CREATE INDEX IF NOT EXISTS idx_cbm_pending_sub_acc ON public.cbm_pending_subscri
 ALTER TABLE public.cbm_pending_subscriptions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Service role manage cbm_pending_subscriptions" ON public.cbm_pending_subscriptions;
 CREATE POLICY "Service role manage cbm_pending_subscriptions" ON public.cbm_pending_subscriptions FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+-- -----------------------------------------------------------------------------
+-- 23. BOT FLEET MANAGEMENT & WAR AUTOMATION TABLES
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.cbm_bot_accounts (
+    bot_id TEXT PRIMARY KEY,
+    bot_username TEXT UNIQUE NOT NULL,
+    territorial_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PROVISIONING',
+    current_war_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_bot_accounts_status ON public.cbm_bot_accounts(status);
+ALTER TABLE public.cbm_bot_accounts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_bot_accounts" ON public.cbm_bot_accounts;
+CREATE POLICY "Service role manage cbm_bot_accounts" ON public.cbm_bot_accounts FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+CREATE TABLE IF NOT EXISTS public.cbm_bot_investments (
+    investment_id TEXT PRIMARY KEY,
+    war_id TEXT NOT NULL,
+    investor_account TEXT NOT NULL,
+    bot_id TEXT NOT NULL,
+    investment_cents BIGINT NOT NULL,
+    target_gold_cents BIGINT NOT NULL,
+    payout_cap_cents BIGINT NOT NULL,
+    idempotency_key TEXT UNIQUE NOT NULL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    settled_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_bot_investments_war ON public.cbm_bot_investments(war_id);
+CREATE INDEX IF NOT EXISTS idx_cbm_bot_investments_bot ON public.cbm_bot_investments(bot_id);
+CREATE INDEX IF NOT EXISTS idx_cbm_bot_investments_idemp ON public.cbm_bot_investments(idempotency_key);
+ALTER TABLE public.cbm_bot_investments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_bot_investments" ON public.cbm_bot_investments;
+CREATE POLICY "Service role manage cbm_bot_investments" ON public.cbm_bot_investments FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+CREATE TABLE IF NOT EXISTS public.cbm_bot_payout_intents (
+    intent_id TEXT PRIMARY KEY,
+    war_id TEXT NOT NULL,
+    bot_id TEXT NOT NULL,
+    expected_amount_cents BIGINT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    claimed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_bot_payout_intents_lookup ON public.cbm_bot_payout_intents(war_id, bot_id, status);
+ALTER TABLE public.cbm_bot_payout_intents ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_bot_payout_intents" ON public.cbm_bot_payout_intents;
+CREATE POLICY "Service role manage cbm_bot_payout_intents" ON public.cbm_bot_payout_intents FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+CREATE TABLE IF NOT EXISTS public.cbm_wars (
+    war_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enemy_clan TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'DRAFT',
+    created_by TEXT NOT NULL,
+    investment_cents BIGINT NOT NULL DEFAULT 0,
+    target_gold_cents BIGINT NOT NULL DEFAULT 0,
+    payout_cap_cents BIGINT NOT NULL DEFAULT 0,
+    started_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_wars_status ON public.cbm_wars(status);
+ALTER TABLE public.cbm_wars ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_wars" ON public.cbm_wars;
+CREATE POLICY "Service role manage cbm_wars" ON public.cbm_wars FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+CREATE TABLE IF NOT EXISTS public.cbm_war_bots (
+    war_id TEXT NOT NULL,
+    bot_id TEXT NOT NULL,
+    assigned_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (war_id, bot_id)
+);
+ALTER TABLE public.cbm_war_bots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_war_bots" ON public.cbm_war_bots;
+CREATE POLICY "Service role manage cbm_war_bots" ON public.cbm_war_bots FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+CREATE TABLE IF NOT EXISTS public.cbm_war_events (
+    event_id BIGSERIAL PRIMARY KEY,
+    war_id TEXT NOT NULL,
+    bot_id TEXT,
+    event_type TEXT NOT NULL,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_cbm_war_events_war ON public.cbm_war_events(war_id, created_at);
+ALTER TABLE public.cbm_war_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role manage cbm_war_events" ON public.cbm_war_events;
+CREATE POLICY "Service role manage cbm_war_events" ON public.cbm_war_events FOR ALL TO service_role USING (TRUE) WITH CHECK (TRUE);
 
 -- ==============================================================================
 -- End of CBM Supabase Initialization Script

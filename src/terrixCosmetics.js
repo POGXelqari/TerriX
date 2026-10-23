@@ -2148,18 +2148,18 @@
     }
 
     // Resolve live game engine references safely from window global scope
-    var g = context.game || window.aE || window.game || null;
-    var pd = context.playerData || window.ah || window.playerData || null;
+    var g = context.game || (typeof dictionary !== 'undefined' && dictionary.game && window[dictionary.game]) || window.c || window.aE || window.game || null;
+    var pd = context.playerData || (typeof dictionary !== 'undefined' && dictionary.playerData && window[dictionary.playerData]) || window.y || window.ah || window.playerData || null;
 
-    // 1. Must be in match (gState === 1 active, 2 post-match)
-    var gState = g ? ((typeof g.a2G === 'number') ? g.a2G : ((typeof g.gameState === 'number') ? g.gameState : 0)) : 0;
+    // 1. Must be in match (gState === 1 active/spawning, 2 in-game active)
+    var gState = (typeof getVar === 'function' ? getVar("gameState") : null) || (g ? ((typeof g.bH === 'number') ? g.bH : ((typeof g.a2G === 'number') ? g.a2G : ((typeof g.gameState === 'number') ? g.gameState : 0))) : 0);
     if (gState === 0) {
       state.currentMatchDeducted = false;
       return;
     }
 
-    var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
-    var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
+    var ox = (context.offsetX !== undefined) ? context.offsetX : ((window.gd && typeof window.gd.g7 === 'function') ? window.gd.g7() : (window.aT ? window.aT.a0L() : 0));
+    var oy = (context.offsetY !== undefined) ? context.offsetY : ((window.gd && typeof window.gd.g8 === 'function') ? window.gd.g8() : (window.aT ? window.aT.a0M() : 0));
 
     // 2. Dual-Sided Border-Facing Rotating Frontline Troop Telemetry (gated by settings)
     if (state.settings.showFrontlineTroops) {
@@ -2186,8 +2186,8 @@
                       ((state.equippedPattern === 'kilr') ? state.patternImageKilr : state.patternImage);
     if (!activeImage || !activeImage.complete) return;
 
-    var p = g ? ((typeof g.playerId === 'number') ? g.playerId : ((typeof g.fJ === 'number') ? g.fJ : 0)) : 0;
-    var pTerritories = pd ? (pd.jS ? pd.hN : (pd.playerTerritories || pd.hN)) : null;
+    var p = (typeof getVar === 'function' ? getVar("playerId") : null) ?? (g ? ((typeof g.t === 'number') ? g.t : ((typeof g.playerId === 'number') ? g.playerId : ((typeof g.fJ === 'number') ? g.fJ : 0))) : 0);
+    var pTerritories = (typeof getVar === 'function' ? getVar("playerTerritories") : null) || (pd ? (pd.aO || pd.playerTerritories || (pd.jS ? pd.hN : pd.hN)) : null);
     var tileCount = (pTerritories && typeof pTerritories[p] === 'number') ? pTerritories[p] : 0;
     if (tileCount <= 0) return;
 
@@ -2222,11 +2222,11 @@
       }
     }
 
-    // 4. Bounding Box Lookup
-    var minXArr = pd ? (pd.jS || pd.minX) : null;
-    var minYArr = pd ? (pd.jU || pd.minY) : null;
-    var maxXArr = pd ? (pd.jT || pd.maxX) : null;
-    var maxYArr = pd ? (pd.jV || pd.maxY) : null;
+    // 4. Bounding Box Lookup (upstream: pd.oE/oG/oF/oH, legacy: pd.jS/jU/jT/jV)
+    var minXArr = pd ? (pd.oE || pd.jS || pd.minX) : null;
+    var minYArr = pd ? (pd.oG || pd.jU || pd.minY) : null;
+    var maxXArr = pd ? (pd.oF || pd.jT || pd.maxX) : null;
+    var maxYArr = pd ? (pd.oH || pd.jV || pd.maxY) : null;
 
     var minX = minXArr ? (minXArr[p] || 0) : 0;
     var minY = minYArr ? (minYArr[p] || 0) : 0;
@@ -2275,12 +2275,14 @@
 
       offscreenMaskCtx.clearRect(0, 0, bw, bh);
 
-      var mapW = (context.a0O && context.a0O.width) ? context.a0O.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0);
+      var mapW = (window.gW && typeof window.gW.gX === 'number') ? window.gW.gX : ((context.a0O && context.a0O.width) ? context.a0O.width : ((window.xx && typeof window.xx.width === 'number') ? window.xx.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0)));
+      var j1Obj = window.j1 || context.tileManager || null;
       var tm = context.tileMap || window.tileMap || window.ad || null;
+      var hasJ1 = j1Obj && typeof j1Obj.zZ === 'function';
       var hasA0F = tm && typeof tm.a0F === 'function';
       var hasFR = tm && typeof tm.fR === 'function';
 
-      if (tm && (hasA0F || hasFR) && mapW > 0) {
+      if ((hasJ1 || hasA0F || hasFR) && mapW > 0) {
         var maskImgData = offscreenMaskCtx.createImageData(bw, bh);
         var maskBuf32 = new Uint32Array(maskImgData.data.buffer);
 
@@ -2289,7 +2291,7 @@
           var localRowOffset = (py - minY) * bw;
           for (var px = minX; px <= maxX; px++) {
             var fD = mapRowOffset + 4 * px;
-            var isOwned = hasA0F ? tm.a0F(p, fD) : (tm.fR(fD) === p);
+            var isOwned = hasJ1 ? (j1Obj.zY(fD) && j1Obj.zZ(fD) === p) : (hasA0F ? tm.a0F(p, fD) : (tm.fR(fD) === p));
             if (isOwned) {
               maskBuf32[localRowOffset + (px - minX)] = 0xFFFFFFFF;
             }
@@ -2337,8 +2339,8 @@
     }
 
     // 6. Blit onto World Canvas (ws) at camera offset
-    var ox = (context.offsetX !== undefined) ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
-    var oy = (context.offsetY !== undefined) ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
+    var ox = (context.offsetX !== undefined) ? context.offsetX : ((window.gd && typeof window.gd.g7 === 'function') ? window.gd.g7() : (window.aT ? window.aT.a0L() : 0));
+    var oy = (context.offsetY !== undefined) ? context.offsetY : ((window.gd && typeof window.gd.g8 === 'function') ? window.gd.g8() : (window.aT ? window.aT.a0M() : 0));
 
     ws.save();
     ws.imageSmoothingEnabled = true;
@@ -2358,29 +2360,31 @@
   var telemetryNodes = {};
   window.__TERRIX_TELEMETRY_NODES__ = telemetryNodes;
   var activeKeysThisFrame = {};
-  var staticAttackMap = {};
-
-  // Dual-Sided Border-Facing Rotating Frontline Troop Telemetry Engine
+  var staticAttackMap = {}; // Dual-Sided Border-Facing Rotating Frontline Troop Telemetry Engine
   function renderFrontlineTelemetry(context, g, pd, ox, oy) {
-    if (!pd || !pd.hF) return;
+    var borderTable = pd ? (pd.bW || pd.hF) : null;
+    if (!borderTable) return;
     var ws = context.ws;
     if (!ws) return;
 
-    var game = window.aE || context.game || g || null;
-    var maxPlayers = (game && typeof game.fW === 'number') ? game.fW : 512;
+    var game = window.c || window.aE || context.game || g || null;
+    var maxPlayers = (typeof getVar === 'function' ? getVar("gMaxPlayers") : null) || ((game && typeof game.c2 === 'number') ? game.c2 : ((game && typeof game.fW === 'number') ? game.fW : 512));
 
-    var mapW = (window.bV && window.bV.fk) ? window.bV.fk : ((context.a0O && context.a0O.width) ? context.a0O.width : 0);
-    var mapH = (window.bV && window.bV.fl) ? window.bV.fl : ((context.a0O && context.a0O.height) ? context.a0O.height : 0);
+    var mapW = (window.gW && typeof window.gW.gX === 'number') ? window.gW.gX : ((context.a0O && context.a0O.width) ? context.a0O.width : ((window.xx && typeof window.xx.width === 'number') ? window.xx.width : ((window.bV && window.bV.fk) ? window.bV.fk : 0)));
+    var mapH = (window.gW && typeof window.gW.gY === 'number') ? window.gW.gY : ((context.a0O && context.a0O.height) ? context.a0O.height : ((window.xx && typeof window.xx.height === 'number') ? window.xx.height : ((window.bV && window.bV.fl) ? window.bV.fl : 0)));
     if (mapW <= 0 || mapH <= 0) return;
 
+    var j1Obj = window.j1 || context.tileManager || null;
     var tm = context.tileMap || window.tileMap || window.ad || null;
-    if (!tm || typeof tm.fR !== 'function' || typeof tm.h9 !== 'function') return;
+    var hasJ1 = j1Obj && typeof j1Obj.zZ === 'function';
+    var hasFR = tm && typeof tm.fR === 'function' && typeof tm.h9 === 'function';
+    if (!hasJ1 && !hasFR) return;
 
-    var zoom = context.im || window.im || 1.0;
+    var zoom = (typeof context.im === 'number') ? context.im : ((typeof window.fu === 'number') ? window.fu : ((typeof window.im === 'number') ? window.im : 1.0));
     var now = Date.now();
     var rowBytes = mapW * 4;
     var totalBytes = rowBytes * mapH;
-    var fX = window.bj ? window.bj.fX : null;
+    var fX = (window.cD && window.cD.c1) ? window.cD.c1 : (window.bj ? window.bj.fX : null);
     var aeObj = window.ae || (typeof ae !== 'undefined' ? ae : null);
 
     // 1. Build Boat/Naval Troop Transfer Map
@@ -2403,7 +2407,8 @@
             }
             if (typeof resolved !== 'number' || resolved < 0 || resolved >= maxPlayers) {
               var bOff = tileIdx < totalTiles ? tileIdx * 4 : tileIdx;
-              if (tm.h9(bOff)) resolved = tm.fR(bOff);
+              if (hasJ1 && j1Obj.zY(bOff)) resolved = j1Obj.zZ(bOff);
+              else if (tm && tm.h9 && tm.h9(bOff)) resolved = tm.fR(bOff);
             }
             if (typeof resolved === 'number' && resolved >= 0 && resolved < maxPlayers && resolved !== boatOwner) {
               targetPlayer = resolved;
@@ -2423,53 +2428,39 @@
 
     // 3. Scan Border Segments Across All Active Players
     for (var p1 = 0; p1 < maxPlayers; p1++) {
-      if (!pd.nU || pd.nU[p1] === 0 || (pd.a5a && pd.a5a[p1] === 2)) continue;
-      var borderTiles = pd.hF[p1];
+      var isAlive = (pd.an ? pd.an[p1] > 0 : (pd.nU ? pd.nU[p1] > 0 : false));
+      var isDead = (pd.xR ? pd.xR[p1] === 2 : (pd.a5a ? pd.a5a[p1] === 2 : false));
+      if (!isAlive || isDead) continue;
+      var borderTiles = borderTable[p1];
       if (!borderTiles || borderTiles.length === 0) continue;
 
       var contacts = {};
+      var checkContact = function(nOffset, dx, dy, w) {
+        if (nOffset >= 0 && nOffset < totalBytes) {
+          var nOwner = -1;
+          if (hasJ1) {
+            if (j1Obj.zY(nOffset)) nOwner = j1Obj.zZ(nOffset);
+          } else if (tm && tm.h9(nOffset)) {
+            nOwner = tm.fR(nOffset);
+          }
+          if (nOwner !== p1 && nOwner >= 0 && nOwner < maxPlayers) {
+            var nDead = (pd.xR ? pd.xR[nOwner] === 2 : (pd.a5a ? pd.a5a[nOwner] === 2 : false));
+            if (!nDead) {
+              if (!contacts[nOwner]) contacts[nOwner] = { tiles: [], dx: 0, dy: 0 };
+              contacts[nOwner].tiles.push(w);
+              contacts[nOwner].dx += dx;
+              contacts[nOwner].dy += dy;
+            }
+          }
+        }
+      };
+
       for (var x = 0; x < borderTiles.length; x++) {
         var w = borderTiles[x];
-
-        // Right (+4)
-        if ((w + 4) % rowBytes !== 0 && tm.h9(w + 4)) {
-          var nRight = tm.fR(w + 4);
-          if (nRight !== p1 && nRight >= 0 && nRight < maxPlayers && (!pd.a5a || pd.a5a[nRight] !== 2)) {
-            if (!contacts[nRight]) contacts[nRight] = { tiles: [], dx: 0, dy: 0 };
-            contacts[nRight].tiles.push(w);
-            contacts[nRight].dx += 1;
-          }
-        }
-
-        // Down (+rowBytes)
-        if (w + rowBytes < totalBytes && tm.h9(w + rowBytes)) {
-          var nDown = tm.fR(w + rowBytes);
-          if (nDown !== p1 && nDown >= 0 && nDown < maxPlayers && (!pd.a5a || pd.a5a[nDown] !== 2)) {
-            if (!contacts[nDown]) contacts[nDown] = { tiles: [], dx: 0, dy: 0 };
-            contacts[nDown].tiles.push(w);
-            contacts[nDown].dy += 1;
-          }
-        }
-
-        // Left (-4)
-        if (w % rowBytes !== 0 && w >= 4 && tm.h9(w - 4)) {
-          var nLeft = tm.fR(w - 4);
-          if (nLeft !== p1 && nLeft >= 0 && nLeft < maxPlayers && (!pd.a5a || pd.a5a[nLeft] !== 2)) {
-            if (!contacts[nLeft]) contacts[nLeft] = { tiles: [], dx: 0, dy: 0 };
-            contacts[nLeft].tiles.push(w);
-            contacts[nLeft].dx -= 1;
-          }
-        }
-
-        // Up (-rowBytes)
-        if (w >= rowBytes && tm.h9(w - rowBytes)) {
-          var nUp = tm.fR(w - rowBytes);
-          if (nUp !== p1 && nUp >= 0 && nUp < maxPlayers && (!pd.a5a || pd.a5a[nUp] !== 2)) {
-            if (!contacts[nUp]) contacts[nUp] = { tiles: [], dx: 0, dy: 0 };
-            contacts[nUp].tiles.push(w);
-            contacts[nUp].dy -= 1;
-          }
-        }
+        if ((w + 4) % rowBytes !== 0) checkContact(w + 4, 1, 0, w);
+        if (w + rowBytes < totalBytes) checkContact(w + rowBytes, 0, 1, w);
+        if (w % rowBytes !== 0 && w >= 4) checkContact(w - 4, -1, 0, w);
+        if (w >= rowBytes) checkContact(w - rowBytes, 0, -1, w);
       }
 
       var neighborKeys = Object.keys(contacts);

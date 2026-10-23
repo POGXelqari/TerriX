@@ -24,12 +24,22 @@ export default definePatch(({ replaceCode }) => {
     };
     window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
       if (window.__TERRIX_ENGINE__ && window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length > 0) {
+        var g = (typeof dictionary !== 'undefined' && dictionary.game && window[dictionary.game]) ? window[dictionary.game] : (typeof c !== 'undefined' ? c : (typeof aE !== 'undefined' ? aE : (typeof game !== 'undefined' ? game : null)));
+        var pd = (typeof dictionary !== 'undefined' && dictionary.playerData && window[dictionary.playerData]) ? window[dictionary.playerData] : (typeof y !== 'undefined' ? y : (typeof ah !== 'undefined' ? ah : (typeof playerData !== 'undefined' ? playerData : null)));
+        var mh = (typeof dictionary !== 'undefined' && dictionary.mapHolder && window[dictionary.mapHolder]) ? window[dictionary.mapHolder] : (typeof gW !== 'undefined' ? gW : null);
+        var tm = (typeof j1 !== 'undefined') ? j1 : (typeof ad !== 'undefined' ? ad : (typeof tileMap !== 'undefined' ? tileMap : null));
         var engineCtx = {
-          ws: ws, a0O: a0O, im: im, offsetX: ox, offsetY: oy,
-          game: typeof aE !== 'undefined' ? aE : (typeof game !== 'undefined' ? game : null),
-          playerData: typeof ah !== 'undefined' ? ah : (typeof playerData !== 'undefined' ? playerData : null),
-          tileMap: typeof ad !== 'undefined' ? ad : (typeof tileMap !== 'undefined' ? tileMap : null),
-          gameClock: typeof au !== 'undefined' ? au : (typeof gameClock !== 'undefined' ? gameClock : null)
+          ws: ws,
+          a0O: a0O,
+          im: (typeof im === 'number') ? im : ((typeof fu !== 'undefined') ? fu : null),
+          offsetX: ox,
+          offsetY: oy,
+          game: g,
+          playerData: pd,
+          mapHolder: mh,
+          tileMap: tm,
+          tileManager: (typeof j1 !== 'undefined') ? j1 : null,
+          gameClock: (typeof bc !== 'undefined') ? bc : (typeof au !== 'undefined' ? au : null)
         };
         for (var i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) {
           try {

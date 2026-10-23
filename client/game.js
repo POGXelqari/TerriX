@@ -7398,16 +7398,18 @@ function aP2() {
       this.onRenderFrameCallbacks.push(cb);
     }
   }, window.__TERRIX_HOOK_RENDER__ = function (ws, a0O, im, ox, oy) {
-    if (window.__TERRIX_ENGINE__ && 0 < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length) for (var engineCtx = {
+    if (window.__TERRIX_ENGINE__ && 0 < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length) for (var g = "undefined" != typeof dictionary && dictionary.game && window[dictionary.game] ? window[dictionary.game] : void 0 !== c ? c : "undefined" != typeof aE ? aE : "undefined" != typeof game ? game : null, pd = "undefined" != typeof dictionary && dictionary.playerData && window[dictionary.playerData] ? window[dictionary.playerData] : void 0 !== y ? y : "undefined" != typeof ah ? ah : "undefined" != typeof playerData ? playerData : null, mh = "undefined" != typeof dictionary && dictionary.mapHolder && window[dictionary.mapHolder] ? window[dictionary.mapHolder] : void 0 !== gW ? gW : null, tm = void 0 !== j1 ? j1 : "undefined" != typeof ad ? ad : "undefined" != typeof tileMap ? tileMap : null, engineCtx = {
         ws: ws,
         a0O: a0O,
-        im: im,
+        im: "number" == typeof im ? im : void 0 !== fu ? fu : null,
         offsetX: ox,
         offsetY: oy,
-        game: "undefined" != typeof aE ? aE : "undefined" != typeof game ? game : null,
-        playerData: "undefined" != typeof ah ? ah : "undefined" != typeof playerData ? playerData : null,
-        tileMap: "undefined" != typeof ad ? ad : "undefined" != typeof tileMap ? tileMap : null,
-        gameClock: "undefined" != typeof au ? au : "undefined" != typeof gameClock ? gameClock : null
+        game: g,
+        playerData: pd,
+        mapHolder: mh,
+        tileMap: tm,
+        tileManager: void 0 !== j1 ? j1 : null,
+        gameClock: void 0 !== bc ? bc : "undefined" != typeof au ? au : null
       }, i = 0; i < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length; i++) try {
       window.__TERRIX_ENGINE__.onRenderFrameCallbacks[i](engineCtx);
     } catch (e) {

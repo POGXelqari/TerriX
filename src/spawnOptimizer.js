@@ -54,14 +54,31 @@ export const spawnOptimizer = new (function() {
     lastRenderTime = 0;
   };
 
+  function isWaterTile(byteOffset) {
+    const pixels = (window.gW && window.gW.u3) ? window.gW.u3 : (window.xy || null);
+    if (pixels && byteOffset + 2 < pixels.length) {
+      return pixels[byteOffset + 2] > pixels[byteOffset] && pixels[byteOffset + 2] > pixels[byteOffset + 1];
+    }
+    if (window.j1 && typeof window.j1.uZ === "function") return !window.j1.uZ(byteOffset);
+    if (window.ad && typeof window.ad.iq === "function") return window.ad.iq(byteOffset);
+    return false;
+  }
+
+  function isLandTile(byteOffset) {
+    return !isWaterTile(byteOffset);
+  }
+
   // 1. Dynamic Map Topology & Continental Classification
   function analyzeMapTopology() {
     const bV = window.bV;
-    const tm = window.ad;
-    if (!bV || !tm || !bV.fk || !bV.fl) return false;
+    const gW = window.gW;
+    const xx = window.xx;
+    const mapW = (gW && typeof gW.gX === "number") ? gW.gX : ((xx && typeof xx.width === "number") ? xx.width : ((bV && bV.fk) ? bV.fk : 0));
+    const mapH = (gW && typeof gW.gY === "number") ? gW.gY : ((xx && typeof xx.height === "number") ? xx.height : ((bV && bV.fl) ? bV.fl : 0));
+    if (mapW <= 0 || mapH <= 0) return false;
 
-    mapWidth = bV.fk;
-    mapHeight = bV.fl;
+    mapWidth = mapW;
+    mapHeight = mapH;
     const totalTiles = mapWidth * mapHeight;
     landmassLabels = new Uint16Array(totalTiles);
     waterDistTable = new Uint8Array(totalTiles);
@@ -81,10 +98,10 @@ export const spawnOptimizer = new (function() {
         const idx = rowOffset + x;
         const fD = idx << 2;
 
-        if (tm.iq(fD)) {
+        if (isWaterTile(fD)) {
           waterDistTable[idx] = 0;
           waterQueue.push(idx);
-        } else if (tm.fQ(fD) && landmassLabels[idx] === 0) {
+        } else if (isLandTile(fD) && landmassLabels[idx] === 0) {
           let size = 0;
           const q = [idx];
           landmassLabels[idx] = currentComponentId;
@@ -97,28 +114,28 @@ export const spawnOptimizer = new (function() {
 
             if (cx > 0) {
               const nIdx = curr - 1;
-              if (tm.fQ(nIdx << 2) && landmassLabels[nIdx] === 0) {
+              if (isLandTile(nIdx << 2) && landmassLabels[nIdx] === 0) {
                 landmassLabels[nIdx] = currentComponentId;
                 q.push(nIdx);
               }
             }
             if (cx < mapWidth - 1) {
               const nIdx = curr + 1;
-              if (tm.fQ(nIdx << 2) && landmassLabels[nIdx] === 0) {
+              if (isLandTile(nIdx << 2) && landmassLabels[nIdx] === 0) {
                 landmassLabels[nIdx] = currentComponentId;
                 q.push(nIdx);
               }
             }
             if (cy > 0) {
               const nIdx = curr - mapWidth;
-              if (tm.fQ(nIdx << 2) && landmassLabels[nIdx] === 0) {
+              if (isLandTile(nIdx << 2) && landmassLabels[nIdx] === 0) {
                 landmassLabels[nIdx] = currentComponentId;
                 q.push(nIdx);
               }
             }
             if (cy < mapHeight - 1) {
               const nIdx = curr + mapWidth;
-              if (tm.fQ(nIdx << 2) && landmassLabels[nIdx] === 0) {
+              if (isLandTile(nIdx << 2) && landmassLabels[nIdx] === 0) {
                 landmassLabels[nIdx] = currentComponentId;
                 q.push(nIdx);
               }
@@ -199,27 +216,32 @@ export const spawnOptimizer = new (function() {
 
   // 2. Extract Active Human Player Spawns (Bots Excluded)
   function getActiveSpawns() {
-    const pd = window.ah;
-    const g = window.aE;
+    const pd = (typeof dictionary !== 'undefined' && dictionary.playerData && window[dictionary.playerData]) ? window[dictionary.playerData] : (window.y || window.ah);
+    const g = (typeof dictionary !== 'undefined' && dictionary.game && window[dictionary.game]) ? window[dictionary.game] : (window.c || window.aE);
     if (!pd || !g) return [];
 
-    const gHumans = getVar("gHumans") || 0;
-    const myId = getVar("playerId");
+    const gHumans = (typeof getVar === 'function' ? getVar("gHumans") : null) || (g ? (g.aI ?? g.humanCount ?? 0) : 0);
+    const myId = (typeof getVar === 'function' ? getVar("playerId") : null) ?? (g ? (g.t ?? g.playerId ?? 0) : 0);
     const spawns = [];
-    const isTeam = !!getVar("gIsTeamGame");
-    const myTeam = isTeam && window.bj && window.bj.fX ? window.bj.fX[myId] : null;
+    const isTeam = typeof getVar === 'function' ? !!getVar("gIsTeamGame") : !!g.bJ;
+    const myTeam = isTeam ? ((window.cD && window.cD.c1) ? window.cD.c1[myId] : (window.bj && window.bj.fX ? window.bj.fX[myId] : null)) : null;
 
     for (let p = 0; p < gHumans; p++) {
       if (p === myId) continue;
-      if (!pd.hN || pd.hN[p] === 0) continue;
-      // Skip dead or bot players
+      const hasSpawned = (pd.an ? pd.an[p] > 0 : (pd.hN ? pd.hN[p] > 0 : false));
+      if (!hasSpawned) continue;
+      // Skip dead players
+      if (pd.xR && pd.xR[p] === 2) continue;
       if (window.bD && window.bD.gv && typeof window.bD.gv.kH === "function" && window.bD.gv.kH(p)) continue;
 
       let x = -1;
       let y = -1;
 
-      // Centroid from player bounding box
-      if (pd.jT && pd.jS && pd.jT[p] >= pd.jS[p] && pd.jS[p] > 0) {
+      // Centroid from player bounding box (upstream: pd.oE/oF/oG/oH; legacy: pd.jS/jT/jU/jV)
+      if (pd.oF && pd.oE && pd.oF[p] >= pd.oE[p] && pd.oE[p] > 0) {
+        x = (pd.oE[p] + pd.oF[p]) >> 1;
+        y = (pd.oG[p] + pd.oH[p]) >> 1;
+      } else if (pd.jT && pd.jS && pd.jT[p] >= pd.jS[p] && pd.jS[p] > 0) {
         x = (pd.jS[p] + pd.jT[p]) >> 1;
         y = (pd.jU[p] + pd.jV[p]) >> 1;
       } else if (window.ag && window.ag.aLp && window.ag.aLp[p] > 0) {
@@ -229,7 +251,7 @@ export const spawnOptimizer = new (function() {
       }
 
       if (x > 0 && y > 0) {
-        const pTeam = isTeam && window.bj && window.bj.fX ? window.bj.fX[p] : null;
+        const pTeam = isTeam ? ((window.cD && window.cD.c1) ? window.cD.c1[p] : (window.bj && window.bj.fX ? window.bj.fX[p] : null)) : null;
         const isAlly = isTeam && myTeam !== null && pTeam !== null && pTeam === myTeam;
         const tileIdx = y * mapWidth + x;
         const compId = (landmassLabels && tileIdx >= 0 && tileIdx < landmassLabels.length) ? landmassLabels[tileIdx] : 0;
@@ -240,13 +262,13 @@ export const spawnOptimizer = new (function() {
   }
 
   // 3. Local Land Expansion Density (Radius R = 22)
-  function evaluateLocalDensity(cx, cy, tm) {
+  function evaluateLocalDensity(cx, cy) {
     let landCount = 0;
     for (let i = 0; i < DENSITY_OFFSETS_R22.length; i++) {
       const nx = cx + DENSITY_OFFSETS_R22[i].dx;
       const ny = cy + DENSITY_OFFSETS_R22[i].dy;
       if (nx >= 0 && nx < mapWidth && ny >= 0 && ny < mapHeight) {
-        if (tm.fQ((ny * mapWidth + nx) << 2)) {
+        if (isLandTile((ny * mapWidth + nx) << 2)) {
           landCount++;
         }
       }
@@ -255,10 +277,10 @@ export const spawnOptimizer = new (function() {
   }
 
   // 4. Unified Fitness Function (Exact parity between Macro & Micro scans)
-  function evaluateFitness(x, y, spawns, tm, isTeam, isZombie) {
+  function evaluateFitness(x, y, spawns, isTeam, isZombie) {
     const idx = y * mapWidth + x;
     const compId = landmassLabels[idx];
-    if (!validComponents.has(compId) || !tm.fQ(idx << 2)) {
+    if (!validComponents.has(compId) || !isLandTile(idx << 2)) {
       return -Infinity;
     }
 
@@ -281,7 +303,7 @@ export const spawnOptimizer = new (function() {
     }
 
     // C. Local Land Expansion Density (Choke/Peninsula Filter)
-    const density = evaluateLocalDensity(x, y, tm);
+    const density = evaluateLocalDensity(x, y);
     if (density < 0.70) {
       score -= (0.70 - density) * 60.0;
     } else if (density >= 0.85) {
@@ -338,13 +360,12 @@ export const spawnOptimizer = new (function() {
 
   // 5. Hierarchical Search (Macro Delta = 10, Micro Delta = 1)
   function computeBestLocation() {
-    const bV = window.bV;
     if (!isMapAnalyzed && !analyzeMapTopology()) return;
 
     const spawns = getActiveSpawns();
-    const tm = window.ad;
-    const isZombie = (window.aE && window.aE.lC === 9) || !!(window.aE?.data?.isZombieMode);
-    const isTeam = !!getVar("gIsTeamGame");
+    const g = (typeof dictionary !== 'undefined' && dictionary.game && window[dictionary.game]) ? window[dictionary.game] : (window.c || window.aE);
+    const isZombie = (g && g.d === 9) || (g && g.lC === 9) || !!(g?.data?.isZombieMode);
+    const isTeam = typeof getVar === 'function' ? !!getVar("gIsTeamGame") : !!(g && g.bJ);
 
     const macroStep = 10;
     let bestScore = -Infinity;
@@ -353,7 +374,7 @@ export const spawnOptimizer = new (function() {
     // Tier 1: Macro Grid Scan
     for (let y = 14; y < mapHeight - 14; y += macroStep) {
       for (let x = 14; x < mapWidth - 14; x += macroStep) {
-        const score = evaluateFitness(x, y, spawns, tm, isTeam, isZombie);
+        const score = evaluateFitness(x, y, spawns, isTeam, isZombie);
         if (score > bestScore) {
           bestScore = score;
           candidate = { x, y };
@@ -375,7 +396,7 @@ export const spawnOptimizer = new (function() {
           const nx = candidate.x + dx;
           if (nx <= 2 || nx >= mapWidth - 3) continue;
 
-          const score = evaluateFitness(nx, ny, spawns, tm, isTeam, isZombie);
+          const score = evaluateFitness(nx, ny, spawns, isTeam, isZombie);
           if (score > refinedBest) {
             refinedBest = score;
             refinedCoord = { x: nx, y: ny };
@@ -391,16 +412,16 @@ export const spawnOptimizer = new (function() {
     const settings = getSettings();
     if (!settings.spawnOptimizer && !settings.autoSpawnPicker) return;
 
-    const isSingleplayer = getVar("gIsSingleplayer");
-    const isSelectableSpawn = Boolean(getVar("gSelectableSpawn"));
-    const gameState = getVar("gameState");
+    const g = context?.game || (typeof dictionary !== 'undefined' && dictionary.game && window[dictionary.game]) || window.c || window.aE;
+    const isSingleplayer = (typeof getVar === 'function' ? getVar("gIsSingleplayer") : null) ?? (g ? !!g.aH : false);
+    const isSelectableSpawn = Boolean((typeof getVar === 'function' ? getVar("gSelectableSpawn") : null) ?? (g ? g.ao : false));
+    const gameState = (typeof getVar === 'function' ? getVar("gameState") : null) ?? (g ? (g.bH ?? g.gameState) : 0);
 
     // Autonomous match-boundary detection via unique spawning seed and state transition
-    const g = window.aE;
     const bV = window.bV;
     const currentSpawningSeed = g && g.data && g.data.spawningSeed != null ? g.data.spawningSeed : 0;
-    const currentMapSeed = bV && bV.mapSeed != null ? bV.mapSeed : 0;
-    const matchToken = `${currentSpawningSeed}_${currentMapSeed}_${bV?.fF ?? 0}`;
+    const currentMapSeed = (g && g.data && g.data.mapSeed != null) ? g.data.mapSeed : (bV && bV.mapSeed != null ? bV.mapSeed : 0);
+    const matchToken = `${currentSpawningSeed}_${currentMapSeed}_${mapWidth}x${mapHeight}`;
 
     const isSpawningPhase = (!isSingleplayer && isSelectableSpawn && gameState === 1);
 
@@ -421,9 +442,10 @@ export const spawnOptimizer = new (function() {
     }
 
     // Check if player has placed their spawn
-    const myId = getVar("playerId");
-    const pd = window.ah;
-    if (pd && pd.hN && pd.hN[myId] > 0) {
+    const myId = (typeof getVar === 'function' ? getVar("playerId") : null) ?? (g ? g.t : 0);
+    const pd = context?.playerData || (typeof dictionary !== 'undefined' && dictionary.playerData && window[dictionary.playerData]) || window.y || window.ah;
+    const hasMySpawnPlaced = (pd && pd.an && pd.an[myId] > 0) || (pd && pd.hN && pd.hN[myId] > 0);
+    if (hasMySpawnPlaced) {
       userOverridden = true;
       return;
     }
@@ -440,8 +462,9 @@ export const spawnOptimizer = new (function() {
 
     // Auto-Picker Execution (<= 1.2s before countdown expiry)
     if (settings.autoSpawnPicker && !userOverridden && targetTile.valid) {
-      const totalTicks = (window.aE && typeof window.aE.a6g === "number") ? window.aE.a6g : 30;
-      const currentTick = (window.bi && window.bi.a2Q && typeof window.bi.a2Q.aIr === "number") ? window.bi.a2Q.aIr : 0;
+      const totalTicks = (g && typeof g.bk === "number") ? g.bk : ((g && typeof g.a6g === "number") ? g.a6g : 30);
+      const currentTick = (window.bc && window.bc.yR && typeof window.bc.yR.sS === "number") ? window.bc.yR.sS :
+                          ((window.bi && window.bi.a2Q && typeof window.bi.a2Q.aIr === "number") ? window.bi.a2Q.aIr : 0);
       const ticksRemaining = Math.max(0, totalTicks - currentTick);
       const timeRemainingMs = ticksRemaining * 392;
 
@@ -454,14 +477,16 @@ export const spawnOptimizer = new (function() {
 
   this.dispatchSpawnSelection = function(tileX, tileY) {
     const tileIdx = tileY * mapWidth + tileX;
-    if (window.bB && window.bB.hz && typeof window.bB.hz.i0 === "function") {
-      window.bB.hz.i0(tileIdx);
+    if (window.ss && window.ss.a1M && typeof window.ss.a1M.xm === "function") {
+      try { window.ss.a1M.xm(tileIdx); } catch(e) {}
+    } else if (window.bB && window.bB.hz && typeof window.bB.hz.i0 === "function") {
+      try { window.bB.hz.i0(tileIdx); } catch(e) {}
     }
     const canvas = document.getElementById("canvasA");
-    if (canvas && window.aT) {
-      const ox = typeof window.aT.a0L === "function" ? window.aT.a0L() : 0;
-      const oy = typeof window.aT.a0M === "function" ? window.aT.a0M() : 0;
-      const zoom = window.__TERRIX_LAST_CTX__?.im || 1.0;
+    if (canvas) {
+      const ox = (window.gd && typeof window.gd.g7 === "function") ? window.gd.g7() : (window.aT && typeof window.aT.a0L === "function" ? window.aT.a0L() : 0);
+      const oy = (window.gd && typeof window.gd.g8 === "function") ? window.gd.g8() : (window.aT && typeof window.aT.a0M === "function" ? window.aT.a0M() : 0);
+      const zoom = (typeof window.fu === "number") ? window.fu : (window.__TERRIX_LAST_CTX__?.im || 1.0);
       const screenX = (tileX + ox) * zoom;
       const screenY = (tileY + oy) * zoom;
       const rect = canvas.getBoundingClientRect();
@@ -481,9 +506,9 @@ export const spawnOptimizer = new (function() {
     const ws = context.ws;
     if (!ws || !ws.canvas) return;
 
-    const zoom = context.im || 1.0;
-    const ox = context.offsetX !== undefined ? context.offsetX : (window.aT ? window.aT.a0L() : 0);
-    const oy = context.offsetY !== undefined ? context.offsetY : (window.aT ? window.aT.a0M() : 0);
+    const zoom = (typeof context.im === "number") ? context.im : ((typeof window.fu === "number") ? window.fu : 1.0);
+    const ox = context.offsetX !== undefined ? context.offsetX : ((window.gd && typeof window.gd.g7 === "function") ? window.gd.g7() : (window.aT ? window.aT.a0L() : 0));
+    const oy = context.offsetY !== undefined ? context.offsetY : ((window.gd && typeof window.gd.g8 === "function") ? window.gd.g8() : (window.aT ? window.aT.a0M() : 0));
 
     const now = performance.now();
     const dt = lastRenderTime > 0 ? Math.min((now - lastRenderTime) / 1000, 0.1) : 0.016;
@@ -514,7 +539,7 @@ export const spawnOptimizer = new (function() {
     ws.save();
     ws.setTransform(1, 0, 0, 1, 0, 0);
 
-    const isTeam = !!getVar("gIsTeamGame");
+    const isTeam = typeof getVar === 'function' ? !!getVar("gIsTeamGame") : false;
     const primaryColor = isTeam ? "rgba(255, 215, 0, 0.9)" : "rgba(0, 240, 255, 0.9)";
     const glowColor = isTeam ? "rgba(255, 215, 0, 0.25)" : "rgba(0, 240, 255, 0.25)";
 

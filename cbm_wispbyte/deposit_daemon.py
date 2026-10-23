@@ -161,6 +161,32 @@ class CBMDepositDaemon:
                         )
                         new_deposits += 1
                         target_user = sender
+                    elif hasattr(self.db, "find_and_claim_payout_intent") and (lambda intent: intent is not None and (
+                        print(f"[+] Matched Bot War Payout Intent {intent.get('intent_id')} from bot '{sender}' -> 100% Central Bank Reserves!"),
+                        self.db.record_processed_tx(
+                            tx_id=tx_id,
+                            timestamp_ms=ts,
+                            sender=sender,
+                            receiver=receiver,
+                            amount_gold=amount_gold,
+                            fee_gold=fee_gold,
+                            credited_account="TREASURY"
+                        ),
+                        self.db.record_direct_donation(
+                            donor_name=f"Bot {intent.get('bot_username', sender)}",
+                            territorial_account=sender,
+                            amount_cents=amount_cents,
+                            tx_hash=tx_id,
+                            message=f"Bot War Payout - War {intent.get('war_id')} - Bot {intent.get('bot_id')}",
+                            intent_type="BOT_WAR_PAYOUT",
+                            war_id=intent.get("war_id"),
+                            bot_id=intent.get("bot_id"),
+                            intent_id=intent.get("intent_id")
+                        ),
+                        True
+                    )[-1])(self.db.find_and_claim_payout_intent(sender, amount_cents, tx_id)):
+                        new_deposits += 1
+                        target_user = sender
                     else:
                         # STEP 2: The Golden Infallible Rule:
                         # Pure in-game transactions are DEPOSITS unless Web Intent explicitly declared otherwise!

@@ -477,12 +477,18 @@ class CBMDatabase:
         """)
         for col_def in [
             "is_refundable INTEGER DEFAULT 0",
-            "status TEXT DEFAULT 'IRREVOCABLE'"
+            "status TEXT DEFAULT 'IRREVOCABLE'",
+            "intent_type TEXT DEFAULT 'GENERAL'",
+            "war_id TEXT",
+            "bot_id TEXT",
+            "intent_id TEXT"
         ]:
             try:
                 cur.execute(f"ALTER TABLE cbm_donations ADD COLUMN {col_def}")
             except Exception:
                 pass
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_donations_intent ON cbm_donations(intent_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_donations_war ON cbm_donations(war_id);")
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS cbm_pending_donations (
@@ -995,6 +1001,92 @@ class CBMDatabase:
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_incidents_service ON cbm_service_incidents(service_id, created_at DESC);")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_uptime_service_date ON cbm_service_daily_uptime(service_id, day_date);")
+
+        # Bot Fleet Management & War Automation Schema
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_bot_accounts (
+                bot_id TEXT PRIMARY KEY,
+                bot_username TEXT UNIQUE NOT NULL,
+                territorial_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PROVISIONING',
+                current_war_id TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_bot_accounts_status ON cbm_bot_accounts(status);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_bot_investments (
+                investment_id TEXT PRIMARY KEY,
+                war_id TEXT NOT NULL,
+                investor_account TEXT NOT NULL,
+                bot_id TEXT NOT NULL,
+                investment_cents INTEGER NOT NULL,
+                target_gold_cents INTEGER NOT NULL,
+                payout_cap_cents INTEGER NOT NULL,
+                idempotency_key TEXT UNIQUE NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ACTIVE',
+                created_at REAL NOT NULL,
+                settled_at REAL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_bot_investments_war ON cbm_bot_investments(war_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_bot_investments_bot ON cbm_bot_investments(bot_id);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_bot_investments_idemp ON cbm_bot_investments(idempotency_key);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_bot_payout_intents (
+                intent_id TEXT PRIMARY KEY,
+                war_id TEXT NOT NULL,
+                bot_id TEXT NOT NULL,
+                expected_amount_cents INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                created_at REAL NOT NULL,
+                claimed_at REAL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_bot_payout_intents_lookup ON cbm_bot_payout_intents(war_id, bot_id, status);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_wars (
+                war_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                enemy_clan TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'DRAFT',
+                created_by TEXT NOT NULL,
+                investment_cents INTEGER NOT NULL DEFAULT 0,
+                target_gold_cents INTEGER NOT NULL DEFAULT 0,
+                payout_cap_cents INTEGER NOT NULL DEFAULT 0,
+                started_at REAL,
+                ended_at REAL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_wars_status ON cbm_wars(status);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_war_bots (
+                war_id TEXT NOT NULL,
+                bot_id TEXT NOT NULL,
+                assigned_at REAL NOT NULL,
+                PRIMARY KEY (war_id, bot_id)
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cbm_war_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                war_id TEXT NOT NULL,
+                bot_id TEXT,
+                event_type TEXT NOT NULL,
+                details TEXT,
+                created_at REAL NOT NULL
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_cbm_war_events_war ON cbm_war_events(war_id, created_at);")
 
         # Seed initial high-traffic sponsorship slots
         initial_slots = [
@@ -4626,12 +4718,17 @@ class CBMDatabase:
         territorial_account: str,
         amount_cents: int,
         tx_hash: str,
-        message: str = ""
+        message: str = "",
+        intent_type: str = "GENERAL",
+        war_id: Optional[str] = None,
+        bot_id: Optional[str] = None,
+        intent_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Records an unencumbered direct inflow sent straight to the vault.
         Adds directly to vault_total_gold_cents and bank_reserves_cents with ZERO member liabilities.
         Resolves in-game sender IDs to canonical CBM master profiles.
+        Supports structured metadata for bot war payouts (intent_type, war_id, bot_id, intent_id).
         """
         now = time.time()
         amount_gold = round(amount_cents / 100.0, 2)
@@ -4658,9 +4755,12 @@ class CBMDatabase:
         conn = self.get_write_connection()
         cur = conn.cursor()
         cur.execute("""
-            INSERT INTO cbm_donations (donor_name, territorial_account, amount_gold, amount_cents, message, source, tx_hash, is_refundable, status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'DIRECT_TRANSFER', ?, 0, 'IRREVOCABLE', ?)
-        """, (clean_donor, linked_terri, amount_gold, amount_cents, clean_msg, tx_hash, now))
+            INSERT INTO cbm_donations (
+                donor_name, territorial_account, amount_gold, amount_cents, message, source,
+                tx_hash, is_refundable, status, intent_type, war_id, bot_id, intent_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'DIRECT_TRANSFER', ?, 0, 'IRREVOCABLE', ?, ?, ?, ?, ?)
+        """, (clean_donor, linked_terri, amount_gold, amount_cents, clean_msg, tx_hash, intent_type, war_id, bot_id, intent_id, now))
         cur.execute("""
             INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
             VALUES ('TREASURY', 'DIRECT_RESERVE_INJECTION', ?, 0, ?, ?, ?)
@@ -4679,7 +4779,11 @@ class CBMDatabase:
                 "source": "DIRECT_TRANSFER",
                 "tx_hash": tx_hash,
                 "is_refundable": False,
-                "status": "IRREVOCABLE"
+                "status": "IRREVOCABLE",
+                "intent_type": intent_type,
+                "war_id": war_id,
+                "bot_id": bot_id,
+                "intent_id": intent_id
             }
             self._enqueue_sb_task("cbm_donations", method="POST", body=donation_payload)
             self._enqueue_sb_task("cbm_ledger", method="POST", body={
@@ -4712,6 +4816,10 @@ class CBMDatabase:
             "amount_cents": amount_cents,
             "message": clean_msg,
             "tx_hash": tx_hash,
+            "intent_type": intent_type,
+            "war_id": war_id,
+            "bot_id": bot_id,
+            "intent_id": intent_id,
             "created_at": now
         }
 
@@ -10251,6 +10359,681 @@ class CBMDatabase:
             "created_at": now
         }
 
+    # -------------------------------------------------------------------------
+    # Bot Fleet Management & War Automation (Phase 1)
+    # -------------------------------------------------------------------------
 
+    def create_bot_account(
+        self,
+        bot_username: str,
+        territorial_name: str,
+        password: str
+    ) -> Dict[str, Any]:
+        """
+        Registers a new bot account in the CBM Bot Fleet with PROVISIONING status.
+        """
+        now = time.time()
+        bot_id = f"bot_{secrets.token_hex(8)}"
+        clean_user = bot_username.strip()
+        clean_terri = territorial_name.strip()
+        pwd_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
 
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO cbm_bot_accounts (bot_id, bot_username, territorial_name, password_hash, status, current_war_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'PROVISIONING', NULL, ?, ?)
+        """, (bot_id, clean_user, clean_terri, pwd_hash, now, now))
+        conn.commit()
+        conn.close()
 
+        bot_record = {
+            "bot_id": bot_id,
+            "bot_username": clean_user,
+            "territorial_name": clean_terri,
+            "password_hash": pwd_hash,
+            "status": "PROVISIONING",
+            "current_war_id": None,
+            "created_at": now,
+            "updated_at": now
+        }
+
+        if self.use_supabase:
+            self._enqueue_sb_task("cbm_bot_accounts", method="POST", body={
+                "bot_id": bot_id,
+                "bot_username": clean_user,
+                "territorial_name": clean_terri,
+                "password_hash": pwd_hash,
+                "status": "PROVISIONING",
+                "current_war_id": None,
+                "created_at": self._format_iso(now),
+                "updated_at": self._format_iso(now)
+            })
+
+        return bot_record
+
+    def get_bot_account(self, bot_identifier: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a bot account by bot_id or bot_username.
+        """
+        clean_id = bot_identifier.strip()
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM cbm_bot_accounts
+            WHERE bot_id = ? OR bot_username = ? COLLATE NOCASE
+            LIMIT 1
+        """, (clean_id, clean_id))
+        row = cur.fetchone()
+        return _row_to_dict(row, cur) if row else None
+
+    def list_bot_accounts(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Lists all bot fleet accounts, optionally filtered by status.
+        """
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        if status:
+            cur.execute("SELECT * FROM cbm_bot_accounts WHERE status = ? ORDER BY created_at ASC", (status,))
+        else:
+            cur.execute("SELECT * FROM cbm_bot_accounts ORDER BY created_at ASC")
+        rows = cur.fetchall()
+        return [_row_to_dict(r, cur) for r in rows]
+
+    def update_bot_status(
+        self,
+        bot_id: str,
+        new_status: str,
+        current_war_id: Optional[str] = None
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Transitions a bot's lifecycle status with strict state machine validation.
+        """
+        try:
+            from .war_engine import validate_bot_transition
+        except ImportError:
+            from war_engine import validate_bot_transition
+
+        bot = self.get_bot_account(bot_id)
+        if not bot:
+            return False, f"Bot '{bot_id}' not found.", None
+
+        curr_status = bot.get("status", "PROVISIONING")
+        if not validate_bot_transition(curr_status, new_status):
+            return False, f"Invalid state transition: {curr_status} -> {new_status}", None
+
+        now = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        if current_war_id is not None:
+            cur.execute("""
+                UPDATE cbm_bot_accounts
+                SET status = ?, current_war_id = ?, updated_at = ?
+                WHERE bot_id = ?
+            """, (new_status, current_war_id, now, bot["bot_id"]))
+        else:
+            cur.execute("""
+                UPDATE cbm_bot_accounts
+                SET status = ?, updated_at = ?
+                WHERE bot_id = ?
+            """, (new_status, now, bot["bot_id"]))
+        conn.commit()
+        conn.close()
+
+        updated = self.get_bot_account(bot["bot_id"])
+        if self.use_supabase:
+            sb_patch = {"status": new_status, "updated_at": self._format_iso(now)}
+            if current_war_id is not None:
+                sb_patch["current_war_id"] = current_war_id
+            self._enqueue_sb_task(
+                "cbm_bot_accounts",
+                method="PATCH",
+                params=f"?bot_id=eq.{bot['bot_id']}",
+                body=sb_patch
+            )
+
+        return True, f"Bot transitioned to {new_status}", updated
+
+    def create_war(
+        self,
+        name: str,
+        enemy_clan: str,
+        created_by: str = "B8bbq"
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Creates a new clan war campaign. Strictly restricted to admin B8bbq.
+        """
+        clean_creator = created_by.strip()
+        if clean_creator.lower() != "b8bbq":
+            return False, "Unauthorized: only admin B8bbq holds authorization to declare clan wars.", None
+
+        now = time.time()
+        war_id = f"war_{secrets.token_hex(8)}"
+        clean_name = name.strip()
+        clean_enemy = enemy_clan.strip().upper()
+
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO cbm_wars (war_id, name, enemy_clan, status, created_by, investment_cents, target_gold_cents, payout_cap_cents, created_at, updated_at)
+            VALUES (?, ?, ?, 'DRAFT', ?, 0, 0, 0, ?, ?)
+        """, (war_id, clean_name, clean_enemy, clean_creator, now, now))
+        conn.commit()
+        conn.close()
+
+        war_record = {
+            "war_id": war_id,
+            "name": clean_name,
+            "enemy_clan": clean_enemy,
+            "status": "DRAFT",
+            "created_by": clean_creator,
+            "investment_cents": 0,
+            "target_gold_cents": 0,
+            "payout_cap_cents": 0,
+            "started_at": None,
+            "ended_at": None,
+            "created_at": now,
+            "updated_at": now
+        }
+
+        if self.use_supabase:
+            self._enqueue_sb_task("cbm_wars", method="POST", body={
+                "war_id": war_id,
+                "name": clean_name,
+                "enemy_clan": clean_enemy,
+                "status": "DRAFT",
+                "created_by": clean_creator,
+                "investment_cents": 0,
+                "target_gold_cents": 0,
+                "payout_cap_cents": 0,
+                "created_at": self._format_iso(now),
+                "updated_at": self._format_iso(now)
+            })
+
+        self.record_war_event(war_id, None, "WAR_CREATED", json.dumps({"enemy_clan": clean_enemy, "created_by": clean_creator}))
+        return True, "War campaign created", war_record
+
+    def get_war(self, war_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves a war campaign by war_id.
+        """
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM cbm_wars WHERE war_id = ? LIMIT 1", (war_id.strip(),))
+        row = cur.fetchone()
+        return _row_to_dict(row, cur) if row else None
+
+    def update_war_status(
+        self,
+        war_id: str,
+        new_status: str
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Transitions a war campaign status with strict validation.
+        """
+        try:
+            from .war_engine import validate_war_transition
+        except ImportError:
+            from war_engine import validate_war_transition
+
+        war = self.get_war(war_id)
+        if not war:
+            return False, f"War '{war_id}' not found.", None
+
+        curr_status = war.get("status", "DRAFT")
+        if not validate_war_transition(curr_status, new_status):
+            return False, f"Invalid war transition: {curr_status} -> {new_status}", None
+
+        now = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        started_at = now if new_status == "ACTIVE" and not war.get("started_at") else war.get("started_at")
+        ended_at = now if new_status in ("COMPLETED", "FAILED", "CANCELLED") and not war.get("ended_at") else war.get("ended_at")
+
+        cur.execute("""
+            UPDATE cbm_wars
+            SET status = ?, started_at = ?, ended_at = ?, updated_at = ?
+            WHERE war_id = ?
+        """, (new_status, started_at, ended_at, now, war["war_id"]))
+        conn.commit()
+        conn.close()
+
+        updated = self.get_war(war["war_id"])
+        if self.use_supabase:
+            self._enqueue_sb_task(
+                "cbm_wars",
+                method="PATCH",
+                params=f"?war_id=eq.{war['war_id']}",
+                body={
+                    "status": new_status,
+                    "started_at": self._format_iso(started_at) if started_at else None,
+                    "ended_at": self._format_iso(ended_at) if ended_at else None,
+                    "updated_at": self._format_iso(now)
+                }
+            )
+
+        self.record_war_event(war["war_id"], None, f"WAR_STATUS_{new_status}", json.dumps({"from": curr_status, "to": new_status}))
+        return True, f"War transitioned to {new_status}", updated
+
+    def assign_bot_to_war(self, war_id: str, bot_id: str) -> Tuple[bool, str]:
+        """
+        Assigns a bot to a war campaign.
+        """
+        war = self.get_war(war_id)
+        if not war:
+            return False, f"War '{war_id}' not found."
+        bot = self.get_bot_account(bot_id)
+        if not bot:
+            return False, f"Bot '{bot_id}' not found."
+
+        now = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT OR IGNORE INTO cbm_war_bots (war_id, bot_id, assigned_at)
+            VALUES (?, ?, ?)
+        """, (war["war_id"], bot["bot_id"], now))
+        cur.execute("""
+            UPDATE cbm_bot_accounts
+            SET current_war_id = ?, updated_at = ?
+            WHERE bot_id = ?
+        """, (war["war_id"], now, bot["bot_id"]))
+        conn.commit()
+        conn.close()
+
+        if self.use_supabase:
+            self._enqueue_sb_task("cbm_war_bots", method="POST", body={
+                "war_id": war["war_id"],
+                "bot_id": bot["bot_id"],
+                "assigned_at": self._format_iso(now)
+            })
+            self._enqueue_sb_task("cbm_bot_accounts", method="PATCH", params=f"?bot_id=eq.{bot['bot_id']}", body={
+                "current_war_id": war["war_id"],
+                "updated_at": self._format_iso(now)
+            })
+
+        self.record_war_event(war["war_id"], bot["bot_id"], "BOT_ASSIGNED", json.dumps({"bot_username": bot.get("bot_username")}))
+        return True, "Bot assigned to war successfully."
+
+    def fund_bot_investment(
+        self,
+        war_id: str,
+        investor_account: str,
+        bot_id: str,
+        investment_cents: int,
+        idempotency_key: str
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Funds bot capital strictly debiting Admin B8bbq's personal balance with idempotency guarantee.
+        Calculates Target (3I) and Payout Cap (2I) in integer cents.
+        """
+        try:
+            from .war_engine import calculate_investment_targets
+        except ImportError:
+            from war_engine import calculate_investment_targets
+
+        clean_investor = investor_account.strip()
+        if clean_investor.lower() != "b8bbq":
+            return False, "Unauthorized: bot investment capital must strictly debit Admin B8bbq's personal CBM balance.", None
+
+        if investment_cents <= 0:
+            return False, "Investment amount must be positive.", None
+
+        # 1. Idempotency Check
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM cbm_bot_investments WHERE idempotency_key = ? LIMIT 1", (idempotency_key.strip(),))
+        existing_row = cur.fetchone()
+        if existing_row:
+            existing_dict = _row_to_dict(existing_row, cur)
+            conn.close()
+            return True, "Investment already processed (idempotent replay).", existing_dict
+
+        # 2. Validate War & Bot
+        cur.execute("SELECT * FROM cbm_wars WHERE war_id = ? LIMIT 1", (war_id.strip(),))
+        war_row = cur.fetchone()
+        if not war_row:
+            conn.close()
+            return False, f"War '{war_id}' not found.", None
+        war = _row_to_dict(war_row, cur)
+        if war.get("status") not in ("DRAFT", "ACTIVE"):
+            conn.close()
+            return False, f"War is not accepting investments (current status: {war.get('status')}).", None
+
+        cur.execute("SELECT * FROM cbm_bot_accounts WHERE bot_id = ? LIMIT 1", (bot_id.strip(),))
+        bot_row = cur.fetchone()
+        if not bot_row:
+            conn.close()
+            return False, f"Bot '{bot_id}' not found.", None
+        bot = _row_to_dict(bot_row, cur)
+
+        # 3. Check and debit B8bbq's personal balance
+        cur.execute("SELECT deposited_cents FROM cbm_accounts WHERE account_name = ? COLLATE NOCASE", (clean_investor,))
+        acc_row = cur.fetchone()
+        if not acc_row:
+            conn.close()
+            return False, f"Investor account '{clean_investor}' not found.", None
+        current_bal = acc_row[0]
+        if current_bal < investment_cents:
+            conn.close()
+            return False, f"Insufficient personal CBM balance: current balance is {current_bal / 100.0:.2f} Gold, requires {investment_cents / 100.0:.2f} Gold.", None
+
+        target_gold_cents, payout_cap_cents = calculate_investment_targets(investment_cents)
+        now = time.time()
+        investment_id = f"inv_{secrets.token_hex(8)}"
+        new_bal = current_bal - investment_cents
+
+        # Atomic writes in single transaction
+        cur.execute("""
+            UPDATE cbm_accounts
+            SET deposited_cents = ?, updated_at = ?
+            WHERE account_name = ? COLLATE NOCASE
+        """, (new_bal, now, clean_investor))
+
+        cur.execute("""
+            INSERT INTO cbm_ledger (account_name, entry_type, amount_cents, balance_after_cents, tx_hash, notes, created_at)
+            VALUES (?, 'BOT_WAR_INVESTMENT', ?, ?, ?, ?, ?)
+        """, (clean_investor, -investment_cents, new_bal, idempotency_key, f"Bot investment for bot {bot['bot_username']} in war {war['name']}", now))
+
+        cur.execute("""
+            INSERT INTO cbm_bot_investments (
+                investment_id, war_id, investor_account, bot_id, investment_cents,
+                target_gold_cents, payout_cap_cents, idempotency_key, status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+        """, (investment_id, war["war_id"], clean_investor, bot["bot_id"], investment_cents, target_gold_cents, payout_cap_cents, idempotency_key.strip(), now))
+
+        cur.execute("""
+            UPDATE cbm_wars
+            SET investment_cents = investment_cents + ?,
+                target_gold_cents = target_gold_cents + ?,
+                payout_cap_cents = payout_cap_cents + ?,
+                updated_at = ?
+            WHERE war_id = ?
+        """, (investment_cents, target_gold_cents, payout_cap_cents, now, war["war_id"]))
+
+        cur.execute("""
+            UPDATE cbm_bot_accounts
+            SET status = 'RESERVED', current_war_id = ?, updated_at = ?
+            WHERE bot_id = ?
+        """, (war["war_id"], now, bot["bot_id"]))
+
+        cur.execute("""
+            INSERT INTO cbm_war_events (war_id, bot_id, event_type, details, created_at)
+            VALUES (?, ?, 'INVESTMENT_FUNDED', ?, ?)
+        """, (war["war_id"], bot["bot_id"], json.dumps({
+            "investor": clean_investor,
+            "investment_cents": investment_cents,
+            "target_cents": target_gold_cents,
+            "cap_cents": payout_cap_cents,
+            "idempotency_key": idempotency_key
+        }), now))
+
+        conn.commit()
+        conn.close()
+
+        # Recompute treasury metrics reflecting debited member liabilities
+        self.recompute_treasury()
+
+        # Sync to Supabase
+        if self.use_supabase:
+            self._enqueue_sb_task("cbm_accounts", method="PATCH", params=f"?account_name=eq.{clean_investor}", body={
+                "deposited_cents": new_bal,
+                "updated_at": self._format_iso(now)
+            })
+            self._enqueue_sb_task("cbm_ledger", method="POST", body={
+                "account_name": clean_investor,
+                "entry_type": "BOT_WAR_INVESTMENT",
+                "amount_cents": -investment_cents,
+                "balance_after_cents": new_bal,
+                "tx_hash": idempotency_key,
+                "notes": f"Bot investment for bot {bot['bot_username']} in war {war['name']}"
+            })
+            self._enqueue_sb_task("cbm_bot_investments", method="POST", body={
+                "investment_id": investment_id,
+                "war_id": war["war_id"],
+                "investor_account": clean_investor,
+                "bot_id": bot["bot_id"],
+                "investment_cents": investment_cents,
+                "target_gold_cents": target_gold_cents,
+                "payout_cap_cents": payout_cap_cents,
+                "idempotency_key": idempotency_key.strip(),
+                "status": "ACTIVE",
+                "created_at": self._format_iso(now)
+            })
+            self._enqueue_sb_task("cbm_bot_accounts", method="PATCH", params=f"?bot_id=eq.{bot['bot_id']}", body={
+                "status": "RESERVED",
+                "current_war_id": war["war_id"],
+                "updated_at": self._format_iso(now)
+            })
+
+        investment_record = {
+            "investment_id": investment_id,
+            "war_id": war["war_id"],
+            "investor_account": clean_investor,
+            "bot_id": bot["bot_id"],
+            "investment_cents": investment_cents,
+            "target_gold_cents": target_gold_cents,
+            "payout_cap_cents": payout_cap_cents,
+            "idempotency_key": idempotency_key.strip(),
+            "status": "ACTIVE",
+            "created_at": now
+        }
+        return True, f"Successfully funded bot plan with {investment_cents / 100.0:.2f} Gold debited from {clean_investor}.", investment_record
+
+    def create_payout_intent(
+        self,
+        war_id: str,
+        bot_id: str,
+        expected_amount_cents: int
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Creates a payout intent for a bot exiting match operations, enforcing payout cap.
+        Transitions bot to PAYOUT_PENDING.
+        """
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT payout_cap_cents FROM cbm_bot_investments
+            WHERE war_id = ? AND bot_id = ? AND status = 'ACTIVE'
+            ORDER BY created_at DESC LIMIT 1
+        """, (war_id.strip(), bot_id.strip()))
+        inv_row = cur.fetchone()
+        if not inv_row:
+            conn.close()
+            return False, f"No active investment found for bot '{bot_id}' in war '{war_id}'.", None
+
+        payout_cap = inv_row[0]
+        if expected_amount_cents > payout_cap:
+            conn.close()
+            return False, f"Expected amount ({expected_amount_cents} cents) exceeds contractual payout cap ({payout_cap} cents).", None
+
+        now = time.time()
+        intent_id = f"intent_{secrets.token_hex(8)}"
+        cur.execute("""
+            INSERT INTO cbm_bot_payout_intents (intent_id, war_id, bot_id, expected_amount_cents, status, created_at)
+            VALUES (?, ?, ?, ?, 'PENDING', ?)
+        """, (intent_id, war_id.strip(), bot_id.strip(), expected_amount_cents, now))
+
+        cur.execute("""
+            UPDATE cbm_bot_accounts
+            SET status = 'PAYOUT_PENDING', updated_at = ?
+            WHERE bot_id = ?
+        """, (now, bot_id.strip()))
+
+        cur.execute("""
+            INSERT INTO cbm_war_events (war_id, bot_id, event_type, details, created_at)
+            VALUES (?, ?, 'PAYOUT_INTENT_CREATED', ?, ?)
+        """, (war_id.strip(), bot_id.strip(), json.dumps({"intent_id": intent_id, "amount_cents": expected_amount_cents}), now))
+
+        conn.commit()
+        conn.close()
+
+        if self.use_supabase:
+            self._enqueue_sb_task("cbm_bot_payout_intents", method="POST", body={
+                "intent_id": intent_id,
+                "war_id": war_id.strip(),
+                "bot_id": bot_id.strip(),
+                "expected_amount_cents": expected_amount_cents,
+                "status": "PENDING",
+                "created_at": self._format_iso(now)
+            })
+            self._enqueue_sb_task("cbm_bot_accounts", method="PATCH", params=f"?bot_id=eq.{bot_id.strip()}", body={
+                "status": "PAYOUT_PENDING",
+                "updated_at": self._format_iso(now)
+            })
+
+        intent_record = {
+            "intent_id": intent_id,
+            "war_id": war_id.strip(),
+            "bot_id": bot_id.strip(),
+            "expected_amount_cents": expected_amount_cents,
+            "status": "PENDING",
+            "created_at": now
+        }
+        return True, "Payout intent created.", intent_record
+
+    def find_and_claim_payout_intent(
+        self,
+        territorial_account: str,
+        amount_cents: int,
+        tx_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Matches an incoming in-game transfer against active bot payout intents.
+        Updates intent to CLAIMED, transitions bot to READY, and marks investment as SETTLED.
+        Credits Clan Vault reserves with ZERO member liability.
+        """
+        clean_terri = territorial_account.strip()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+
+        # 1. Match bot account by territorial_name
+        cur.execute("""
+            SELECT bot_id, bot_username FROM cbm_bot_accounts
+            WHERE territorial_name = ? COLLATE NOCASE
+            LIMIT 1
+        """, (clean_terri,))
+        bot_row = cur.fetchone()
+        if not bot_row:
+            conn.close()
+            return None
+
+        bot_id, bot_username = bot_row[0], bot_row[1]
+
+        # 2. Find pending payout intent for this bot
+        cur.execute("""
+            SELECT * FROM cbm_bot_payout_intents
+            WHERE bot_id = ? AND status = 'PENDING'
+            ORDER BY created_at ASC
+            LIMIT 1
+        """, (bot_id,))
+        intent_row = cur.fetchone()
+        if not intent_row:
+            conn.close()
+            return None
+
+        intent = _row_to_dict(intent_row, cur)
+        now = time.time()
+
+        # 3. Update intent to CLAIMED
+        cur.execute("""
+            UPDATE cbm_bot_payout_intents
+            SET status = 'CLAIMED', claimed_at = ?
+            WHERE intent_id = ?
+        """, (now, intent["intent_id"]))
+
+        # 4. Transition bot back to READY and clear current_war_id
+        cur.execute("""
+            UPDATE cbm_bot_accounts
+            SET status = 'READY', current_war_id = NULL, updated_at = ?
+            WHERE bot_id = ?
+        """, (now, bot_id))
+
+        # 5. Settle active investment for this bot & war
+        cur.execute("""
+            UPDATE cbm_bot_investments
+            SET status = 'SETTLED', settled_at = ?
+            WHERE war_id = ? AND bot_id = ? AND status = 'ACTIVE'
+        """, (now, intent["war_id"], bot_id))
+
+        # 6. Record war event
+        cur.execute("""
+            INSERT INTO cbm_war_events (war_id, bot_id, event_type, details, created_at)
+            VALUES (?, ?, 'PAYOUT_CLAIMED', ?, ?)
+        """, (intent["war_id"], bot_id, json.dumps({
+            "intent_id": intent["intent_id"],
+            "amount_cents": amount_cents,
+            "tx_hash": tx_hash
+        }), now))
+
+        conn.commit()
+        conn.close()
+
+        if self.use_supabase:
+            self._enqueue_sb_task(
+                "cbm_bot_payout_intents",
+                method="PATCH",
+                params=f"?intent_id=eq.{intent['intent_id']}",
+                body={"status": "CLAIMED", "claimed_at": self._format_iso(now)}
+            )
+            self._enqueue_sb_task(
+                "cbm_bot_accounts",
+                method="PATCH",
+                params=f"?bot_id=eq.{bot_id}",
+                body={"status": "READY", "current_war_id": None, "updated_at": self._format_iso(now)}
+            )
+            self._enqueue_sb_task(
+                "cbm_bot_investments",
+                method="PATCH",
+                params=f"?war_id=eq.{intent['war_id']}&bot_id=eq.{bot_id}&status=eq.ACTIVE",
+                body={"status": "SETTLED", "settled_at": self._format_iso(now)}
+            )
+
+        intent["status"] = "CLAIMED"
+        intent["claimed_at"] = now
+        intent["bot_username"] = bot_username
+        return intent
+
+    def record_war_event(
+        self,
+        war_id: str,
+        bot_id: Optional[str],
+        event_type: str,
+        details: Optional[str] = None
+    ):
+        """
+        Records an immutable audit event for a war campaign.
+        """
+        now = time.time()
+        conn = self.get_write_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO cbm_war_events (war_id, bot_id, event_type, details, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (war_id.strip(), bot_id.strip() if bot_id else None, event_type.strip(), details, now))
+        conn.commit()
+        conn.close()
+
+        if self.use_supabase:
+            self._enqueue_sb_task("cbm_war_events", method="POST", body={
+                "war_id": war_id.strip(),
+                "bot_id": bot_id.strip() if bot_id else None,
+                "event_type": event_type.strip(),
+                "details": json.loads(details) if details else None,
+                "created_at": self._format_iso(now)
+            })
+
+    def get_war_events(self, war_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Retrieves chronological audit events for a war campaign.
+        """
+        conn = self._get_sqlite_conn(row_factory=True)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT * FROM cbm_war_events
+            WHERE war_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (war_id.strip(), max(1, limit)))
+        rows = cur.fetchall()
+        return [_row_to_dict(r, cur) for r in rows]

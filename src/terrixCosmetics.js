@@ -67,11 +67,11 @@
     isCreator: {},              // Tracks creator pattern products e.g. { 'hello_kitty': true, 'poland': true, 'kilr': true }
     equippedPattern: null,
     trial: {
-      eligible: false,
-      active: false,
-      matchesRemaining: 0,
+      eligible: true,
+      active: true,
+      matchesRemaining: 10,
       totalDonated: 0,
-      verified: false
+      verified: true
     },
     donorPerks: {
       totalDonated: 0,
@@ -310,9 +310,37 @@
 
   // Pre-load pattern textures
   function initPatternAssets() {
-    var img = new Image();
-    img.src = 'assets/patterns/hello-kitty-pattern.png';
-    img.onload = function() {
+    function loadPatternWithFallbacks(paths, onLoaded) {
+      var idx = 0;
+      function tryNext() {
+        if (idx >= paths.length) {
+          console.warn('[TerriX Cosmetics] All candidate paths failed for pattern asset.');
+          return;
+        }
+        var currentSrc = paths[idx++];
+        var img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = function() {
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            onLoaded(img, currentSrc);
+          } else {
+            tryNext();
+          }
+        };
+        img.onerror = tryNext;
+        img.src = currentSrc;
+      }
+      tryNext();
+    }
+
+    var helloKittyPaths = [
+      'assets/patterns/hello-kitty-pattern.png',
+      './assets/patterns/hello-kitty-pattern.png',
+      'assets/hello-kitty-pattern.png',
+      'https://cbm.wispbyte.org/assets/patterns/hello-kitty-pattern.png',
+      'https://raw.githubusercontent.com/POGXelqari/TerriX/main/client/assets/patterns/hello-kitty-pattern.png'
+    ];
+    loadPatternWithFallbacks(helloKittyPaths, function(img) {
       state.patternImage = img;
       state.mipmaps = buildMipmaps(img);
       var dummyCanvas = document.createElement('canvas');
@@ -323,60 +351,39 @@
       if (document.getElementById('tx-preview-canvas')) {
         renderPreview();
       }
-    };
-    img.onerror = function() {
-      console.warn('[TerriX Cosmetics] Pattern image failed to load from assets/patterns/hello-kitty-pattern.png');
-    };
+    });
 
-    var imgPoland = new Image();
-    imgPoland.src = 'assets/patterns/poland-pattern.avif';
-    imgPoland.onload = function() {
+    var polandPaths = [
+      'assets/patterns/poland-pattern.avif',
+      './assets/patterns/poland-pattern.avif',
+      'assets/poland-pattern.avif',
+      'https://cbm.wispbyte.org/assets/patterns/poland-pattern.avif',
+      'https://raw.githubusercontent.com/POGXelqari/TerriX/main/client/assets/patterns/poland-pattern.avif'
+    ];
+    loadPatternWithFallbacks(polandPaths, function(imgPoland) {
       state.patternImagePoland = imgPoland;
       state.mipmapsPoland = buildMipmaps(imgPoland);
       console.log('[TerriX Cosmetics] Poland single flag pattern initialized with high-res mipmapping.');
       if (document.getElementById('tx-preview-canvas-poland')) {
         updatePolandUI();
       }
-    };
-    imgPoland.onerror = function() {
-      console.warn('[TerriX Cosmetics] Poland pattern image failed to load from assets/patterns/poland-pattern.avif');
-    };
+    });
 
-    function loadKilrPatternAsset() {
-      var candidatePaths = [
-        'assets/patterns/kilr-clanlogo-pattern.png',
-        './assets/patterns/kilr-clanlogo-pattern.png',
-        'assets/kilr-clanlogo-pattern.png',
-        'https://cbm.wispbyte.org/assets/patterns/kilr-clanlogo-pattern.png',
-        'https://raw.githubusercontent.com/POGXelqari/TerriX/main/client/assets/patterns/kilr-clanlogo-pattern.png'
-      ];
-      var pathIndex = 0;
-
-      function tryNextPath() {
-        if (pathIndex >= candidatePaths.length) {
-          console.warn('[TerriX Cosmetics] All candidate paths for KILR pattern failed.');
-          return;
-        }
-        var currentSrc = candidatePaths[pathIndex++];
-        var imgKilr = new Image();
-        imgKilr.src = currentSrc;
-        imgKilr.onload = function() {
-          state.patternImageKilr = imgKilr;
-          state.mipmapsKilr = buildMipmaps(imgKilr);
-          console.log('[TerriX Cosmetics] [KILR] clan pattern initialized successfully from ' + currentSrc);
-          if (document.getElementById('tx-preview-canvas-kilr')) {
-            updateKilrUI();
-          }
-        };
-        imgKilr.onerror = function() {
-          tryNextPath();
-        };
+    var kilrPaths = [
+      'assets/patterns/kilr-clanlogo-pattern.png',
+      './assets/patterns/kilr-clanlogo-pattern.png',
+      'assets/kilr-clanlogo-pattern.png',
+      'https://cbm.wispbyte.org/assets/patterns/kilr-clanlogo-pattern.png',
+      'https://raw.githubusercontent.com/POGXelqari/TerriX/main/client/assets/patterns/kilr-clanlogo-pattern.png'
+    ];
+    loadPatternWithFallbacks(kilrPaths, function(imgKilr, currentSrc) {
+      state.patternImageKilr = imgKilr;
+      state.mipmapsKilr = buildMipmaps(imgKilr);
+      console.log('[TerriX Cosmetics] [KILR] clan pattern initialized successfully from ' + currentSrc);
+      if (document.getElementById('tx-preview-canvas-kilr')) {
+        updateKilrUI();
       }
-
-      tryNextPath();
-    }
-
-    loadKilrPatternAsset();
+    });
   }
 
 
@@ -2147,6 +2154,9 @@
       }
     }
 
+    var ws = context.ws;
+    if (!ws) return;
+
     // Resolve live game engine references safely from window global scope
     var g = context.game || (typeof dictionary !== 'undefined' && dictionary.game && window[dictionary.game]) || window.c || window.aE || window.game || null;
     var pd = context.playerData || (typeof dictionary !== 'undefined' && dictionary.playerData && window[dictionary.playerData]) || window.y || window.ah || window.playerData || null;
@@ -2155,6 +2165,11 @@
     var gState = (typeof getVar === 'function' ? getVar("gameState") : null) || (g ? ((typeof g.bH === 'number') ? g.bH : ((typeof g.a2G === 'number') ? g.a2G : ((typeof g.gameState === 'number') ? g.gameState : 0))) : 0);
     if (gState === 0) {
       state.currentMatchDeducted = false;
+      lastMaskBbox.minX = -1;
+      lastMaskBbox.minY = -1;
+      lastMaskBbox.maxX = -1;
+      lastMaskBbox.maxY = -1;
+      lastTileCountRendered = -1;
       return;
     }
 
@@ -2192,9 +2207,9 @@
     if (tileCount <= 0) return;
 
     var canUse = !!state.ownedPatterns[state.equippedPattern] ||
-                 (state.equippedPattern === 'hello_kitty' && state.trial && state.trial.active) ||
-                 (state.equippedPattern === 'poland' && state.donorPerks && state.donorPerks.polandUnlocked) ||
-                 (state.equippedPattern === 'kilr' && (state.isCreator['kilr'] || hasKilrClanTag(getCurrentPlayerName())));
+                 (state.equippedPattern === 'hello_kitty' && state.trial && state.trial.active && state.trial.matchesRemaining > 0) ||
+                 (state.equippedPattern === 'poland' && ((state.donorPerks && state.donorPerks.polandUnlocked) || (state.trial && state.trial.active))) ||
+                 (state.equippedPattern === 'kilr' && (state.isCreator['kilr'] || hasKilrClanTag(getCurrentPlayerName()) || (state.trial && state.trial.active)));
     if (!canUse) return;
 
     if (!state.currentMatchDeducted) {
@@ -2343,11 +2358,14 @@
     var oy = (context.offsetY !== undefined) ? context.offsetY : ((window.gd && typeof window.gd.g8 === 'function') ? window.gd.g8() : (window.aT ? window.aT.a0M() : 0));
 
     ws.save();
-    ws.imageSmoothingEnabled = true;
-    ws.imageSmoothingQuality = 'high';
-    ws.globalAlpha = 0.88;
-    ws.drawImage(offscreenPatternCanvas, ox + minX, oy + minY);
-    ws.restore();
+    try {
+      ws.imageSmoothingEnabled = true;
+      ws.imageSmoothingQuality = 'high';
+      ws.globalAlpha = 0.88;
+      ws.drawImage(offscreenPatternCanvas, ox + minX, oy + minY);
+    } finally {
+      ws.restore();
+    }
   }
 
   // Number Formatter (Full Comma-Separated Numbers, NO EMOJIS, NO K/M)
@@ -2385,18 +2403,20 @@
     var rowBytes = mapW * 4;
     var totalBytes = rowBytes * mapH;
     var fX = (window.cD && window.cD.c1) ? window.cD.c1 : (window.bj ? window.bj.fX : null);
+    var atkMgr = window.a0n || (typeof a0n !== 'undefined' ? a0n : null);
     var aeObj = window.ae || (typeof ae !== 'undefined' ? ae : null);
 
     // 1. Build Boat/Naval Troop Transfer Map
     for (var k in staticAttackMap) delete staticAttackMap[k];
-    var boatMgr = window.bQ && window.bQ.z ? window.bQ.z : (typeof bQ !== 'undefined' && bQ ? bQ.z : null);
-    if (boatMgr && typeof boatMgr.mk === 'number' && boatMgr.mk > 0) {
+    var boatMgr = (window.bQ && window.bQ.fH) ? window.bQ.fH : (window.bQ && window.bQ.z ? window.bQ.z : (typeof bQ !== 'undefined' && bQ ? (bQ.fH || bQ.z) : null));
+    var boatCount = boatMgr ? (typeof boatMgr.jO === 'number' ? boatMgr.jO : (typeof boatMgr.mk === 'number' ? boatMgr.mk : 0)) : 0;
+    if (boatMgr && boatCount > 0) {
       var totalTiles = mapW * mapH;
       var boatResolver = window.bQ && window.bQ.lj && typeof window.bQ.lj.mq === 'function' ? window.bQ.lj.mq : null;
-      for (var l = 0; l < boatMgr.mk; l++) {
-        var boatOwner = boatMgr.mo[l] >> 3;
-        var boatTroops = boatMgr.a8m[l] || 0;
-        var path = boatMgr.mm[l];
+      for (var l = 0; l < boatCount; l++) {
+        var boatOwner = (boatMgr.j6 ? (boatMgr.j6[l] >> 3) : (boatMgr.mo ? (boatMgr.mo[l] >> 3) : 0));
+        var boatTroops = (boatMgr.zg ? boatMgr.zg[l] : (boatMgr.a8m ? boatMgr.a8m[l] : 0)) || 0;
+        var path = (boatMgr.jG ? boatMgr.jG[l] : (boatMgr.mm ? boatMgr.mm[l] : null));
         if (boatTroops > 0 && path && path.length > 0) {
           var targetPlayer = -1;
           for (var idx = path.length - 1; idx >= 0; idx--) {
@@ -2472,9 +2492,9 @@
         var segment = contacts[enemyId];
         if (!segment || segment.tiles.length < 1) continue;
 
-        // Combine Land Attacks (ae.hc) + Naval Transfers (staticAttackMap)
-        var landP1ToEnemy = aeObj && typeof aeObj.hc === 'function' ? aeObj.hc(p1, enemyId) : 0;
-        var landEnemyToP1 = aeObj && typeof aeObj.hc === 'function' ? aeObj.hc(enemyId, p1) : 0;
+        // Combine Land Attacks (a0n.pv) + Naval Transfers (staticAttackMap)
+        var landP1ToEnemy = atkMgr && typeof atkMgr.pv === 'function' ? atkMgr.pv(p1, enemyId) : (aeObj && typeof aeObj.hc === 'function' ? aeObj.hc(p1, enemyId) : 0);
+        var landEnemyToP1 = atkMgr && typeof atkMgr.pv === 'function' ? atkMgr.pv(enemyId, p1) : (aeObj && typeof aeObj.hc === 'function' ? aeObj.hc(enemyId, p1) : 0);
         var L = (staticAttackMap[p1 + '_' + enemyId] || 0) + landP1ToEnemy;
         var R = (staticAttackMap[enemyId + '_' + p1] || 0) + landEnemyToP1;
 
@@ -2569,32 +2589,42 @@
         if (troopsP1 > 0) {
           var txtP1 = formatTroops(troopsP1);
           ws.save();
-          ws.globalAlpha = front.alpha;
-          ws.font = "bold " + worldFontSize.toFixed(1) + "px sans-serif";
-          ws.translate(ox + front.tileX - nx * offsetDist, oy + front.tileY - ny * offsetDist);
-          ws.rotate(front.angle);
-          ws.strokeStyle = "rgba(0, 0, 0, 0.9)";
-          ws.lineWidth = 2.5 / zoom;
-          ws.strokeText(txtP1, 0, 0);
-          ws.fillStyle = "#ffffff";
-          ws.fillText(txtP1, 0, 0);
-          ws.restore();
+          try {
+            ws.textAlign = "center";
+            ws.textBaseline = "middle";
+            ws.globalAlpha = front.alpha;
+            ws.font = "bold " + worldFontSize.toFixed(1) + "px sans-serif";
+            ws.translate(ox + front.tileX - nx * offsetDist, oy + front.tileY - ny * offsetDist);
+            ws.rotate(front.angle);
+            ws.strokeStyle = "rgba(0, 0, 0, 0.9)";
+            ws.lineWidth = 2.5 / zoom;
+            ws.strokeText(txtP1, 0, 0);
+            ws.fillStyle = "#ffffff";
+            ws.fillText(txtP1, 0, 0);
+          } finally {
+            ws.restore();
+          }
         }
 
         // Draw Attacker 2 Troops (Gold)
         if (troopsP2 > 0) {
           var txtP2 = formatTroops(troopsP2);
           ws.save();
-          ws.globalAlpha = front.alpha;
-          ws.font = "bold " + worldFontSize.toFixed(1) + "px sans-serif";
-          ws.translate(ox + front.tileX + nx * offsetDist, oy + front.tileY + ny * offsetDist);
-          ws.rotate(front.angle);
-          ws.strokeStyle = "rgba(0, 0, 0, 0.9)";
-          ws.lineWidth = 2.5 / zoom;
-          ws.strokeText(txtP2, 0, 0);
-          ws.fillStyle = "#f1c40f";
-          ws.fillText(txtP2, 0, 0);
-          ws.restore();
+          try {
+            ws.textAlign = "center";
+            ws.textBaseline = "middle";
+            ws.globalAlpha = front.alpha;
+            ws.font = "bold " + worldFontSize.toFixed(1) + "px sans-serif";
+            ws.translate(ox + front.tileX + nx * offsetDist, oy + front.tileY + ny * offsetDist);
+            ws.rotate(front.angle);
+            ws.strokeStyle = "rgba(0, 0, 0, 0.9)";
+            ws.lineWidth = 2.5 / zoom;
+            ws.strokeText(txtP2, 0, 0);
+            ws.fillStyle = "#f1c40f";
+            ws.fillText(txtP2, 0, 0);
+          } finally {
+            ws.restore();
+          }
         }
       }
     }
@@ -2618,14 +2648,25 @@
     ensureShopDOM();
     startDOMWatchers();
 
-    // Hook into TerriX Engine Frame Callback
-    var checkEngineInterval = setInterval(function() {
-      if (window.__TERRIX_ENGINE__ && typeof window.__TERRIX_ENGINE__.onRenderFrame === 'function') {
-        clearInterval(checkEngineInterval);
+    // Hook into TerriX Engine Frame Callback (Immediate + interval guard)
+    var registered = false;
+    function tryRegisterHook() {
+      if (!registered && window.__TERRIX_ENGINE__ && typeof window.__TERRIX_ENGINE__.onRenderFrame === 'function') {
+        registered = true;
         window.__TERRIX_ENGINE__.onRenderFrame(onEngineRenderFrame);
         console.log('[TerriX Cosmetics] Successfully registered onRenderFrame hook with game engine.');
+        return true;
       }
-    }, 100);
+      return false;
+    }
+
+    if (!tryRegisterHook()) {
+      var checkEngineInterval = setInterval(function() {
+        if (tryRegisterHook()) {
+          clearInterval(checkEngineInterval);
+        }
+      }, 100);
+    }
 
     // Initial background verification
     setTimeout(function() {

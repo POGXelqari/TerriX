@@ -22,6 +22,7 @@ export const spawnOptimizer = new (function() {
   // Track match session to detect consecutive games autonomously
   let currentMatchToken = "";
   let wasInSpawningPhase = false;
+  let spawningStartTime = 0;
 
   // Precomputed local density sample offsets (radius R = 22, grid step 4)
   const DENSITY_OFFSETS_R22 = [];
@@ -52,15 +53,17 @@ export const spawnOptimizer = new (function() {
     userOverridden = false;
     lastEvalTime = 0;
     lastRenderTime = 0;
+    spawningStartTime = 0;
   };
 
   function isWaterTile(byteOffset) {
-    const pixels = (window.gW && window.gW.u3) ? window.gW.u3 : (window.xy || null);
+    if (window.j1 && typeof window.j1.uZ === "function") {
+      return !window.j1.uZ(byteOffset);
+    }
+    const pixels = (window.gW && window.gW.u3) ? window.gW.u3 : null;
     if (pixels && byteOffset + 2 < pixels.length) {
       return pixels[byteOffset + 2] > pixels[byteOffset] && pixels[byteOffset + 2] > pixels[byteOffset + 1];
     }
-    if (window.j1 && typeof window.j1.uZ === "function") return !window.j1.uZ(byteOffset);
-    if (window.ad && typeof window.ad.iq === "function") return window.ad.iq(byteOffset);
     return false;
   }
 
@@ -423,7 +426,7 @@ export const spawnOptimizer = new (function() {
     const currentMapSeed = (g && g.data && g.data.mapSeed != null) ? g.data.mapSeed : (bV && bV.mapSeed != null ? bV.mapSeed : 0);
     const matchToken = `${currentSpawningSeed}_${currentMapSeed}_${mapWidth}x${mapHeight}`;
 
-    const isSpawningPhase = (!isSingleplayer && isSelectableSpawn && gameState === 1);
+    const isSpawningPhase = (isSelectableSpawn && gameState === 1);
 
     // Detect transition into a new match spawning phase
     if (isSpawningPhase) {
@@ -431,12 +434,14 @@ export const spawnOptimizer = new (function() {
         this.reset();
         currentMatchToken = matchToken;
         wasInSpawningPhase = true;
+        spawningStartTime = performance.now();
       }
     } else {
       if (wasInSpawningPhase) {
         wasInSpawningPhase = false;
         targetTile.valid = false;
         currentLerp.initialized = false;
+        spawningStartTime = 0;
       }
       return;
     }
@@ -460,15 +465,24 @@ export const spawnOptimizer = new (function() {
       computeBestLocation();
     }
 
-    // Auto-Picker Execution (<= 1.2s before countdown expiry)
+    // Auto-Picker Execution (<= 1.2s before countdown expiry or 1.5s in singleplayer)
     if (settings.autoSpawnPicker && !userOverridden && targetTile.valid) {
       const totalTicks = (g && typeof g.bk === "number") ? g.bk : ((g && typeof g.a6g === "number") ? g.a6g : 30);
-      const currentTick = (window.bc && window.bc.yR && typeof window.bc.yR.sS === "number") ? window.bc.yR.sS :
-                          ((window.bi && window.bi.a2Q && typeof window.bi.a2Q.aIr === "number") ? window.bi.a2Q.aIr : 0);
-      const ticksRemaining = Math.max(0, totalTicks - currentTick);
-      const timeRemainingMs = ticksRemaining * 392;
+      const currentTick = (window.bc && window.bc.yR && typeof window.bc.yR.sS === "number") ? window.bc.yR.sS : null;
+      let timeRemainingMs = 99999;
+
+      if (currentTick !== null) {
+        const ticksRemaining = Math.max(0, totalTicks - currentTick);
+        timeRemainingMs = ticksRemaining * 392;
+      } else if (spawningStartTime > 0) {
+        const elapsed = performance.now() - spawningStartTime;
+        timeRemainingMs = Math.max(0, totalTicks * 392 - elapsed);
+      }
 
       if (timeRemainingMs <= 1200 && timeRemainingMs > 0) {
+        this.dispatchSpawnSelection(targetTile.x, targetTile.y);
+        userOverridden = true;
+      } else if (isSingleplayer && spawningStartTime > 0 && (performance.now() - spawningStartTime) >= 1500) {
         this.dispatchSpawnSelection(targetTile.x, targetTile.y);
         userOverridden = true;
       }
@@ -484,18 +498,23 @@ export const spawnOptimizer = new (function() {
     }
     const canvas = document.getElementById("canvasA");
     if (canvas) {
-      const ox = (window.gd && typeof window.gd.g7 === "function") ? window.gd.g7() : (window.aT && typeof window.aT.a0L === "function" ? window.aT.a0L() : 0);
-      const oy = (window.gd && typeof window.gd.g8 === "function") ? window.gd.g8() : (window.aT && typeof window.aT.a0M === "function" ? window.aT.a0M() : 0);
-      const zoom = (typeof window.fu === "number") ? window.fu : (window.__TERRIX_LAST_CTX__?.im || 1.0);
-      const screenX = (tileX + ox) * zoom;
-      const screenY = (tileY + oy) * zoom;
-      const rect = canvas.getBoundingClientRect();
-      if (typeof MouseEvent !== "undefined") {
-        const opts = { bubbles: true, cancelable: true, clientX: rect.left + screenX, clientY: rect.top + screenY, button: 0 };
-        canvas.dispatchEvent(new MouseEvent("mousedown", opts));
-        canvas.dispatchEvent(new MouseEvent("mouseup", opts));
-        canvas.dispatchEvent(new MouseEvent("click", opts));
-      }
+      try {
+        const ox = (window.gd && typeof window.gd.g7 === "function") ? window.gd.g7() : (window.aT && typeof window.aT.a0L === "function" ? window.aT.a0L() : 0);
+        const oy = (window.gd && typeof window.gd.g8 === "function") ? window.gd.g8() : (window.aT && typeof window.aT.a0M === "function" ? window.aT.a0M() : 0);
+        const zoom = (typeof window.fu === "number" && isFinite(window.fu)) ? window.fu : (window.__TERRIX_LAST_CTX__?.im || 1.0);
+        const screenX = isFinite(tileX + ox) ? (tileX + ox) * zoom : 0;
+        const screenY = isFinite(tileY + oy) ? (tileY + oy) * zoom : 0;
+        const rect = canvas.getBoundingClientRect();
+        const clientX = isFinite(rect.left + screenX) ? (rect.left + screenX) : (rect.left + rect.width / 2);
+        const clientY = isFinite(rect.top + screenY) ? (rect.top + screenY) : (rect.top + rect.height / 2);
+
+        if (typeof MouseEvent !== "undefined" && isFinite(clientX) && isFinite(clientY)) {
+          const opts = { bubbles: true, cancelable: true, clientX: clientX, clientY: clientY, button: 0 };
+          canvas.dispatchEvent(new MouseEvent("mousedown", opts));
+          canvas.dispatchEvent(new MouseEvent("mouseup", opts));
+          canvas.dispatchEvent(new MouseEvent("click", opts));
+        }
+      } catch(e) {}
     }
   };
 
@@ -537,42 +556,44 @@ export const spawnOptimizer = new (function() {
     const innerRadius = 5 * scaleFactor;
 
     ws.save();
-    ws.setTransform(1, 0, 0, 1, 0, 0);
+    try {
+      ws.setTransform(1, 0, 0, 1, 0, 0);
 
-    const isTeam = typeof getVar === 'function' ? !!getVar("gIsTeamGame") : false;
-    const primaryColor = isTeam ? "rgba(255, 215, 0, 0.9)" : "rgba(0, 240, 255, 0.9)";
-    const glowColor = isTeam ? "rgba(255, 215, 0, 0.25)" : "rgba(0, 240, 255, 0.25)";
+      const isTeam = typeof getVar === 'function' ? !!getVar("gIsTeamGame") : false;
+      const primaryColor = isTeam ? "rgba(255, 215, 0, 0.9)" : "rgba(0, 240, 255, 0.9)";
+      const glowColor = isTeam ? "rgba(255, 215, 0, 0.25)" : "rgba(0, 240, 255, 0.25)";
 
-    ws.beginPath();
-    ws.arc(screenX, screenY, outerRadius * 1.35, 0, 2 * Math.PI);
-    ws.fillStyle = glowColor;
-    ws.fill();
+      ws.beginPath();
+      ws.arc(screenX, screenY, outerRadius * 1.35, 0, 2 * Math.PI);
+      ws.fillStyle = glowColor;
+      ws.fill();
 
-    ws.beginPath();
-    ws.arc(screenX, screenY, outerRadius, time, time + Math.PI * 1.5);
-    ws.strokeStyle = primaryColor;
-    ws.lineWidth = 2.5;
-    ws.stroke();
+      ws.beginPath();
+      ws.arc(screenX, screenY, outerRadius, time, time + Math.PI * 1.5);
+      ws.strokeStyle = primaryColor;
+      ws.lineWidth = 2.5;
+      ws.stroke();
 
-    ws.beginPath();
-    ws.arc(screenX, screenY, outerRadius * 0.72, -time * 1.5, -time * 1.5 + Math.PI);
-    ws.strokeStyle = "rgba(255, 255, 255, 0.75)";
-    ws.lineWidth = 1.5;
-    ws.stroke();
+      ws.beginPath();
+      ws.arc(screenX, screenY, outerRadius * 0.72, -time * 1.5, -time * 1.5 + Math.PI);
+      ws.strokeStyle = "rgba(255, 255, 255, 0.75)";
+      ws.lineWidth = 1.5;
+      ws.stroke();
 
-    ws.beginPath();
-    ws.arc(screenX, screenY, innerRadius, 0, 2 * Math.PI);
-    ws.fillStyle = "#ffffff";
-    ws.fill();
+      ws.beginPath();
+      ws.arc(screenX, screenY, innerRadius, 0, 2 * Math.PI);
+      ws.fillStyle = "#ffffff";
+      ws.fill();
 
-    ws.font = "bold 11px sans-serif";
-    ws.textAlign = "center";
-    ws.fillStyle = primaryColor;
-    ws.shadowColor = "#000000";
-    ws.shadowBlur = 4;
-    ws.fillText("OPTIMAL SPAWN", screenX, screenY - outerRadius - 6);
-
-    ws.restore();
+      ws.font = "bold 11px sans-serif";
+      ws.textAlign = "center";
+      ws.fillStyle = primaryColor;
+      ws.shadowColor = "#000000";
+      ws.shadowBlur = 4;
+      ws.fillText("OPTIMAL SPAWN", screenX, screenY - outerRadius - 6);
+    } finally {
+      ws.restore();
+    }
   };
 
   this.registerUserOverride = function() {

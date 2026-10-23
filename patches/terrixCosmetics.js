@@ -9,18 +9,17 @@ export default definePatch(({ replaceCode }) => {
       var val = isNaN(n) ? 0 : n;
       return (val * o7).toFixed(a6E);
     };
-    window.__TERRIX_ENGINE__ = window.__TERRIX_ENGINE__ || {
-      getAccountGold: function() {
-        if (typeof account !== 'undefined' && account.z && account.z.aPy && account.z.aPy.y4 != null && account.z.aPy.y4 !== 0) return account.z.aPy.y4;
-        if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[113] && connectionMgr.buffer.data[113].value !== undefined) return connectionMgr.buffer.data[113].value;
-        return 0;
-      },
-      getAccountUsername: function() {
-        if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105]) return connectionMgr.buffer.data[105].value || '';
-        return '';
-      },
-      onRenderFrameCallbacks: [],
-      onRenderFrame: function(cb) { this.onRenderFrameCallbacks.push(cb); }
+    window.__TERRIX_ENGINE__ = window.__TERRIX_ENGINE__ || {};
+    window.__TERRIX_ENGINE__.onRenderFrameCallbacks = window.__TERRIX_ENGINE__.onRenderFrameCallbacks || [];
+    window.__TERRIX_ENGINE__.onRenderFrame = window.__TERRIX_ENGINE__.onRenderFrame || function(cb) { this.onRenderFrameCallbacks.push(cb); };
+    window.__TERRIX_ENGINE__.getAccountGold = window.__TERRIX_ENGINE__.getAccountGold || function() {
+      if (typeof account !== 'undefined' && account.z && account.z.aPy && account.z.aPy.y4 != null && account.z.aPy.y4 !== 0) return account.z.aPy.y4;
+      if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[113] && connectionMgr.buffer.data[113].value !== undefined) return connectionMgr.buffer.data[113].value;
+      return 0;
+    };
+    window.__TERRIX_ENGINE__.getAccountUsername = window.__TERRIX_ENGINE__.getAccountUsername || function() {
+      if (typeof connectionMgr !== 'undefined' && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105]) return connectionMgr.buffer.data[105].value || '';
+      return '';
     };
     window.__TERRIX_HOOK_RENDER__ = function(ws, a0O, im, ox, oy) {
       if (window.__TERRIX_ENGINE__ && window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length > 0) {

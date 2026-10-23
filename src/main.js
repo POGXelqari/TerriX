@@ -63,15 +63,18 @@ __fx.chat = window.__fx.chat;
 __fx.spawnOptimizer = spawnOptimizer;
 
 // Register Spawn Optimizer Frame Lifecycle Hook
-const checkEngineForOptimizer = setInterval(function() {
-  if (window.__TERRIX_ENGINE__ && typeof window.__TERRIX_ENGINE__.onRenderFrame === 'function') {
-    clearInterval(checkEngineForOptimizer);
-    window.__TERRIX_ENGINE__.onRenderFrame(function(context) {
-      spawnOptimizer.update(context);
-      spawnOptimizer.render(context);
-    });
-  }
-}, 100);
+if (!window.__TERRIX_ENGINE__) {
+  window.__TERRIX_ENGINE__ = {
+    onRenderFrameCallbacks: [],
+    onRenderFrame: function(cb) { this.onRenderFrameCallbacks.push(cb); }
+  };
+}
+if (typeof window.__TERRIX_ENGINE__.onRenderFrame === 'function') {
+  window.__TERRIX_ENGINE__.onRenderFrame(function(context) {
+    spawnOptimizer.update(context);
+    spawnOptimizer.render(context);
+  });
+}
 
 // Reset optimizer state on match transition
 window.addEventListener("hashchange", () => spawnOptimizer.reset());

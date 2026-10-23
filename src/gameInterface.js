@@ -1,5 +1,5 @@
-const playerDataProperties = ["playerTerritories", "playerBalances", "rawPlayerNames"];
-const gameObjectProperties = ["playerId", "gIsTeamGame", "gHumans", "gLobbyMaxJoin", "gameState", "gIsSingleplayer",
+const playerDataProperties = ["playerTerritories", "playerBalances", "rawPlayerNames", "playerNames", "playerStates"];
+const gameObjectProperties = ["playerId", "gIsTeamGame", "gHumans", "gBots", "gMaxPlayers", "gGameType", "gLobbyMaxJoin", "gameState", "gIsSingleplayer",
     "gIsReplay", "gSelectableSpawn", "uiHidden"];
 const replayRecorderProperties = ["tickFlags", "tickCounts"];
 
@@ -8,7 +8,7 @@ export const getVar = varName => {
     if (gameObjectProperties.includes(varName)) return window[dictionary.game]?.[dictionary[varName]];
     if (replayRecorderProperties.includes(varName))
         return window[dictionary.protocol]?.[dictionary.replayRecorder]?.[dictionary[varName]];
-    return window[dictionary[varName]]
+    return window[dictionary[varName]];
 };
 
 export const getUIGap = () => Math.floor(window[dictionary.uiSizes]?.[dictionary.gap] ?? 10);

@@ -7386,17 +7386,12 @@ function aP2() {
   }, this.aPA = function (d0, ch, aNF) {
     d0 = Number(d0);
     return ((isNaN(d0) ? 0 : d0) * ch).toFixed(aNF);
-  }, window.__TERRIX_ENGINE__ = window.__TERRIX_ENGINE__ || {
-    getAccountGold: function () {
-      return "undefined" != typeof account && account.z && account.z.aPy && null != account.z.aPy.y4 && 0 !== account.z.aPy.y4 ? account.z.aPy.y4 : "undefined" != typeof connectionMgr && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[113] && void 0 !== connectionMgr.buffer.data[113].value ? connectionMgr.buffer.data[113].value : 0;
-    },
-    getAccountUsername: function () {
-      return "undefined" != typeof connectionMgr && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105] && connectionMgr.buffer.data[105].value || "";
-    },
-    onRenderFrameCallbacks: [],
-    onRenderFrame: function (cb) {
-      this.onRenderFrameCallbacks.push(cb);
-    }
+  }, window.__TERRIX_ENGINE__ = window.__TERRIX_ENGINE__ || {}, window.__TERRIX_ENGINE__.onRenderFrameCallbacks = window.__TERRIX_ENGINE__.onRenderFrameCallbacks || [], window.__TERRIX_ENGINE__.onRenderFrame = window.__TERRIX_ENGINE__.onRenderFrame || function (cb) {
+    this.onRenderFrameCallbacks.push(cb);
+  }, window.__TERRIX_ENGINE__.getAccountGold = window.__TERRIX_ENGINE__.getAccountGold || function () {
+    return "undefined" != typeof account && account.z && account.z.aPy && null != account.z.aPy.y4 && 0 !== account.z.aPy.y4 ? account.z.aPy.y4 : "undefined" != typeof connectionMgr && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[113] && void 0 !== connectionMgr.buffer.data[113].value ? connectionMgr.buffer.data[113].value : 0;
+  }, window.__TERRIX_ENGINE__.getAccountUsername = window.__TERRIX_ENGINE__.getAccountUsername || function () {
+    return "undefined" != typeof connectionMgr && connectionMgr.buffer && connectionMgr.buffer.data && connectionMgr.buffer.data[105] && connectionMgr.buffer.data[105].value || "";
   }, window.__TERRIX_HOOK_RENDER__ = function (ws, a0O, im, ox, oy) {
     if (window.__TERRIX_ENGINE__ && 0 < window.__TERRIX_ENGINE__.onRenderFrameCallbacks.length) for (var g = "undefined" != typeof dictionary && dictionary.game && window[dictionary.game] ? window[dictionary.game] : void 0 !== c ? c : "undefined" != typeof aE ? aE : "undefined" != typeof game ? game : null, pd = "undefined" != typeof dictionary && dictionary.playerData && window[dictionary.playerData] ? window[dictionary.playerData] : void 0 !== y ? y : "undefined" != typeof ah ? ah : "undefined" != typeof playerData ? playerData : null, mh = "undefined" != typeof dictionary && dictionary.mapHolder && window[dictionary.mapHolder] ? window[dictionary.mapHolder] : void 0 !== gW ? gW : null, tm = void 0 !== j1 ? j1 : "undefined" != typeof ad ? ad : "undefined" != typeof tileMap ? tileMap : null, engineCtx = {
         ws: ws,

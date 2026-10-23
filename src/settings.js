@@ -45,8 +45,8 @@ var settings = {
   mutePingDirect: false,
   hideInappropriateNames: false,
   followedAccountNicknames: {},
-  spawnOptimizer: false,
-  autoSpawnPicker: false
+  spawnOptimizer: true,
+  autoSpawnPicker: true
 };
 __fx.settings = settings;
 const discontinuedSettings = ["hideAllLinks", "fontName"];
